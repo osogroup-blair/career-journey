@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { FULL_KNOWLEDGE } from "./server/knowledge";
+import { FULL_KNOWLEDGE, CAREER_JOURNEY_BUILDER_KNOWLEDGE } from "./server/knowledge";
 import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/careerJourneyVersioning";
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
@@ -481,6 +481,205 @@ ${JSON.stringify(careerJourney || {}, null, 2)}`,
     }
   });
 
+  // Delta-based, not full-object-regeneration: asking Gemini to return an entire
+  // updated CareerJourney under a bare `{ type: Type.OBJECT }` reliably comes back
+  // `{}` (confirmed while building the Phase 4/5 builder endpoints - Gemini treats an
+  // OBJECT schema with no declared `properties` as "no properties allowed"). Every
+  // field below is a flat, fully-typed leaf, so there's nowhere for that trap to hide.
+  // The server applies the delta to the existing Career Journey itself, the same way
+  // the Phase 5 interview-refinement endpoint does.
+  const PATCH_DELTA_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      reason: { type: Type.STRING },
+      newAchievements: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            category: { type: Type.STRING },
+            targetRoleId: { type: Type.STRING },
+          },
+          required: ["title"],
+        },
+      },
+      newSkills: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            category: { type: Type.STRING },
+            proficiency: { type: Type.STRING },
+            years_experience: { type: Type.NUMBER },
+            last_used: { type: Type.STRING },
+          },
+          required: ["name"],
+        },
+      },
+      newDeliverables: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            targetRoleId: { type: Type.STRING },
+            targetInitiativeId: { type: Type.STRING },
+            description: { type: Type.STRING },
+            impact: { type: Type.STRING },
+            capability_alignment: { type: Type.ARRAY, items: { type: Type.STRING } },
+            skill_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ["targetRoleId", "description"],
+        },
+      },
+      updatedDeliverables: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            deliverableId: { type: Type.STRING },
+            description: { type: Type.STRING },
+            impact: { type: Type.STRING },
+          },
+          required: ["deliverableId"],
+        },
+      },
+      updatedAchievements: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            achievementId: { type: Type.STRING },
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+          },
+          required: ["achievementId"],
+        },
+      },
+      updatedSkills: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            skillId: { type: Type.STRING },
+            proficiency: { type: Type.STRING },
+            years_experience: { type: Type.NUMBER },
+            last_used: { type: Type.STRING },
+          },
+          required: ["skillId"],
+        },
+      },
+    },
+    required: ["reason"],
+  };
+
+  // Applies a PATCH_DELTA_SCHEMA-shaped delta to a deep copy of careerJourney,
+  // assigning real IDs as it goes. Returns the updated journey plus human-readable
+  // summary strings (PatchReview.tsx just renders these as bullet lists).
+  function applyCareerJourneyDelta(careerJourney: any, delta: any, nextIds: Record<string, string>) {
+    const cj = JSON.parse(JSON.stringify(careerJourney || {}));
+    if (!Array.isArray(cj.achievements)) cj.achievements = [];
+    if (!Array.isArray(cj.skills_index)) cj.skills_index = [];
+    if (!Array.isArray(cj.roles)) cj.roles = [];
+
+    // Local counters so multiple new items of the same type in one call get
+    // distinct, incrementing IDs starting from the precomputed next-available value.
+    const counters: Record<string, number> = {};
+    const nextId = (prefix: string) => {
+      if (!(prefix in counters)) {
+        const base = nextIds[prefix] || `${prefix}-001`;
+        counters[prefix] = parseInt(base.split("-")[1], 10) || 1;
+      } else {
+        counters[prefix]++;
+      }
+      return `${prefix}-${String(counters[prefix]).padStart(3, "0")}`;
+    };
+
+    const summary = {
+      newSkills: [] as string[],
+      updatedSkills: [] as string[],
+      newDeliverables: [] as string[],
+      updatedDeliverables: [] as string[],
+      newAchievements: [] as string[],
+      updatedAchievements: [] as string[],
+    };
+
+    for (const a of delta.newAchievements || []) {
+      const id = nextId("ACH");
+      cj.achievements.unshift({
+        id,
+        title: a.title,
+        description: a.description || "",
+        category: a.category || "",
+        role_ids: a.targetRoleId ? [a.targetRoleId] : [],
+      });
+      summary.newAchievements.push(a.title);
+    }
+
+    for (const s of delta.newSkills || []) {
+      const id = nextId("SK");
+      cj.skills_index.push({ id, name: s.name, category: s.category || "", proficiency: s.proficiency || "", years_experience: s.years_experience, last_used: s.last_used || "" });
+      summary.newSkills.push(s.name);
+    }
+
+    for (const d of delta.newDeliverables || []) {
+      const role = cj.roles.find((r: any) => r.id === d.targetRoleId);
+      if (!role) continue;
+      if (!Array.isArray(role.initiatives)) role.initiatives = [];
+      let initiative = d.targetInitiativeId ? role.initiatives.find((i: any) => i.id === d.targetInitiativeId) : role.initiatives[0];
+      if (!initiative) {
+        initiative = { id: nextId("INIT"), name: "General", description: "", deliverables: [] };
+        role.initiatives.push(initiative);
+      }
+      if (!Array.isArray(initiative.deliverables)) initiative.deliverables = [];
+      const id = nextId("DEL");
+      initiative.deliverables.push({
+        id,
+        description: d.description,
+        impact: d.impact || "",
+        capability_alignment: d.capability_alignment || [],
+        skill_ids: d.skill_ids || [],
+      });
+      summary.newDeliverables.push(d.description);
+    }
+
+    for (const d of delta.updatedDeliverables || []) {
+      for (const role of cj.roles) {
+        for (const initiative of role.initiatives || []) {
+          const target = (initiative.deliverables || []).find((x: any) => x.id === d.deliverableId);
+          if (target) {
+            if (d.description) target.description = d.description;
+            if (d.impact) target.impact = d.impact;
+            summary.updatedDeliverables.push(target.description);
+          }
+        }
+      }
+    }
+
+    for (const a of delta.updatedAchievements || []) {
+      const target = cj.achievements.find((x: any) => x.id === a.achievementId);
+      if (target) {
+        if (a.title) target.title = a.title;
+        if (a.description) target.description = a.description;
+        summary.updatedAchievements.push(target.title);
+      }
+    }
+
+    for (const s of delta.updatedSkills || []) {
+      const target = cj.skills_index.find((x: any) => x.id === s.skillId);
+      if (target) {
+        if (s.proficiency) target.proficiency = s.proficiency;
+        if (s.years_experience !== undefined) target.years_experience = s.years_experience;
+        if (s.last_used) target.last_used = s.last_used;
+        summary.updatedSkills.push(target.name);
+      }
+    }
+
+    return { updatedCareerJourney: cj, summary };
+  }
+
   app.post("/api/ai/patchJourney", async (req, res) => {
     try {
       const { careerJourney, contextEntries } = req.body;
@@ -491,76 +690,43 @@ ${JSON.stringify(careerJourney || {}, null, 2)}`,
         contents: `${KNOWLEDGE_PREAMBLE}
 You are running the Career Journey capture step of JD_pipeline_SKILL.md for Blair Boylan. Never invent an employer, client, metric, title, certification, degree, tool, or claim Blair did not confirm in the context entries below - only structure what's already there.
 
-ID discipline: never reuse an existing ID. When you add a new item, assign IDs starting exactly from these precomputed next-available values (increment further within this same call if you add more than one item of the same type): ${JSON.stringify(nextIds)}
-
-Versioning: this patch becomes Career Journey version ${nextVersion} (bumped from ${careerJourney?.meta?.version || "unknown"}). Set updatedCareerJourney.meta.version to exactly "${nextVersion}" and updatedCareerJourney.meta.last_updated to today's date. Do not invent a different version number.
-
-You are an expert resume writer and data structure manager.
-Your task is to take a candidate's existing CareerJourney JSON and a set of new context entries (experiences), and merge them thoughtfully.
-
 Existing Career Journey:
 ${JSON.stringify(careerJourney, null, 2)}
 
 New Context Entries (key is Keyword ID, value is Context Object):
 ${JSON.stringify(contextEntries, null, 2)}
 
-Instructions:
-1. For each context entry with approvalStatus="Approved for patch":
-   - Find the specified target role via targetRoleId.
-   - If proposedAdditionType includes "Update existing", find the target item using targetDeliverableId and modify its text/outcomes.
-   - If proposedAdditionType includes "Add new", insert a new deliverable, achievement, skill, etc. into the target role, using the precomputed next-available IDs above.
-2. Output BOTH the fully updated CareerJourney JSON object AND a summary of changes.
+For each context entry with approvalStatus="Approved for patch":
+- If proposedAdditionType includes "Update existing", add it to updatedDeliverables/updatedAchievements/updatedSkills with the existing item's ID (find it via targetDeliverableId or by matching content) and only the field(s) that should change.
+- If proposedAdditionType includes "Add new", add it to newAchievements/newSkills/newDeliverables. For a new deliverable, targetRoleId must be the context entry's targetRoleId - never invent a role. Do not assign IDs yourself; the server assigns them.
+- If proposedAdditionType is "Do not add, resume-only context", skip it entirely - don't add anything to the Career Journey for it.
 
-Format your output carefully to match the schema.`,
+Return only the delta (what's new or changed), not the whole Career Journey, plus a one-sentence reason summarizing this patch as a whole.`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              updatedCareerJourney: { type: Type.OBJECT },
-              summary: {
-                type: Type.OBJECT,
-                properties: {
-                  reason: { type: Type.STRING },
-                  newSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  updatedSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  newDeliverables: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  updatedDeliverables: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  newAchievements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  updatedAchievements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  metaUpdate: {
-                    type: Type.OBJECT,
-                    properties: {
-                      version: { type: Type.STRING },
-                      changes: { type: Type.STRING }
-                    }
-                  }
-                }
-              }
-            },
-            required: ["updatedCareerJourney", "summary"]
-          }
-        }
+          responseSchema: PATCH_DELTA_SCHEMA,
+        },
       });
-      const result = JSON.parse(response.text!);
-      // Enforce version/ID discipline server-side rather than trusting the model's output.
-      if (result.updatedCareerJourney) {
-        if (!result.updatedCareerJourney.meta) result.updatedCareerJourney.meta = {};
-        result.updatedCareerJourney.meta.version = nextVersion;
-        result.updatedCareerJourney.meta.last_updated = new Date().toISOString().split("T")[0];
-        const changesKey = versionChangesKey(nextVersion);
-        result.updatedCareerJourney.meta[changesKey] = [result.summary?.reason].filter(Boolean);
-      }
-      if (result.summary) {
-        result.summary.id = result.summary.id || generateId("PATCH");
-        result.summary.targetVersion = nextVersion;
-        result.summary.approvalStatus = "Pending";
-        if (!Array.isArray(result.summary.linkUpdates)) result.summary.linkUpdates = [];
-        if (result.summary.metaUpdate) {
-          result.summary.metaUpdate.version = nextVersion;
-        }
-      }
-      res.json(result);
+      const delta = JSON.parse(response.text!);
+      const { updatedCareerJourney, summary: deltaSummary } = applyCareerJourneyDelta(careerJourney, delta, nextIds);
+
+      updatedCareerJourney.meta = updatedCareerJourney.meta || {};
+      updatedCareerJourney.meta.version = nextVersion;
+      updatedCareerJourney.meta.last_updated = new Date().toISOString().split("T")[0];
+      const changesKey = versionChangesKey(nextVersion);
+      updatedCareerJourney.meta[changesKey] = [delta.reason].filter(Boolean);
+
+      const summary = {
+        id: generateId("PATCH"),
+        targetVersion: nextVersion,
+        reason: delta.reason || "",
+        ...deltaSummary,
+        linkUpdates: [] as string[],
+        metaUpdate: { version: nextVersion, changes: delta.reason || "" },
+        approvalStatus: "Pending",
+      };
+
+      res.json({ updatedCareerJourney, summary });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -819,6 +985,231 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       const result = JSON.parse(response.text!);
       result.approvalStatus = "Draft";
       res.json(result);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Gemini's structured-output mode treats a bare `{ type: Type.OBJECT }` (no
+  // `properties`) as "an object with no properties allowed" and returns `{}` —
+  // learned by actually testing this endpoint, not by inspection. The draft needs a
+  // concrete (if partial) shape so the model has somewhere to put what it extracts.
+  const DRAFT_CAREER_JOURNEY_SCHEMA = {
+    type: Type.OBJECT,
+    properties: {
+      person: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          location: { type: Type.STRING },
+          phone: { type: Type.STRING },
+          email: { type: Type.STRING },
+          linkedin: { type: Type.STRING },
+        },
+      },
+      roles: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            organization: { type: Type.STRING },
+            title: { type: Type.STRING },
+            start_date: { type: Type.STRING },
+            end_date: { type: Type.STRING },
+            location: { type: Type.STRING },
+            description: { type: Type.STRING },
+            initiatives: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  deliverables: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        id: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        impact: { type: Type.STRING },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      achievements: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            category: { type: Type.STRING },
+            role_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+        },
+      },
+      skills_index: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            name: { type: Type.STRING },
+            category: { type: Type.STRING },
+            proficiency: { type: Type.STRING },
+            last_used: { type: Type.STRING },
+          },
+        },
+      },
+      education: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            institution: { type: Type.STRING },
+            program: { type: Type.STRING },
+            degree_type: { type: Type.STRING },
+            start: { type: Type.STRING },
+            end: { type: Type.STRING },
+          },
+        },
+      },
+    },
+  };
+
+  app.post("/api/ai/buildJourneyFromResume", async (req, res) => {
+    try {
+      const { resumeText } = req.body as { resumeText: string };
+      const nextIds = computeNextIds({});
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
+
+---
+
+Extract a draft Career Journey from the resume text below. This is a brand-new draft, not a patch to an existing one — start ID numbering fresh from these values: ${JSON.stringify(nextIds)}.
+
+Resume text:
+${resumeText}
+
+Return a draftCareerJourney object following the schema sections described above (person, roles, achievements, skills_index, education — omit sections the resume gives you nothing for rather than inventing content), plus a notes array describing any ambiguous extractions that need the user's confirmation.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              draftCareerJourney: DRAFT_CAREER_JOURNEY_SCHEMA,
+              notes: { type: Type.ARRAY, items: { type: Type.STRING } },
+            },
+            required: ["draftCareerJourney", "notes"],
+          },
+        },
+      });
+      res.json(JSON.parse(response.text!));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ai/buildJourneyChat", async (req, res) => {
+    try {
+      const { transcript, currentDraft } = req.body as {
+        transcript: { role: "user" | "assistant"; content: string }[];
+        currentDraft: any;
+      };
+      const nextIds = computeNextIds(currentDraft || {});
+      const transcriptText = (transcript || [])
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+        .join("\n");
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
+
+---
+
+You are conducting a guided conversation to build a user's Career Journey from scratch, one focused question at a time. Work chronologically through their work history, most recent role first: for each role, ask about organization/title/dates, then what they were responsible for, then 2-4 concrete things they built or delivered with results if any exist, then move to the next role. After work history, briefly ask about education and top skills if not already covered. Ask ONE question per turn — do not dump a long list of questions on the user at once.
+
+Current draft so far (merge each new answer into this, don't restart it): ${JSON.stringify(currentDraft || {})}
+
+New IDs for anything you add this turn start from: ${JSON.stringify(nextIds)}
+
+Conversation so far:
+${transcriptText}
+
+Based on the user's most recent answer, update the draft with whatever new structured information it contains, then either ask the next question (assistantMessage) or, if you have enough for a reasonable first draft (at least one role with some detail), set readyForReview to true and use assistantMessage to tell the user the draft is ready to look at.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              assistantMessage: { type: Type.STRING },
+              updatedDraft: DRAFT_CAREER_JOURNEY_SCHEMA,
+              readyForReview: { type: Type.BOOLEAN },
+            },
+            required: ["assistantMessage", "updatedDraft", "readyForReview"],
+          },
+        },
+      });
+      res.json(JSON.parse(response.text!));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ai/refineFromInterviewAnswer", async (req, res) => {
+    try {
+      const { entityType, current, question, answer } = req.body as {
+        entityType: "achievement" | "skill" | "role";
+        current: Record<string, any>;
+        question: string;
+        answer: string;
+      };
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
+
+---
+
+You asked the user a pointed follow-up question about one specific ${entityType} in their Career Journey, to strengthen it with a truthful, specific detail. Merge their answer into the existing content naturally — don't just append it awkwardly, and don't discard accurate existing content. Only use what the answer actually states; if the answer doesn't give you enough for a field, leave it out of your response entirely rather than guessing.
+
+Current ${entityType}: ${JSON.stringify(current)}
+
+Question asked: ${question}
+
+User's answer: ${answer}
+
+Return only the field(s) that should change, plus a one-sentence summary of what you updated and why (for the user's review before they approve it).`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              description: { type: Type.STRING },
+              last_used: { type: Type.STRING },
+              proficiency: { type: Type.STRING },
+              years_experience: { type: Type.NUMBER },
+              summary: { type: Type.STRING },
+            },
+            required: ["summary"],
+          },
+        },
+      });
+      res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });

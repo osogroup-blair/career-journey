@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { generateId } from '../lib/utils';
+import { getRoleAchievements, getRoleDeliverables } from '../lib/careerJourneyRoleEvidence';
 import { Button, Card, Input, Label, Textarea } from '../components/ui';
 import {
   ChevronLeft,
@@ -120,10 +121,13 @@ function SkillTagEditor({ skills, onChange }: { skills: string[]; onChange: (ski
 }
 
 const RoleEditForm: React.FC<{ role: any; onDeleteRole: () => void }> = ({ role, onDeleteRole }) => {
-  const { updateRole, addAchievementToRole, updateAchievementAtIndex, deleteAchievementAtIndex, addDeliverableToRole, updateDeliverableAtIndex, deleteDeliverableAtIndex } = useStore();
+  const { careerJourney, updateRole, addAchievementToRole, updateAchievement, deleteAchievement, addDeliverableToRole, updateDeliverable, deleteDeliverable } = useStore();
 
-  const achievements = role.achievements || [];
-  const deliverables = role.deliverables || [];
+  // Achievements/deliverables are stored at the top level and under
+  // roles[].initiatives[] respectively (the real schema), not embedded on the role —
+  // these helpers resolve what belongs to this role for display.
+  const achievements = careerJourney ? getRoleAchievements(careerJourney, role.id) : [];
+  const deliverables = careerJourney ? getRoleDeliverables(careerJourney, role.id) : [];
 
   return (
     <div className="space-y-8">
@@ -179,34 +183,33 @@ const RoleEditForm: React.FC<{ role: any; onDeleteRole: () => void }> = ({ role,
         </div>
         <div className="space-y-3">
           {achievements.length === 0 && <p className="text-xs text-slate-400">No achievements added yet.</p>}
-          {achievements.map((ach: any, idx: number) => {
-            const isObj = typeof ach === 'object' && ach !== null;
-            const metric = isObj ? ach.metric : '';
-            const label = isObj ? ach.label : '';
-            const description = isObj ? ach.description : ach;
+          {achievements.map((ach: any) => {
+            const metric = ach.metric || '';
+            const label = ach.label || '';
+            const description = ach.description || '';
             return (
-              <Card key={idx} className="p-3.5 border-slate-200 bg-slate-50/50">
+              <Card key={ach.id} className="p-3.5 border-slate-200 bg-slate-50/50">
                 <div className="grid sm:grid-cols-2 gap-3 mb-3">
                   <EditField
                     label="Metric (e.g. +$12M, -140ms)"
                     value={metric}
-                    onCommit={(v) => updateAchievementAtIndex(role.id, idx, { ...(isObj ? ach : {}), metric: v, description })}
+                    onCommit={(v) => updateAchievement(ach.id, { metric: v })}
                   />
                   <EditField
                     label="Label (e.g. Revenue, Latency)"
                     value={label}
-                    onCommit={(v) => updateAchievementAtIndex(role.id, idx, { ...(isObj ? ach : {}), label: v, description })}
+                    onCommit={(v) => updateAchievement(ach.id, { label: v, title: v || ach.title })}
                   />
                 </div>
                 <EditField
                   label="Description"
                   value={description}
-                  onCommit={(v) => updateAchievementAtIndex(role.id, idx, isObj ? { ...ach, description: v } : v)}
+                  onCommit={(v) => updateAchievement(ach.id, { description: v })}
                   textarea
                   rows={2}
                 />
                 <button
-                  onClick={() => deleteAchievementAtIndex(role.id, idx)}
+                  onClick={() => deleteAchievement(ach.id)}
                   className="mt-2 text-xs font-semibold text-red-600 hover:text-red-800 flex items-center gap-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Remove
@@ -233,28 +236,24 @@ const RoleEditForm: React.FC<{ role: any; onDeleteRole: () => void }> = ({ role,
         </div>
         <div className="space-y-3">
           {deliverables.length === 0 && <p className="text-xs text-slate-400">No deliverables added yet.</p>}
-          {deliverables.map((del: any, idx: number) => {
-            const isObj = typeof del === 'object' && del !== null;
-            const text = isObj ? del.description : del;
-            return (
-              <div key={idx} className="flex items-start gap-2">
-                <EditField
-                  value={text}
-                  onCommit={(v) => updateDeliverableAtIndex(role.id, idx, isObj ? { ...del, description: v } : v)}
-                  textarea
-                  rows={2}
-                  className="flex-1"
-                />
-                <button
-                  onClick={() => deleteDeliverableAtIndex(role.id, idx)}
-                  className="mt-2 p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
-                  title="Delete deliverable"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            );
-          })}
+          {deliverables.map((del: any) => (
+            <div key={del.id} className="flex items-start gap-2">
+              <EditField
+                value={del.description || ''}
+                onCommit={(v) => updateDeliverable(del.id, { description: v })}
+                textarea
+                rows={2}
+                className="flex-1"
+              />
+              <button
+                onClick={() => deleteDeliverable(del.id)}
+                className="mt-2 p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                title="Delete deliverable"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 

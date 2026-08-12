@@ -1,4 +1,4 @@
-const ID_PREFIXES = ["SK", "CAP", "FUNC", "INIT", "DEL", "ACH"] as const;
+const ID_PREFIXES = ["SK", "CAP", "FUNC", "INIT", "DEL", "ACH", "ROLE", "EDU", "METH", "ENG"] as const;
 
 // Deterministic ID assignment per JD_pipeline_SKILL.md's "Career Journey capture rules":
 // SK-###, CAP-###, FUNC-###, INIT-###, DEL-###, ACH-### - never reused, always incremented

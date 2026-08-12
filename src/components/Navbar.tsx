@@ -4,23 +4,38 @@ import { signOut } from 'firebase/auth';
 import { useStore } from '../store';
 import { generateId } from '../lib/utils';
 import { auth, isFirebaseConfigured } from '../lib/firebase';
-import { Compass, Briefcase, Award, Plus, Upload, Download, Pencil, Radar, LogOut } from 'lucide-react';
+import { Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar, LogOut, Sparkles, TrendingUp } from 'lucide-react';
 import { Button } from './ui';
+import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
+import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
+import { validateCareerJourney } from '../lib/careerJourneyNormalize';
 
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { careerJourney, addJob, setCareerJourney } = useStore();
 
-  const handleExportJSON = () => {
-    if (!careerJourney) return;
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(careerJourney, null, 2));
+  const downloadJSON = (data: any, filename: string) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `career_journey_v${careerJourney?.meta?.version || '1.0.0'}.json`);
+    downloadAnchor.setAttribute("download", filename);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  const handleExportJSON = () => {
+    if (!careerJourney) return;
+    const validation = validateCareerJourney(careerJourney);
+    if (!validation.success) {
+      console.error('Career Journey failed validation before export:', validation.error.issues);
+    }
+    downloadJSON(careerJourney, `career_journey_v${careerJourney?.meta?.version || '1.0.0'}.json`);
+  };
+
+  const handleDownloadTemplate = () => {
+    downloadJSON(buildCareerJourneyTemplate(), 'career-journey-template.json');
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,9 +44,23 @@ export default function Navbar() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const json = JSON.parse(event.target?.result as string);
-        setCareerJourney(json);
-        alert('Career Journey loaded successfully!');
+        const { data, issues, addedSections, isTemplate } = parseCareerJourneyImport(event.target?.result as string);
+
+        const hasExistingData = careerJourney && (careerJourney.roles?.length || careerJourney.achievements?.length);
+        if (hasExistingData && !isTemplate) {
+          const proceed = window.confirm(
+            'This will replace your current Career Journey data (roles, achievements, skills, everything) with the imported file. This cannot be undone. Continue?'
+          );
+          if (!proceed) return;
+        }
+
+        setCareerJourney(data);
+
+        const notes: string[] = [];
+        if (isTemplate) notes.push('Loaded the blank template — fill it in from the Edit or Advanced pages.');
+        if (issues.length > 0) notes.push(`${issues.length} field${issues.length === 1 ? '' : 's'} didn't match the expected shape and were left as-is or defaulted:\n${issues.join('\n')}`);
+        if (addedSections.length > 0) notes.push(`Added empty defaults for sections missing from the file: ${addedSections.join(', ')}.`);
+        alert(notes.length > 0 ? `Career Journey loaded.\n\n${notes.join('\n\n')}` : 'Career Journey loaded successfully!');
       } catch (err) {
         alert('Invalid JSON file format.');
       }
@@ -114,6 +143,30 @@ export default function Navbar() {
             </Link>
 
             <Link
+              to="/build"
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive('/build')
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Sparkles className="h-4 w-4" />
+              Build
+            </Link>
+
+            <Link
+              to="/strengthen"
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive('/strengthen')
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4" />
+              Strengthen
+            </Link>
+
+            <Link
               to="/journey"
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive('/journey')
@@ -153,12 +206,21 @@ export default function Navbar() {
             <button
               onClick={handleExportJSON}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-              title="Export full Career Journey JSON"
+              title="Export full Career Journey JSON (your data)"
             >
               <Download className="h-3.5 w-3.5" />
               Export JSON
             </button>
           )}
+
+          <button
+            onClick={handleDownloadTemplate}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+            title="Download a blank Career Journey template (no personal data)"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            Template
+          </button>
 
           <Button onClick={createNewJob} size="sm" className="bg-brand-600 hover:bg-brand-700 text-white shadow-xs">
             <Plus className="h-4 w-4 mr-1" />

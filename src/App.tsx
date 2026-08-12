@@ -7,6 +7,8 @@ import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import EditJourney from './pages/EditJourney';
+import CareerJourneyBuilder from './pages/CareerJourneyBuilder';
+import StrengthenJourney from './pages/StrengthenJourney';
 import Applications from './pages/Applications';
 import Matches from './pages/Matches';
 import Migrate from './pages/Migrate';
@@ -31,6 +33,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/edit" element={<EditJourney />} />
+            <Route path="/build" element={<CareerJourneyBuilder />} />
+            <Route path="/strengthen" element={<StrengthenJourney />} />
             <Route path="/journey" element={<CareerJourney />} />
             <Route path="/matches" element={<Matches />} />
             <Route path="/migrate" element={<Migrate />} />

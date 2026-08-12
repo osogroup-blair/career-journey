@@ -88,3 +88,29 @@ export async function mockGenerateCoverLetter(parse: JDParse, careerJourney: any
   if (!res.ok) throw new Error(await res.text());
   return await res.json();
 }
+
+export async function buildJourneyFromResume(resumeText: string): Promise<{ draftCareerJourney: any; notes: string[] }> {
+  const res = await apiPost('/api/ai/buildJourneyFromResume', { resumeText });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function refineFromInterviewAnswer(
+  entityType: 'achievement' | 'skill' | 'role',
+  current: Record<string, any>,
+  question: string,
+  answer: string
+): Promise<{ title?: string; description?: string; last_used?: string; proficiency?: string; years_experience?: number; summary: string }> {
+  const res = await apiPost('/api/ai/refineFromInterviewAnswer', { entityType, current, question, answer });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function buildJourneyChat(
+  transcript: { role: 'user' | 'assistant'; content: string }[],
+  currentDraft: any
+): Promise<{ assistantMessage: string; updatedDraft: any; readyForReview: boolean }> {
+  const res = await apiPost('/api/ai/buildJourneyChat', { transcript, currentDraft });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}

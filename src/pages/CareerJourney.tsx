@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Input, Label, Textarea, Badge } from '../components/ui';
-import { 
-  ChevronLeft, Save, Code, Plus, Trash2, Briefcase, Award, Zap, 
-  BookOpen, Link2, Tag, Check, Layers, Bookmark, Users, GraduationCap, 
-  ClipboardList, Info, Settings, RefreshCw, Download, Upload
+import { normalizeCareerJourney, validateCareerJourney } from '../lib/careerJourneyNormalize';
+import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
+import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
+import {
+  ChevronLeft, Save, Code, Plus, Trash2, Briefcase, Award, Zap,
+  BookOpen, Link2, Tag, Check, Layers, Bookmark, Users, GraduationCap,
+  ClipboardList, Info, Settings, RefreshCw, Download, Upload, User, FileJson, FileDown, MessageCircle, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 // Robust 12-Tier Core Ontology Professional Sample
@@ -290,23 +293,6 @@ export default function CareerJourney() {
     }
   }, [careerJourney, activeTier]);
 
-  // Handle auto-normalization on initial load / store hydration to support 12-tier sections 7-10 cleanly
-  useEffect(() => {
-    if (careerJourney) {
-      const keys = ['methodologies', 'functions', 'deliverables', 'customer_engagements', 'education', 'vocabularies'];
-      const isMissing = keys.some(key => {
-        if (key === 'vocabularies') {
-          return !careerJourney[key];
-        }
-        return !Array.isArray(careerJourney[key]);
-      });
-      if (isMissing) {
-        const normalized = normalizeOntology(careerJourney);
-        setCareerJourney(normalized);
-      }
-    }
-  }, [careerJourney]);
-
   // Handle uploaded JSON file import
   const handleCJUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -314,15 +300,25 @@ export default function CareerJourney() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const json = JSON.parse(event.target?.result as string);
-        
-        // Ensure ontology support
-        const normalized = normalizeOntology(json);
-        setCareerJourney(normalized);
-        setRawText(JSON.stringify(normalized, null, 2));
-        setJsonError('');
+        const { data, issues, addedSections, isTemplate } = parseCareerJourneyImport(event.target?.result as string);
+
+        const hasExistingData = careerJourney && (careerJourney.roles?.length || careerJourney.achievements?.length);
+        if (hasExistingData && !isTemplate) {
+          const proceed = window.confirm(
+            'This will replace your current Career Journey data with the imported file. This cannot be undone. Continue?'
+          );
+          if (!proceed) return;
+        }
+
+        setCareerJourney(data);
+        setRawText(JSON.stringify(data, null, 2));
+        setJsonError(
+          issues.length > 0
+            ? `Loaded, but ${issues.length} field(s) didn't match the expected shape: ${issues.join('; ')}`
+            : ''
+        );
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+        setTimeout(() => setSaveSuccess(false), 4000);
       } catch (err: any) {
         setJsonError(`Failed to import JSON: ${err.message}`);
       }
@@ -330,18 +326,22 @@ export default function CareerJourney() {
     reader.readAsText(file);
   };
 
-  // Handle exporting/downloading JSON file of Career Journey
+  // Handle exporting/downloading JSON file of Career Journey (a full backup of this user's own data)
   const handleCJDownload = () => {
     try {
       if (!careerJourney) {
         alert("No active career journey data present to export.");
         return;
       }
+      const validation = validateCareerJourney(careerJourney);
+      if (!validation.success) {
+        console.error('Career Journey failed validation before export:', validation.error.issues);
+      }
       const blob = new Blob([JSON.stringify(careerJourney, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute("href", url);
-      downloadAnchor.setAttribute("download", "career-journey-ontology.json");
+      downloadAnchor.setAttribute("download", `career-journey-v${careerJourney?.meta?.version || '1.0'}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
@@ -351,11 +351,25 @@ export default function CareerJourney() {
     }
   };
 
+  // Downloads a blank, schema-valid starting point — no personal data, one example per section.
+  const handleDownloadTemplate = () => {
+    const template = buildCareerJourneyTemplate();
+    const blob = new Blob([JSON.stringify(template, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", url);
+    downloadAnchor.setAttribute("download", "career-journey-template.json");
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // Save manual JSON edits
   const handleSaveRaw = () => {
     try {
       const parsed = JSON.parse(rawText);
-      const normalized = normalizeOntology(parsed);
+      const normalized = normalizeCareerJourney(parsed);
       setCareerJourney(normalized);
       setJsonError('');
       setSaveSuccess(true);
@@ -363,115 +377,6 @@ export default function CareerJourney() {
     } catch (e: any) {
       setJsonError(`Invalid JSON syntax: ${e.message}`);
     }
-  };
-
-  // Convert older structures to the 12-tier standardized format
-  const normalizeOntology = (obj: any): typeof COMPREHENSIVE_SAMPLE_JOURNEY => {
-    const copy = JSON.parse(JSON.stringify(obj || {}));
-    
-    // Ensure all 12 core objects are initialized
-    if (!copy.meta) copy.meta = { owner: "User Profile", version: "1.0.0", framework: "TailorFlow v2", description: "", last_updated: "", version_X_Y_changes: [] };
-    if (!Array.isArray(copy.meta.version_X_Y_changes)) copy.meta.version_X_Y_changes = [];
-    
-    if (!copy.roles) copy.roles = [];
-    copy.roles = copy.roles.map((r: any, idx: number) => {
-      const newRole = { ...r };
-      if (!newRole.id) newRole.id = `ROLE-${String(idx + 1).padStart(3, '0')}`;
-      if (!newRole.organization) newRole.organization = newRole.company || "Unknown Company";
-      if (!newRole.company) newRole.company = newRole.organization;
-      if (!newRole.start_date) newRole.start_date = newRole.dates?.split('-')[0]?.trim() || "2020";
-      if (!newRole.end_date) newRole.end_date = newRole.dates?.split('-')[1]?.trim() || "Present";
-      if (!newRole.dates) newRole.dates = `${newRole.start_date} - ${newRole.end_date}`;
-      if (!Array.isArray(newRole.initiatives)) newRole.initiatives = [];
-      if (!Array.isArray(newRole.deliverables)) newRole.deliverables = [];
-      if (!Array.isArray(newRole.achievements)) newRole.achievements = [];
-      if (!Array.isArray(newRole.skills)) newRole.skills = [];
-      return newRole;
-    });
-
-    if (!copy.achievements) {
-      // Migrate back-compat achievements array at root
-      copy.achievements = [];
-      copy.roles.forEach((r: any) => {
-        if (Array.isArray(r.achievements)) {
-          r.achievements.forEach((achObj: any) => {
-            copy.achievements.push({
-              id: achObj.id || `ACH-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-              title: achObj.title || `Achievement inside ${r.organization}`,
-              description: achObj.description || achObj,
-              category: achObj.category || "General"
-            });
-          });
-        }
-      });
-    }
-    
-    if (!copy.skills_index) {
-      // Convert legacy lists to skills_index
-      copy.skills_index = [];
-      if (Array.isArray(copy.skills)) {
-        copy.skills.forEach((catObj: any) => {
-          if (Array.isArray(catObj.terms)) {
-            catObj.terms.forEach((term: string, sIdx: number) => {
-              copy.skills_index.push({
-                id: `SK-${String(copy.skills_index.length + 1).padStart(3, '0')}`,
-                name: term,
-                category: catObj.category || "Technical Core",
-                proficiency: "Expert",
-                years_experience: 5,
-                last_used: new Date().getFullYear().toString()
-              });
-            });
-          }
-        });
-      } else {
-        // Collect from roles
-        const distinctSkills = new Set<string>();
-        copy.roles.forEach((r: any) => {
-          if (Array.isArray(r.skills)) r.skills.forEach((s: string) => distinctSkills.add(s));
-        });
-        Array.from(distinctSkills).forEach((term, sIdx) => {
-          copy.skills_index.push({
-            id: `SK-${String(sIdx + 1).padStart(3, '0')}`,
-            name: term,
-            category: "Technical Core",
-            proficiency: "Expert",
-            years_experience: 5,
-            last_used: new Date().getFullYear().toString()
-          });
-        });
-      }
-    }
-
-    if (!copy.capabilities) copy.capabilities = [];
-    if (!copy.links) copy.links = { keywords: [], industries: [], deliverable_achievement: [], education_alignment: [], timeline_mappings: [] };
-    if (!copy.links.keywords) copy.links.keywords = [];
-    if (!copy.links.industries) copy.links.industries = [];
-    if (!copy.links.deliverable_achievement) copy.links.deliverable_achievement = [];
-    if (!copy.links.education_alignment) copy.links.education_alignment = [];
-    if (!copy.links.timeline_mappings) copy.links.timeline_mappings = [];
-
-    if (!Array.isArray(copy.methodologies)) {
-      copy.methodologies = COMPREHENSIVE_SAMPLE_JOURNEY.methodologies || [];
-    }
-    if (!Array.isArray(copy.functions)) {
-      copy.functions = COMPREHENSIVE_SAMPLE_JOURNEY.functions || [];
-    }
-    if (!Array.isArray(copy.deliverables)) {
-      copy.deliverables = COMPREHENSIVE_SAMPLE_JOURNEY.deliverables || [];
-    }
-    if (!Array.isArray(copy.customer_engagements)) {
-      copy.customer_engagements = COMPREHENSIVE_SAMPLE_JOURNEY.customer_engagements || [];
-    }
-    if (!Array.isArray(copy.education)) {
-      copy.education = COMPREHENSIVE_SAMPLE_JOURNEY.education || [];
-    }
-    
-    if (!copy.vocabularies) {
-      copy.vocabularies = COMPREHENSIVE_SAMPLE_JOURNEY.vocabularies;
-    }
-
-    return copy;
   };
 
   const handleLoadSample = () => {
@@ -501,32 +406,35 @@ export default function CareerJourney() {
               <Briefcase className="w-8 h-8" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Career Journey Cockpit</h1>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Career Journey</h1>
               <p className="text-sm mt-2 text-slate-500 leading-relaxed">
-                Unlock automated alignment scoring, dynamic resume targeting, and keyword gap analysis by establishing your standardized career ontology profile.
+                A structured record of your work history, skills, and evidence — used to score job fit and tailor resumes.
               </p>
             </div>
-            
+
             <div className="w-full pt-4 border-t border-slate-100 space-y-4">
               <div className="space-y-1">
-                <Label className="text-left font-bold text-slate-600">Option 1: Upload Existing Ontology JSON</Label>
+                <Label className="text-left font-bold text-slate-600">Upload an Existing Career Journey JSON</Label>
                 <div className="mt-1 flex items-center justify-center border-2 border-dashed border-slate-300 rounded-lg p-5 bg-slate-50 hover:bg-slate-100/50 transition-colors cursor-pointer relative">
                   <input type="file" accept=".json" onChange={handleCJUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                   <div className="text-center">
-                    <span className="text-brand-500 text-xs font-bold">Select profile ontology .json</span>
-                    <p className="text-[10px] text-slate-400 mt-1">Accepts any 12-tier workspace profile mapping</p>
+                    <span className="text-brand-500 text-xs font-bold">Select a Career Journey .json file</span>
+                    <p className="text-[10px] text-slate-400 mt-1">Accepts a previous export or a blank template</p>
                   </div>
                 </div>
               </div>
-              
+
               <div className="text-slate-300 text-xs font-semibold flex items-center justify-center py-2">
                 <span className="h-px bg-slate-200 flex-1"></span>
-                <span className="px-3 uppercase text-[10px] text-slate-400 tracking-widest">OR</span>
+                <span className="px-3 uppercase text-[10px] text-slate-400 tracking-widest">OR START FRESH</span>
                 <span className="h-px bg-slate-200 flex-1"></span>
               </div>
-              
+
+              <Button onClick={handleDownloadTemplate} variant="outline" className="w-full bg-white font-bold py-3">
+                <Download className="w-4 h-4 mr-2" /> Download a Blank Template
+              </Button>
               <Button onClick={handleLoadSample} className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 shadow-lg shadow-brand-500/20">
-                <Zap className="w-4 h-4 mr-2" /> Initialize COMPREHENSIVE 12-Tier Profile
+                <Zap className="w-4 h-4 mr-2" /> Load an Example Profile to Explore
               </Button>
             </div>
 
@@ -541,16 +449,20 @@ export default function CareerJourney() {
 
   // Bind parameters cleanly with absolute typesafety guarantees
   const metaObj = careerJourney?.meta || {};
+  const person = careerJourney?.person || { name: '', signature_outcomes: [], positioning: {} };
   const roles = Array.isArray(careerJourney?.roles) ? careerJourney.roles : [];
   const achievements = Array.isArray(careerJourney?.achievements) ? careerJourney.achievements : [];
   const skillsIndex = Array.isArray(careerJourney?.skills_index) ? careerJourney.skills_index : [];
   const capabilities = Array.isArray(careerJourney?.capabilities) ? careerJourney.capabilities : [];
-  const links = careerJourney?.links || { keywords: [], industries: [], deliverable_achievement: [], education_alignment: [] };
+  const links = careerJourney?.links || { keywords: [], industries: [], deliverable_achievement: [], education_alignment: [], deliverable_function: [], certification_alignment: [], timeline_mappings: [] };
   const methodologies = Array.isArray(careerJourney?.methodologies) ? careerJourney.methodologies : [];
   const functionsList = Array.isArray(careerJourney?.functions) ? careerJourney.functions : [];
   const deliverables = Array.isArray(careerJourney?.deliverables) ? careerJourney.deliverables : [];
   const engagements = Array.isArray(careerJourney?.customer_engagements) ? careerJourney.customer_engagements : [];
   const education = Array.isArray(careerJourney?.education) ? careerJourney.education : [];
+  const certifications = Array.isArray(careerJourney?.certifications) ? careerJourney.certifications : [];
+  const applicationArtifacts = careerJourney?.application_artifacts || { artifacts: [] };
+  const interviewAnswers = careerJourney?.interview_answers || { answers: [] };
   const vocabularies = careerJourney?.vocabularies || COMPREHENSIVE_SAMPLE_JOURNEY.vocabularies;
 
   return (
@@ -563,12 +475,12 @@ export default function CareerJourney() {
              <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Back to Dashboard
           </button>
           <div className="flex items-center gap-2">
-            <span className="p-1 px-1.5 rounded bg-brand-600 text-white font-black text-xs tracking-wider">ONTOLOGY</span>
-            <h1 className="text-white font-bold text-md tracking-tight">Cockpit Profile</h1>
+            <span className="p-1 px-1.5 rounded bg-brand-600 text-white font-black text-xs tracking-wider">CJ</span>
+            <h1 className="text-white font-bold text-md tracking-tight">Career Journey</h1>
           </div>
-          <p className="text-[10px] mt-1 text-slate-500 uppercase tracking-widest font-semibold">Standard v{metaObj.version || "1.0.0"}</p>
+          <p className="text-[10px] mt-1 text-slate-500 uppercase tracking-widest font-semibold">v{metaObj.version || "1.0.0"}</p>
         </div>
-        
+
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           <div className="px-3 pb-1.5">
              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Core Profile Assets</span>
@@ -576,36 +488,41 @@ export default function CareerJourney() {
 
           <button onClick={() => setActiveTier('meta')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'meta' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Settings className="w-3.5 h-3.5" />
-            <span className="flex-1">1. Meta Identity & Changenotes</span>
+            <span className="flex-1">1. Meta Identity & Changelog</span>
+          </button>
+
+          <button onClick={() => setActiveTier('person')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'person' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
+            <User className="w-3.5 h-3.5" />
+            <span className="flex-1">2. Person & Positioning</span>
           </button>
 
           <button onClick={() => setActiveTier('roles')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'roles' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Briefcase className="w-3.5 h-3.5" />
-            <span className="flex-1">2. Roles & Initiatives Timeline</span>
+            <span className="flex-1">3. Roles & Initiatives Timeline</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{roles.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('achievements')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'achievements' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Award className="w-3.5 h-3.5" />
-            <span className="flex-1">3. Mapped Achievements</span>
+            <span className="flex-1">4. Mapped Achievements</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{achievements.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('skills')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'skills' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Zap className="w-3.5 h-3.5" />
-            <span className="flex-1">4. Skills Inventory Ledger</span>
+            <span className="flex-1">5. Skills Inventory Ledger</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{skillsIndex.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('capabilities')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'capabilities' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Layers className="w-3.5 h-3.5" />
-            <span className="flex-1">5. Strategic Capabilities</span>
+            <span className="flex-1">6. Strategic Capabilities</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{capabilities.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('links')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'links' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Link2 className="w-3.5 h-3.5" />
-            <span className="flex-1">6. Cross-Reference Indexer</span>
+            <span className="flex-1">7. Cross-Reference Indexer</span>
           </button>
 
           <div className="pt-4 pb-1.5 px-3">
@@ -614,45 +531,63 @@ export default function CareerJourney() {
 
           <button onClick={() => setActiveTier('methodologies')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'methodologies' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Bookmark className="w-3.5 h-3.5" />
-            <span className="flex-1">7. System Methodologies</span>
+            <span className="flex-1">8. System Methodologies</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{methodologies.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('functions')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'functions' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <ClipboardList className="w-3.5 h-3.5" />
-            <span className="flex-1">8. Atomic Hand Functions</span>
+            <span className="flex-1">9. Legacy Functions Index</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{functionsList.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('deliverables')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'deliverables' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Tag className="w-3.5 h-3.5" />
-            <span className="flex-1">9. Material Deliverables</span>
+            <span className="flex-1">10. Legacy Deliverables Index</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{deliverables.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('engagements')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'engagements' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Users className="w-3.5 h-3.5" />
-            <span className="flex-1">10. Client Engagements</span>
+            <span className="flex-1">11. Client Engagements</span>
             <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{engagements.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('education')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'education' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <GraduationCap className="w-3.5 h-3.5" />
-            <span className="flex-1">11. Education Register</span>
+            <span className="flex-1">12. Education Register</span>
+          </button>
+
+          <button onClick={() => setActiveTier('certifications')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'certifications' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
+            <Award className="w-3.5 h-3.5" />
+            <span className="flex-1">13. Certifications</span>
+            <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{certifications.length}</Badge>
+          </button>
+
+          <button onClick={() => setActiveTier('artifacts')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'artifacts' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
+            <FileJson className="w-3.5 h-3.5" />
+            <span className="flex-1">14. Application Artifacts</span>
+            <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{applicationArtifacts.artifacts.length}</Badge>
+          </button>
+
+          <button onClick={() => setActiveTier('interview')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'interview' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span className="flex-1">15. Interview Answers</span>
+            <Badge className="bg-slate-950/40 border-none text-[9px] py-px px-1 text-slate-300 shrink-0">{interviewAnswers.answers.length}</Badge>
           </button>
 
           <button onClick={() => setActiveTier('vocabularies')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'vocabularies' ? 'bg-brand-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <BookOpen className="w-3.5 h-3.5" />
-            <span className="flex-1">12. Vocabulary Enums</span>
+            <span className="flex-1">16. Vocabulary Enums</span>
           </button>
 
           <div className="pt-4 pb-1.5 px-3 border-t border-slate-800/80 mt-2">
-             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Developer Backdoors</span>
+             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Developer Tools</span>
           </div>
 
           <button onClick={() => setActiveTier('raw')} className={`w-full text-left flex items-center gap-2.5 p-2 rounded text-xs transition-all ${activeTier === 'raw' ? 'bg-white text-slate-900 font-bold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
             <Code className="w-3.5 h-3.5" />
-            <span className="flex-1 font-mono">Raw Ontology JSON</span>
+            <span className="flex-1 font-mono">Raw JSON</span>
           </button>
         </nav>
 
@@ -669,23 +604,29 @@ export default function CareerJourney() {
               <span>Section Explorer:</span>
               <span className="text-brand-600 font-black">
                 {activeTier === 'meta' && "1. Meta Identity & Versioning"}
-                {activeTier === 'roles' && "2. Career Roles & Core Initiatives"}
-                {activeTier === 'achievements' && "3. Discrete Mapped Achievements"}
-                {activeTier === 'skills' && "4. Standardized Skills Index"}
-                {activeTier === 'capabilities' && "5. Strategic High-Level Capabilities"}
-                {activeTier === 'links' && "6. Cross-Reference Index Maps"}
-                {activeTier === 'methodologies' && "7. Named Professional Methodologies"}
-                {activeTier === 'functions' && "8. Atomic Professional Work Functions"}
-                {activeTier === 'deliverables' && "9. Tangible Material Deliverables"}
-                {activeTier === 'engagements' && "10. Client & Partner Engagements"}
-                {activeTier === 'education' && "11. Academic & Education Registry"}
-                {activeTier === 'vocabularies' && "12. Controlled Vocabulary Constants"}
+                {activeTier === 'person' && "2. Person & Positioning"}
+                {activeTier === 'roles' && "3. Career Roles & Core Initiatives"}
+                {activeTier === 'achievements' && "4. Discrete Mapped Achievements"}
+                {activeTier === 'skills' && "5. Standardized Skills Index"}
+                {activeTier === 'capabilities' && "6. Strategic High-Level Capabilities"}
+                {activeTier === 'links' && "7. Cross-Reference Index Maps"}
+                {activeTier === 'methodologies' && "8. Named Professional Methodologies"}
+                {activeTier === 'functions' && "9. Legacy Functions Index"}
+                {activeTier === 'deliverables' && "10. Legacy Deliverables Index"}
+                {activeTier === 'engagements' && "11. Client & Partner Engagements"}
+                {activeTier === 'education' && "12. Academic & Education Registry"}
+                {activeTier === 'certifications' && "13. Certifications"}
+                {activeTier === 'artifacts' && "14. Application Artifacts"}
+                {activeTier === 'interview' && "15. Interview Answers"}
+                {activeTier === 'vocabularies' && "16. Controlled Vocabulary Constants"}
                 {activeTier === 'raw' && "JSON Code Console"}
               </span>
             </h2>
             <p className="text-[11px] text-slate-400">
-              {activeTier !== 'raw' && "Maintain and link standardized professional history components with absolute integrity."}
-              {activeTier === 'raw' && "Directly copy-paste, backup, or import complex ONTOLOGY profiles."}
+              {activeTier === 'functions' || activeTier === 'deliverables'
+                ? "Superseded by the nested data under Capabilities and Roles → Initiatives — kept here so nothing already referencing these ids is lost."
+                : activeTier !== 'raw' && "Maintain and link standardized professional history components with absolute integrity."}
+              {activeTier === 'raw' && "Directly copy-paste, backup, or import your Career Journey JSON."}
             </p>
           </div>
 
@@ -696,9 +637,14 @@ export default function CareerJourney() {
               <span>Import JSON</span>
             </div>
             
-            <button onClick={handleCJDownload} className="inline-flex items-center gap-1.5 h-9 text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg px-3 transition-all cursor-pointer" title="Download dynamic backup">
+            <button onClick={handleCJDownload} className="inline-flex items-center gap-1.5 h-9 text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg px-3 transition-all cursor-pointer" title="Export your full Career Journey data">
               <Download className="w-3.5 h-3.5 text-emerald-500" />
               <span>Export JSON</span>
+            </button>
+
+            <button onClick={handleDownloadTemplate} className="inline-flex items-center gap-1.5 h-9 text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg px-3 transition-all cursor-pointer" title="Download a blank template with no personal data">
+              <FileDown className="w-3.5 h-3.5 text-brand-500" />
+              <span>Template</span>
             </button>
 
             <button onClick={handleLoadSample} className="inline-flex items-center gap-1.5 h-9 text-xs font-bold border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-lg px-3 transition-all cursor-pointer">
@@ -747,39 +693,164 @@ export default function CareerJourney() {
                 </div>
               </Card>
 
-              <Card className="p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-600">Self-Documenting Changelog</h3>
-                  <Button variant="outline" size="sm" onClick={() => {
-                    const changes = [...(metaObj.version_X_Y_changes || [])];
-                    changes.push("New timeline modification completed.");
-                    updateRootJourney('meta', { ...metaObj, version_X_Y_changes: changes });
-                  }}><Plus className="w-3.5 h-3.5" /> Add Log Entry</Button>
-                </div>
-                
-                <div className="space-y-2">
-                  {(metaObj.version_X_Y_changes || []).map((ch: string, idx: number) => (
-                    <div key={idx} className="flex gap-2 items-center">
-                      <Input value={ch} onChange={e => {
-                        const next = [...metaObj.version_X_Y_changes];
-                        next[idx] = e.target.value;
-                        updateRootJourney('meta', { ...metaObj, version_X_Y_changes: next });
-                      }} className="text-xs" />
-                      <button onClick={() => {
-                        const next = metaObj.version_X_Y_changes.filter((_: any, i: number) => i !== idx);
-                        updateRootJourney('meta', { ...metaObj, version_X_Y_changes: next });
-                      }} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-600">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+              {(() => {
+                // Every `version_*_changes` key in meta is a changelog entry for one version
+                // (e.g. version_3_35_changes) — real data carries dozens of these. Show them
+                // all, newest first, instead of a single hardcoded key.
+                const changelogKeys = Object.keys(metaObj)
+                  .filter((k) => /_changes$/.test(k) && Array.isArray(metaObj[k]))
+                  .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+                const currentVersionKey = metaObj.version
+                  ? `version_${String(metaObj.version).replace(/\./g, '_')}_changes`
+                  : null;
+
+                return (
+                  <Card className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-600">Version Changelog</h3>
+                      {currentVersionKey && (
+                        <Button variant="outline" size="sm" onClick={() => {
+                          const changes = [...(metaObj[currentVersionKey] || [])];
+                          changes.push('New change entry.');
+                          updateRootJourney('meta', { ...metaObj, [currentVersionKey]: changes });
+                        }}><Plus className="w-3.5 h-3.5" /> Add Entry to v{metaObj.version}</Button>
+                      )}
                     </div>
-                  ))}
-                  {(metaObj.version_X_Y_changes || []).length === 0 && (
-                    <p className="text-xs text-slate-400 italic">No changelog edits registered.</p>
-                  )}
-                </div>
-              </Card>
+
+                    <div className="space-y-5">
+                      {changelogKeys.map((key) => (
+                        <div key={key}>
+                          <Label className="font-mono text-[10px]">{key}</Label>
+                          <div className="space-y-2 mt-1">
+                            {(metaObj[key] || []).map((ch: string, idx: number) => (
+                              <div key={idx} className="flex gap-2 items-center">
+                                <Input value={ch} onChange={e => {
+                                  const next = [...metaObj[key]];
+                                  next[idx] = e.target.value;
+                                  updateRootJourney('meta', { ...metaObj, [key]: next });
+                                }} className="text-xs" />
+                                <button onClick={() => {
+                                  const next = metaObj[key].filter((_: any, i: number) => i !== idx);
+                                  updateRootJourney('meta', { ...metaObj, [key]: next });
+                                }} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-600">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {changelogKeys.length === 0 && (
+                        <p className="text-xs text-slate-400 italic">No changelog history yet.</p>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })()}
             </div>
           )}
+
+          {/* ----- Tab: PERSON & POSITIONING ----- */}
+          {activeTier === 'person' && (() => {
+            const positioning = person.positioning || {};
+            const updatePerson = (updates: any) => updateRootJourney('person', { ...person, ...updates });
+            const updatePositioning = (updates: any) => updatePerson({ positioning: { ...positioning, ...updates } });
+
+            return (
+              <div className="max-w-3xl mx-auto space-y-6">
+                <Card className="p-6">
+                  <HeaderCell title="Identity & Contact" desc="Powers the resume header and is read directly by the Matches feature for job-fit scoring." />
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <Label>Full Name</Label>
+                      <Input value={person.name || ''} onChange={e => updatePerson({ name: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Brand / Tagline</Label>
+                      <Input value={person.brand || ''} onChange={e => updatePerson({ brand: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Location</Label>
+                      <Input value={person.location || ''} onChange={e => updatePerson({ location: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Work Preference</Label>
+                      <Input value={person.work_preference || ''} onChange={e => updatePerson({ work_preference: e.target.value })} placeholder="e.g. Remote-first, open to relocation" />
+                    </div>
+                    <div>
+                      <Label>Phone</Label>
+                      <Input value={person.phone || ''} onChange={e => updatePerson({ phone: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Email</Label>
+                      <Input value={person.email || ''} onChange={e => updatePerson({ email: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>LinkedIn</Label>
+                      <Input value={person.linkedin || ''} onChange={e => updatePerson({ linkedin: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Website</Label>
+                      <Input value={person.website || ''} onChange={e => updatePerson({ website: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>GitHub</Label>
+                      <Input value={person.github || ''} onChange={e => updatePerson({ github: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Resume Contact Preference</Label>
+                      <Input value={person.resume_contact_preference || ''} onChange={e => updatePerson({ resume_contact_preference: e.target.value })} placeholder="e.g. Email + LinkedIn only" />
+                    </div>
+                    <div className="col-span-2">
+                      <Label>Summary</Label>
+                      <Textarea value={person.summary || ''} onChange={e => updatePerson({ summary: e.target.value })} className="min-h-[70px]" />
+                    </div>
+                  </div>
+                </Card>
+
+                <Card className="p-6">
+                  <HeaderCell title="Signature Outcomes" desc="Top-line proof points, shown near the resume summary." />
+                  <div className="mt-4">
+                    <StringListEditor
+                      items={person.signature_outcomes || []}
+                      onChange={(items) => updatePerson({ signature_outcomes: items })}
+                      placeholder="Add a signature outcome"
+                    />
+                  </div>
+                </Card>
+
+                <Card className="p-6">
+                  <HeaderCell title="Positioning" desc="Drives Match Preferences on the Matches feature — target role families and orientation directly filter job matches." />
+                  <div className="grid grid-cols-1 gap-4 mt-4">
+                    <div>
+                      <Label>Primary Tagline</Label>
+                      <Input value={positioning.primary_tagline || ''} onChange={e => updatePositioning({ primary_tagline: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Role Orientation</Label>
+                      <Input value={positioning.role_orientation || ''} onChange={e => updatePositioning({ role_orientation: e.target.value })} placeholder="e.g. Open to both senior IC and management roles" />
+                    </div>
+                    <div>
+                      <Label>Target Role Families</Label>
+                      <StringListEditor
+                        items={positioning.target_role_families || []}
+                        onChange={(items) => updatePositioning({ target_role_families: items })}
+                        placeholder="Add a target role family"
+                      />
+                    </div>
+                    <div>
+                      <Label>Narrative Anchors</Label>
+                      <StringListEditor
+                        items={positioning.narrative_anchors || []}
+                        onChange={(items) => updatePositioning({ narrative_anchors: items })}
+                        placeholder="Add a narrative anchor"
+                      />
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            );
+          })()}
 
           {/* ----- Tab 2: ROLES & INITIATIVES ----- */}
           {activeTier === 'roles' && (
@@ -872,6 +943,12 @@ export default function CareerJourney() {
                       }} />
                     </div>
 
+                    <RoleResumeDetails role={r} onChange={(updates) => {
+                      const next = [...roles];
+                      next[rIdx] = { ...next[rIdx], ...updates };
+                      updateRootJourney('roles', next);
+                    }} />
+
                     <div className="mb-6">
                       <Label>Role Accountabilities Scope</Label>
                       <Textarea value={r.description || ''} onChange={e => {
@@ -939,7 +1016,12 @@ export default function CareerJourney() {
                                 </button>
                               </div>
                               <Textarea value={init.description || ''} onChange={e => syncInitiative('description', e.target.value)} className="text-xs min-h-[40px] p-2" placeholder="Initiative accountabilities..." />
-                              
+
+                              <InitiativeDeliverablesEditor
+                                deliverables={init.deliverables || []}
+                                onChange={(deliverables) => syncInitiative('deliverables', deliverables)}
+                              />
+
                               <div className="mt-1">
                                 <RoleInitiativeEvidenceList
                                   roleId={r.id}
@@ -1127,9 +1209,9 @@ export default function CareerJourney() {
                   const num = capabilities.length + 1;
                   const newCap = {
                     id: `CAP-${String(num).padStart(3, '0')}`,
-                    name: "Engineering Lifecycle Management",
-                    description: "Planning end-to-end framework delivery alignments with clear release gates.",
-                    maturity_level: "Established",
+                    name: "New Capability",
+                    description: "",
+                    maturity_level: vocabularies.maturity_levels[0] || "Established",
                     functions: []
                   };
                   updateRootJourney('capabilities', [...capabilities, newCap]);
@@ -1167,23 +1249,19 @@ export default function CareerJourney() {
                             ))}
                           </select>
                         </div>
-                        <div>
-                          <Label>Associated Atomic Functions (IDs)</Label>
-                          <Input 
-                            value={Array.isArray(cap.functions) ? cap.functions.join(', ') : ''} 
-                            placeholder="e.g. FN-001, FN-002"
-                            onChange={e => {
-                              const ids = e.target.value.split(',').map(s => s.trim()).filter(s => s !== '');
-                              sync('functions', ids);
-                            }} 
-                            className="h-8 text-xs font-mono" 
-                          />
-                        </div>
                         <div className="col-span-4">
                           <Label>Strategic Core Competency Description</Label>
                           <Textarea value={cap.description || ''} onChange={e => sync('description', e.target.value)} className="min-h-[50px] text-xs p-2" />
                         </div>
-                        
+
+                        <div className="col-span-4 mt-2">
+                          <CapabilityFunctionsEditor
+                            functions={cap.functions || []}
+                            vocabularies={vocabularies}
+                            onChange={(fns) => sync('functions', fns)}
+                          />
+                        </div>
+
                         <div className="col-span-4 mt-2">
                           <TimelineLinkingWidget
                             entityType="capability"
@@ -1208,43 +1286,38 @@ export default function CareerJourney() {
               {/* Keywords Linked Indices */}
               <Card className="p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <HeaderCell title="A. Keyword-to-Entity Relational Mapping Table" desc="Maps Job Search terms, JD keywords, and JD filters to their corresponding career entity demonstrations." />
+                  <HeaderCell title="A. Keyword-to-Entity Relational Mapping Table" desc="Maps job-search terms and JD keywords to the career entity that demonstrates them." />
                   <Button size="sm" variant="outline" onClick={() => {
                     const next = { ...links, keywords: [...(links.keywords || [])] };
-                    next.keywords.push({ keyword: "API Strategy", entity_type: "capability", entity_id: "CAP-001" });
+                    next.keywords.push({ term: "API Strategy", entity_type: "capability", entity_id: "CAP-001" });
                     updateRootJourney('links', next);
                   }} className="h-7 text-[10px]"><Plus className="w-3 h-3 mr-1" /> Map Keyword Relationship</Button>
                 </div>
-                
+
                 <div className="overflow-x-auto text-xs">
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
                       <tr>
-                        <th className="p-2">Keyword/Term</th>
-                        <th className="p-2">Entity Context Area</th>
-                        <th className="p-2">Entity ID Ref</th>
+                        <th className="p-2">Term</th>
+                        <th className="p-2">Entity Type</th>
+                        <th className="p-2">Entity ID</th>
                         <th className="p-2"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {(links.keywords || []).map((k: any, idx: number) => (
                         <tr key={idx}>
-                          <td className="p-2"><Input value={k.keyword || ''} onChange={e => {
+                          <td className="p-2"><Input value={k.term ?? k.keyword ?? ''} onChange={e => {
                             const next = { ...links };
-                            next.keywords[idx].keyword = e.target.value;
+                            next.keywords[idx] = { ...next.keywords[idx], term: e.target.value };
                             updateRootJourney('links', next);
                           }} className="h-7 text-xs w-48 font-semibold text-slate-700" /></td>
                           <td className="p-2">
-                            <select value={k.entity_type || 'capability'} onChange={e => {
+                            <Input value={k.entity_type || ''} onChange={e => {
                               const next = { ...links };
                               next.keywords[idx].entity_type = e.target.value;
                               updateRootJourney('links', next);
-                            }} className="text-[10px] p-1 border rounded bg-white font-medium text-slate-600">
-                              <option value="role">Role (Timeline)</option>
-                              <option value="initiative">Initiative (Project)</option>
-                              <option value="achievement">Achievement (Outcome)</option>
-                              <option value="capability">Strategic Capability</option>
-                            </select>
+                            }} placeholder="role, initiative, achievement, capability…" className="h-7 text-[11px] w-44 font-medium text-slate-600" />
                           </td>
                           <td className="p-2"><Input value={k.entity_id || ''} onChange={e => {
                             const next = { ...links };
@@ -1269,10 +1342,10 @@ export default function CareerJourney() {
               {/* Industries Linked Indices */}
               <Card className="p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <HeaderCell title="B. Vertical Industries-to-Roles Registry" desc="Align corporate market niche credentials to relevant employment history IDs." />
+                  <HeaderCell title="B. Vertical Industries-to-Entity Registry" desc="Align market/industry verticals to the role (or other entity) they were demonstrated in." />
                   <Button size="sm" variant="outline" onClick={() => {
                     const next = { ...links, industries: [...(links.industries || [])] };
-                    next.industries.push({ industry: "Global Commerce / Retail", role_id: "ROLE-001" });
+                    next.industries.push({ industry: "Global Commerce / Retail", entity_type: "role", entity_id: "ROLE-001" });
                     updateRootJourney('links', next);
                   }} className="h-7 text-[10px]"><Plus className="w-3 h-3 mr-1" /> Add Vertical Index</Button>
                 </div>
@@ -1282,7 +1355,8 @@ export default function CareerJourney() {
                     <thead className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
                       <tr>
                         <th className="p-2">Market Industry/Vertical</th>
-                        <th className="p-2">Linked Career Role ID</th>
+                        <th className="p-2">Entity Type</th>
+                        <th className="p-2">Entity ID</th>
                         <th className="p-2"></th>
                       </tr>
                     </thead>
@@ -1294,9 +1368,14 @@ export default function CareerJourney() {
                             next.industries[idx].industry = e.target.value;
                             updateRootJourney('links', next);
                           }} className="h-7 text-xs w-56 font-semibold text-slate-700" /></td>
-                          <td className="p-2"><Input value={ind.role_id || ''} onChange={e => {
+                          <td className="p-2"><Input value={ind.entity_type ?? (ind.role_id ? 'role' : '')} onChange={e => {
                             const next = { ...links };
-                            next.industries[idx].role_id = e.target.value;
+                            next.industries[idx].entity_type = e.target.value;
+                            updateRootJourney('links', next);
+                          }} placeholder="role, initiative…" className="h-7 text-[11px] w-32 font-medium text-slate-600" /></td>
+                          <td className="p-2"><Input value={ind.entity_id ?? ind.role_id ?? ''} onChange={e => {
+                            const next = { ...links };
+                            next.industries[idx] = { ...next.industries[idx], entity_id: e.target.value };
                             updateRootJourney('links', next);
                           }} className="h-7 text-xs w-36 font-mono" /></td>
                           <td className="p-2 text-right">
@@ -1407,6 +1486,34 @@ export default function CareerJourney() {
                   </table>
                 </div>
               </Card>
+
+              {/* Deliverable to Function */}
+              <SimplePairLinkCard
+                title="E. Deliverable-to-Function Mapping"
+                desc="Connects a role/initiative deliverable to the atomic capability function it demonstrated."
+                colALabel="Function ID"
+                colBLabel="Deliverable ID"
+                keyA="function_id"
+                keyB="deliverable_id"
+                placeholderA="FUNC-001"
+                placeholderB="DEL-100"
+                items={links.deliverable_function || []}
+                onChange={(items) => updateRootJourney('links', { ...links, deliverable_function: items })}
+              />
+
+              {/* Certification Alignment */}
+              <SimplePairLinkCard
+                title="F. Certification Alignment"
+                desc="Connects a certification to the capability it supports. No certifications recorded yet as of this data."
+                colALabel="Certification ID"
+                colBLabel="Capability ID"
+                keyA="certification_id"
+                keyB="capability_id"
+                placeholderA="CERT-001"
+                placeholderB="CAP-001"
+                items={links.certification_alignment || []}
+                onChange={(items) => updateRootJourney('links', { ...links, certification_alignment: items })}
+              />
 
               {/* Master Chronological Timeline Mappings Registry */}
               <Card className="p-6">
@@ -1848,9 +1955,16 @@ export default function CareerJourney() {
                     id: `EDU-${String(num).padStart(3, '0')}`,
                     institution: "State University",
                     program: "B.S. in Electrical Engineering",
-                    dates: "2014 - 2018",
+                    degree_type: "Bachelor's",
+                    start: "2014",
+                    end: "2018",
                     location: "Austin, TX",
-                    description: "Focused on low latency compiler software architecture layouts."
+                    description: "Focused on low latency compiler software architecture layouts.",
+                    capability_alignment: [],
+                    skills_reinforced: [],
+                    achievements: [],
+                    completion_status: "Completed",
+                    resume_display: "",
                   };
                   updateRootJourney('education', [...education, newEdu]);
                 }}><Plus className="w-3.5 h-3.5 mr-1" /> Append Education</Button>
@@ -1880,22 +1994,46 @@ export default function CareerJourney() {
                           <Input value={edu.institution || ''} onChange={e => sync('institution', e.target.value)} className="h-8 text-xs font-bold" />
                         </div>
                         <div>
-                          <Label>Qualified Program Degree</Label>
+                          <Label>Program</Label>
                           <Input value={edu.program || ''} onChange={e => sync('program', e.target.value)} className="h-8 text-xs font-medium" />
                         </div>
                         <div>
-                          <Label>Attendance Timeline</Label>
-                          <Input value={edu.dates || ''} onChange={e => sync('dates', e.target.value)} className="h-8 text-xs" />
+                          <Label>Degree Type</Label>
+                          <Input value={edu.degree_type || ''} onChange={e => sync('degree_type', e.target.value)} className="h-8 text-xs" placeholder="e.g. Bachelor's, Certificate" />
                         </div>
                         <div>
                           <Label>Campus Location</Label>
                           <Input value={edu.location || ''} onChange={e => sync('location', e.target.value)} className="h-8 text-xs" />
                         </div>
+                        <div>
+                          <Label>Start</Label>
+                          <Input value={edu.start || ''} onChange={e => sync('start', e.target.value)} className="h-8 text-xs" />
+                        </div>
+                        <div>
+                          <Label>End</Label>
+                          <Input value={edu.end || ''} onChange={e => sync('end', e.target.value)} className="h-8 text-xs" />
+                        </div>
+                        <div>
+                          <Label>Completion Status</Label>
+                          <Input value={edu.completion_status || ''} onChange={e => sync('completion_status', e.target.value)} className="h-8 text-xs" />
+                        </div>
+                        <div>
+                          <Label>Resume Display</Label>
+                          <Input value={edu.resume_display || ''} onChange={e => sync('resume_display', e.target.value)} className="h-8 text-xs" placeholder="How this should read on a resume" />
+                        </div>
                         <div className="col-span-4">
                           <Label>Concentration & Study Projects Details</Label>
                           <Textarea value={edu.description || ''} onChange={e => sync('description', e.target.value)} className="min-h-[48px] text-xs p-2" />
                         </div>
-                        
+                        <div className="col-span-2">
+                          <Label>Capability Alignment (IDs)</Label>
+                          <StringListEditor items={edu.capability_alignment || []} onChange={(items) => sync('capability_alignment', items)} placeholder="e.g. CAP-001" />
+                        </div>
+                        <div className="col-span-2">
+                          <Label>Skills Reinforced</Label>
+                          <StringListEditor items={edu.skills_reinforced || []} onChange={(items) => sync('skills_reinforced', items)} placeholder="e.g. SK-011" />
+                        </div>
+
                         <div className="col-span-4 mt-2">
                           <TimelineLinkingWidget
                             entityType="education"
@@ -1905,6 +2043,191 @@ export default function CareerJourney() {
                             updateRootJourney={updateRootJourney}
                           />
                         </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ----- Tab: CERTIFICATIONS ----- */}
+          {activeTier === 'certifications' && (
+            <div className="max-w-4xl mx-auto space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-600 font-mono">Certifications: {certifications.length}</span>
+                <Button size="sm" onClick={() => {
+                  const num = certifications.length + 1;
+                  const newCert = { id: `CERT-${String(num).padStart(3, '0')}`, name: '', issuer: '', date: '', status: '' };
+                  updateRootJourney('certifications', [...certifications, newCert]);
+                }}><Plus className="w-3.5 h-3.5 mr-1" /> Add Certification</Button>
+              </div>
+
+              {certifications.length === 0 ? (
+                <p className="text-xs text-slate-400 italic p-3 text-center">None yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {certifications.map((cert: any, idx: number) => {
+                    const sync = (field: string, val: any) => {
+                      const next = [...certifications];
+                      next[idx] = { ...next[idx], [field]: val };
+                      updateRootJourney('certifications', next);
+                    };
+                    return (
+                      <Card key={cert.id || idx} className="p-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-100">{cert.id || `CERT-${idx+1}`}</Badge>
+                          <button onClick={() => updateRootJourney('certifications', certifications.filter((_: any, i: number) => i !== idx))} className="p-1 hover:bg-slate-100 text-slate-400 hover:text-red-500 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                        <div className="space-y-2">
+                          <EditableCell label="Name" value={cert.name || ''} onChange={v => sync('name', v)} />
+                          <EditableCell label="Issuer" value={cert.issuer || ''} onChange={v => sync('issuer', v)} />
+                          <EditableCell label="Date" value={cert.date || ''} onChange={v => sync('date', v)} />
+                          <EditableCell label="Status" value={cert.status || ''} onChange={v => sync('status', v)} />
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ----- Tab: APPLICATION ARTIFACTS ----- */}
+          {activeTier === 'artifacts' && (
+            <div className="max-w-4xl mx-auto space-y-4">
+              <Card className="p-4">
+                <Label>Description</Label>
+                <Textarea
+                  value={applicationArtifacts.description || ''}
+                  onChange={e => updateRootJourney('application_artifacts', { ...applicationArtifacts, description: e.target.value })}
+                  className="min-h-[50px] text-xs p-2"
+                />
+              </Card>
+
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-600 font-mono">Artifacts: {applicationArtifacts.artifacts.length}</span>
+                <Button size="sm" onClick={() => {
+                  const num = applicationArtifacts.artifacts.length + 1;
+                  const newArtifact = { id: `ART-${String(num).padStart(3, '0')}`, name: '', type: '', audience: '', positioning: '', notes: '' };
+                  updateRootJourney('application_artifacts', { ...applicationArtifacts, artifacts: [...applicationArtifacts.artifacts, newArtifact] });
+                }}><Plus className="w-3.5 h-3.5 mr-1" /> Add Artifact</Button>
+              </div>
+
+              <div className="space-y-4">
+                {applicationArtifacts.artifacts.map((art: any, idx: number) => {
+                  const sync = (field: string, val: any) => {
+                    const next = [...applicationArtifacts.artifacts];
+                    next[idx] = { ...next[idx], [field]: val };
+                    updateRootJourney('application_artifacts', { ...applicationArtifacts, artifacts: next });
+                  };
+                  return (
+                    <Card key={art.id || idx} className="p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-100">{art.id || `ART-${idx+1}`}</Badge>
+                        <button onClick={() => {
+                          const next = applicationArtifacts.artifacts.filter((_: any, i: number) => i !== idx);
+                          updateRootJourney('application_artifacts', { ...applicationArtifacts, artifacts: next });
+                        }} className="p-1 hover:bg-slate-100 text-slate-400 hover:text-red-500 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <EditableCell label="File Name" value={art.name || ''} onChange={v => sync('name', v)} />
+                        <EditableCell label="Type" value={art.type || ''} onChange={v => sync('type', v)} />
+                        <EditableCell label="Audience" value={art.audience || ''} onChange={v => sync('audience', v)} />
+                        <EditableCell label="Positioning" value={art.positioning || ''} onChange={v => sync('positioning', v)} />
+                        <div className="col-span-2">
+                          <Label>Notes</Label>
+                          <Textarea value={art.notes || ''} onChange={e => sync('notes', e.target.value)} className="min-h-[40px] text-xs p-2" />
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ----- Tab: INTERVIEW ANSWERS ----- */}
+          {activeTier === 'interview' && (
+            <div className="max-w-4xl mx-auto space-y-4">
+              <Card className="p-4">
+                <Label>Description</Label>
+                <Textarea
+                  value={interviewAnswers.description || ''}
+                  onChange={e => updateRootJourney('interview_answers', { ...interviewAnswers, description: e.target.value })}
+                  className="min-h-[50px] text-xs p-2"
+                />
+              </Card>
+
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-600 font-mono">Answers: {interviewAnswers.answers.length}</span>
+                <Button size="sm" onClick={() => {
+                  const newAnswer = { question: '', version_general: '' };
+                  updateRootJourney('interview_answers', { ...interviewAnswers, answers: [...interviewAnswers.answers, newAnswer] });
+                }}><Plus className="w-3.5 h-3.5 mr-1" /> Add Question</Button>
+              </div>
+
+              <div className="space-y-4">
+                {interviewAnswers.answers.map((ans: any, idx: number) => {
+                  // Answers carry `question` plus one or more dynamic `version_for_<audience>`
+                  // keys — shown as free-form key/value pairs since the audience set varies.
+                  const versionKeys = Object.keys(ans).filter(k => k !== 'question');
+                  const syncQuestion = (v: string) => {
+                    const next = [...interviewAnswers.answers];
+                    next[idx] = { ...next[idx], question: v };
+                    updateRootJourney('interview_answers', { ...interviewAnswers, answers: next });
+                  };
+                  const syncVersion = (key: string, v: string) => {
+                    const next = [...interviewAnswers.answers];
+                    next[idx] = { ...next[idx], [key]: v };
+                    updateRootJourney('interview_answers', { ...interviewAnswers, answers: next });
+                  };
+                  const renameVersionKey = (oldKey: string, newKey: string) => {
+                    const next = [...interviewAnswers.answers];
+                    const entry = { ...next[idx] };
+                    const val = entry[oldKey];
+                    delete entry[oldKey];
+                    entry[newKey || oldKey] = val;
+                    next[idx] = entry;
+                    updateRootJourney('interview_answers', { ...interviewAnswers, answers: next });
+                  };
+                  const addVersion = () => syncVersion('version_new', '');
+                  const removeVersion = (key: string) => {
+                    const next = [...interviewAnswers.answers];
+                    const entry = { ...next[idx] };
+                    delete entry[key];
+                    next[idx] = entry;
+                    updateRootJourney('interview_answers', { ...interviewAnswers, answers: next });
+                  };
+                  return (
+                    <Card key={idx} className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 mr-2">
+                          <Label>Question</Label>
+                          <Input value={ans.question || ''} onChange={e => syncQuestion(e.target.value)} className="h-8 text-xs font-bold" />
+                        </div>
+                        <button onClick={() => {
+                          const next = interviewAnswers.answers.filter((_: any, i: number) => i !== idx);
+                          updateRootJourney('interview_answers', { ...interviewAnswers, answers: next });
+                        }} className="mt-5 p-1 hover:bg-slate-100 text-slate-400 hover:text-red-500 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                      <div className="space-y-3">
+                        {versionKeys.map((key) => (
+                          <div key={key} className="border border-slate-200 rounded-lg p-2.5 bg-slate-50/50">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <Input
+                                defaultValue={key}
+                                onBlur={e => renameVersionKey(key, e.target.value)}
+                                className="h-6 text-[10px] font-mono w-48"
+                              />
+                              <button onClick={() => removeVersion(key)} className="p-0.5 text-slate-300 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                            <Textarea value={ans[key] || ''} onChange={e => syncVersion(key, e.target.value)} className="text-xs min-h-[50px] p-2" />
+                          </div>
+                        ))}
+                        <Button type="button" size="sm" variant="outline" className="bg-white h-7 text-[10px]" onClick={addVersion}>
+                          <Plus className="w-3 h-3 mr-1" /> Add Answer Version
+                        </Button>
                       </div>
                     </Card>
                   );
@@ -1946,10 +2269,10 @@ export default function CareerJourney() {
               
               <div className="flex justify-between items-center bg-slate-100 p-4 rounded-xl border border-slate-200/50">
                 <div className="flex gap-4 items-center">
-                  <div className="text-[11px] uppercase tracking-widest font-black text-slate-500">Ontology Profile Workspace:</div>
+                  <div className="text-[11px] uppercase tracking-widest font-black text-slate-500">Career Journey Workspace:</div>
                   <Badge variant="success">Loaded v{metaObj.version || "1.0"}</Badge>
                 </div>
-                
+
                 <div className="flex gap-2">
                   <button onClick={handleCJDownload} className="inline-flex items-center gap-1.5 h-9 text-xs font-bold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-lg px-3 transition-all cursor-pointer">
                     <Download className="w-3.5 h-3.5 text-emerald-500" /> Export JSON Backup
@@ -1959,7 +2282,7 @@ export default function CareerJourney() {
                     <span>Import JSON File</span>
                   </div>
                   <Button onClick={handleSaveRaw} className="bg-brand-600 text-white hover:bg-brand-700 font-semibold h-9 py-0">
-                    <Save className="w-4 h-4 mr-1.5" /> Overwrite database with changes
+                    <Save className="w-4 h-4 mr-1.5" /> Save Raw Edits
                   </Button>
                 </div>
               </div>
@@ -1987,6 +2310,344 @@ const HeaderCell = ({ title, desc }: { title: string; desc: string }) => (
     <p className="text-xs text-slate-400 mt-1 leading-relaxed">{desc}</p>
   </div>
 );
+
+// Compact labeled text input — used in cards with several short fields.
+const EditableCell = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
+  <div>
+    <Label>{label}</Label>
+    <Input value={value} onChange={e => onChange(e.target.value)} className="h-8 text-xs" />
+  </div>
+);
+
+// Resume-facing fields plus the three free-form structured note fields
+// (team_leadership / advisory_ps_scope / organization_scale) real role data carries.
+// Shown collapsed by default since most roles don't need every field.
+const RoleResumeDetails = ({ role, onChange }: { role: any; onChange: (updates: any) => void }) => {
+  const [open, setOpen] = React.useState(false);
+  const teamLeadership = typeof role.team_leadership === 'object' && role.team_leadership ? role.team_leadership : {};
+  const advisoryScope = typeof role.advisory_ps_scope === 'object' && role.advisory_ps_scope ? role.advisory_ps_scope : {};
+  const orgScale = typeof role.organization_scale === 'object' && role.organization_scale ? role.organization_scale : {};
+
+  return (
+    <div className="mb-4 border border-slate-200 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 text-xs font-bold text-slate-600 hover:bg-slate-100"
+      >
+        <span className="flex items-center gap-1.5">{open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />} Resume & Positioning Details</span>
+      </button>
+      {open && (
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <EditableCell label="Company Descriptor" value={role.company_descriptor || ''} onChange={v => onChange({ company_descriptor: v })} />
+            <EditableCell label="Resume Company Descriptor" value={role.resume_company_descriptor || ''} onChange={v => onChange({ resume_company_descriptor: v })} />
+            <EditableCell label="Resume Company URL" value={role.resume_company_url || ''} onChange={v => onChange({ resume_company_url: v })} />
+          </div>
+          <div>
+            <Label>Positioning Note</Label>
+            <Textarea value={role.positioning_note || ''} onChange={e => onChange({ positioning_note: e.target.value })} className="text-xs min-h-[50px] p-2" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+            <div>
+              <Label className="text-[10px]">Team Leadership</Label>
+              <div className="space-y-1.5">
+                <Input value={teamLeadership.team_name || ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, team_name: e.target.value } })} placeholder="Team name" className="h-7 text-[11px]" />
+                <div className="flex gap-1.5">
+                  <Input value={teamLeadership.starting_size ?? ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, starting_size: e.target.value } })} placeholder="Start size" className="h-7 text-[11px]" />
+                  <Input value={teamLeadership.peak_size ?? ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, peak_size: e.target.value } })} placeholder="Peak size" className="h-7 text-[11px]" />
+                </div>
+                <Textarea value={teamLeadership.growth_narrative || ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, growth_narrative: e.target.value } })} placeholder="Growth narrative" className="text-[11px] min-h-[40px] p-1.5" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-[10px]">Advisory / PS Scope</Label>
+              <div className="space-y-1.5">
+                <Input value={advisoryScope.title_external || ''} onChange={e => onChange({ advisory_ps_scope: { ...advisoryScope, title_external: e.target.value } })} placeholder="External title" className="h-7 text-[11px]" />
+                <Textarea value={advisoryScope.clarification || ''} onChange={e => onChange({ advisory_ps_scope: { ...advisoryScope, clarification: e.target.value } })} placeholder="Clarification" className="text-[11px] min-h-[40px] p-1.5" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-[10px]">Organization Scale</Label>
+              <div className="space-y-1.5">
+                <div className="flex gap-1.5">
+                  <Input value={orgScale.approx_total_people ?? ''} onChange={e => onChange({ organization_scale: { ...orgScale, approx_total_people: e.target.value } })} placeholder="Total people" className="h-7 text-[11px]" />
+                  <Input value={orgScale.approx_fte ?? ''} onChange={e => onChange({ organization_scale: { ...orgScale, approx_fte: e.target.value } })} placeholder="FTEs" className="h-7 text-[11px]" />
+                </div>
+                <Textarea value={orgScale.context || ''} onChange={e => onChange({ organization_scale: { ...orgScale, context: e.target.value } })} placeholder="Context" className="text-[11px] min-h-[40px] p-1.5" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Deliverables nested under a single initiative — real schema shape (impact,
+// capability_alignment, skill_ids), replacing the plain-text deliverable list.
+const InitiativeDeliverablesEditor = ({ deliverables, onChange }: { deliverables: any[]; onChange: (deliverables: any[]) => void }) => {
+  const sync = (idx: number, field: string, val: any) => {
+    const next = [...deliverables];
+    next[idx] = { ...next[idx], [field]: val };
+    onChange(next);
+  };
+  const addDeliverable = () => {
+    onChange([...deliverables, { id: `DEL-${Date.now().toString(36)}`, description: '', impact: '', capability_alignment: [], skill_ids: [] }]);
+  };
+  const removeDeliverable = (idx: number) => onChange(deliverables.filter((_, i) => i !== idx));
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Deliverables ({deliverables.length})</span>
+        <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] bg-white" onClick={addDeliverable}>
+          <Plus className="w-3 h-3" /> Add Deliverable
+        </Button>
+      </div>
+      {deliverables.map((d, idx) => (
+        <div key={d.id || idx} className="bg-slate-50 border border-slate-200 rounded p-2 space-y-1.5">
+          <div className="flex items-start gap-2">
+            <span className="text-[9px] font-mono text-slate-400 mt-1.5 shrink-0">{d.id}</span>
+            <Textarea value={d.description || ''} onChange={e => sync(idx, 'description', e.target.value)} placeholder="Description" className="text-[11px] min-h-[32px] p-1.5 flex-1" />
+            <button onClick={() => removeDeliverable(idx)} className="p-1 text-slate-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
+          <Textarea value={d.impact || ''} onChange={e => sync(idx, 'impact', e.target.value)} placeholder="Impact" className="text-[11px] min-h-[32px] p-1.5" />
+          <div className="grid grid-cols-2 gap-1.5">
+            <Input
+              value={Array.isArray(d.capability_alignment) ? d.capability_alignment.join(', ') : ''}
+              onChange={e => sync(idx, 'capability_alignment', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
+              placeholder="Capability IDs (CAP-001, ...)"
+              className="h-6 text-[10px] font-mono"
+            />
+            <Input
+              value={Array.isArray(d.skill_ids) ? d.skill_ids.join(', ') : ''}
+              onChange={e => sync(idx, 'skill_ids', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
+              placeholder="Skill IDs (SK-001, ...)"
+              className="h-6 text-[10px] font-mono"
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// A capability's functions are nested objects, each with their own nested skills[] —
+// the real schema, not the flat function-id-string list this editor used to show.
+// Legacy string-id entries (from older/scaffold data) are still accepted and shown as
+// a simple chip with a one-click upgrade to a full entry, rather than silently coerced.
+const CapabilityFunctionsEditor = ({
+  functions,
+  vocabularies,
+  onChange,
+}: {
+  functions: any[];
+  vocabularies: any;
+  onChange: (functions: any[]) => void;
+}) => {
+  const sync = (idx: number, updates: any) => {
+    const next = [...functions];
+    next[idx] = { ...(typeof next[idx] === 'object' ? next[idx] : {}), ...updates };
+    onChange(next);
+  };
+  const addFunction = () => {
+    onChange([...functions, { id: `FUNC-${Date.now().toString(36)}`, name: '', description: '', competency_level: '', value_stream_stage: '', skills: [] }]);
+  };
+  const removeFunction = (idx: number) => onChange(functions.filter((_, i) => i !== idx));
+  const upgradeLegacy = (idx: number, legacyId: string) => sync(idx, { id: legacyId, name: '', skills: [] });
+
+  const syncSkill = (fnIdx: number, skillIdx: number, updates: any) => {
+    const fn = functions[fnIdx];
+    const skills = Array.isArray(fn.skills) ? [...fn.skills] : [];
+    skills[skillIdx] = { ...skills[skillIdx], ...updates };
+    sync(fnIdx, { skills });
+  };
+  const addSkill = (fnIdx: number) => {
+    const fn = functions[fnIdx];
+    const skills = Array.isArray(fn.skills) ? [...fn.skills] : [];
+    skills.push({ id: `SK-${Date.now().toString(36)}`, name: '', description: '', proficiency: '', last_used: '' });
+    sync(fnIdx, { skills });
+  };
+  const removeSkill = (fnIdx: number, skillIdx: number) => {
+    const fn = functions[fnIdx];
+    sync(fnIdx, { skills: (fn.skills || []).filter((_: any, i: number) => i !== skillIdx) });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="mb-0">Functions ({functions.length})</Label>
+        <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] bg-white" onClick={addFunction}>
+          <Plus className="w-3 h-3" /> Add Function
+        </Button>
+      </div>
+      {functions.map((fn, idx) => {
+        if (typeof fn === 'string') {
+          return (
+            <div key={idx} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded p-2">
+              <Badge variant="outline" className="font-mono text-[10px]">{fn}</Badge>
+              <span className="text-[10px] text-slate-400 flex-1">Legacy id-only entry</span>
+              <button onClick={() => upgradeLegacy(idx, fn)} className="text-[10px] font-semibold text-brand-600 hover:text-brand-800">Upgrade to full entry</button>
+              <button onClick={() => removeFunction(idx)} className="p-1 text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+          );
+        }
+        return (
+          <div key={fn.id || idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-mono text-slate-400 shrink-0">{fn.id}</span>
+              <Input value={fn.name || ''} onChange={e => sync(idx, { name: e.target.value })} placeholder="Function name" className="h-7 text-xs font-semibold flex-1" />
+              <button onClick={() => removeFunction(idx)} className="p-1 text-slate-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+            <Textarea value={fn.description || ''} onChange={e => sync(idx, { description: e.target.value })} placeholder="Description" className="text-[11px] min-h-[32px] p-1.5" />
+            <div className="grid grid-cols-2 gap-1.5">
+              <select value={fn.competency_level || ''} onChange={e => sync(idx, { competency_level: e.target.value })} className="text-[10px] border border-slate-200 rounded p-1 bg-white text-slate-700 h-7">
+                <option value="">Competency level…</option>
+                {(vocabularies.competency_levels || []).map((c: string) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={fn.value_stream_stage || ''} onChange={e => sync(idx, { value_stream_stage: e.target.value })} className="text-[10px] border border-slate-200 rounded p-1 bg-white text-slate-700 h-7">
+                <option value="">Value stream stage…</option>
+                {(vocabularies.value_stream_stages || []).map((v: string) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </div>
+
+            <div className="pt-1.5 border-t border-slate-200 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Skills ({(fn.skills || []).length})</span>
+                <button onClick={() => addSkill(idx)} className="text-[10px] font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-0.5"><Plus className="w-3 h-3" /> Add Skill</button>
+              </div>
+              {(fn.skills || []).map((sk: any, skIdx: number) => (
+                <div key={sk.id || skIdx} className="bg-white border border-slate-200 rounded p-2 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-mono text-slate-400 shrink-0">{sk.id}</span>
+                    <Input value={sk.name || ''} onChange={e => syncSkill(idx, skIdx, { name: e.target.value })} placeholder="Skill name" className="h-6 text-[11px] flex-1" />
+                    <Input value={sk.proficiency || ''} onChange={e => syncSkill(idx, skIdx, { proficiency: e.target.value })} placeholder="Proficiency" className="h-6 text-[11px] w-24" />
+                    <Input value={sk.last_used || ''} onChange={e => syncSkill(idx, skIdx, { last_used: e.target.value })} placeholder="Last used" className="h-6 text-[11px] w-20" />
+                    <button onClick={() => removeSkill(idx, skIdx)} className="p-0.5 text-slate-300 hover:text-red-500 shrink-0"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                  <Textarea value={sk.description || ''} onChange={e => syncSkill(idx, skIdx, { description: e.target.value })} placeholder="Description" className="text-[10px] min-h-[26px] p-1" />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {functions.length === 0 && <p className="text-[11px] text-slate-400 italic">No functions mapped to this capability yet.</p>}
+    </div>
+  );
+};
+
+// Generic two-column id-to-id link table — used for links.deliverable_function and
+// links.certification_alignment, which are both simple {keyA, keyB} pair lists.
+const SimplePairLinkCard = ({
+  title, desc, colALabel, colBLabel, keyA, keyB, placeholderA, placeholderB, items, onChange,
+}: {
+  title: string; desc: string; colALabel: string; colBLabel: string;
+  keyA: string; keyB: string; placeholderA: string; placeholderB: string;
+  items: any[]; onChange: (items: any[]) => void;
+}) => (
+  <Card className="p-6">
+    <div className="flex justify-between items-center mb-4">
+      <HeaderCell title={title} desc={desc} />
+      <Button size="sm" variant="outline" onClick={() => onChange([...(items || []), { [keyA]: '', [keyB]: '' }])} className="h-7 text-[10px]">
+        <Plus className="w-3 h-3 mr-1" /> Add Link
+      </Button>
+    </div>
+    <div className="overflow-x-auto text-xs">
+      <table className="w-full text-left">
+        <thead className="bg-slate-50 border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+          <tr>
+            <th className="p-2">{colALabel}</th>
+            <th className="p-2">{colBLabel}</th>
+            <th className="p-2"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {(items || []).map((item, idx) => (
+            <tr key={idx}>
+              <td className="p-2">
+                <Input value={item[keyA] || ''} placeholder={placeholderA} onChange={e => {
+                  const next = [...items];
+                  next[idx] = { ...next[idx], [keyA]: e.target.value };
+                  onChange(next);
+                }} className="h-7 text-xs font-mono text-slate-700" />
+              </td>
+              <td className="p-2">
+                <Input value={item[keyB] || ''} placeholder={placeholderB} onChange={e => {
+                  const next = [...items];
+                  next[idx] = { ...next[idx], [keyB]: e.target.value };
+                  onChange(next);
+                }} className="h-7 text-xs font-mono" />
+              </td>
+              <td className="p-2 text-right">
+                <button onClick={() => onChange(items.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {(!items || items.length === 0) && <p className="text-[11px] text-slate-400 italic p-3 text-center">Nothing mapped yet.</p>}
+    </div>
+  </Card>
+);
+
+// Generic editable list of plain strings — used for signature_outcomes,
+// target_role_families, narrative_anchors, and similar string[] fields.
+const StringListEditor = ({
+  items,
+  onChange,
+  placeholder,
+}: {
+  items: string[];
+  onChange: (items: string[]) => void;
+  placeholder?: string;
+}) => {
+  const [draft, setDraft] = React.useState('');
+  const add = () => {
+    const v = draft.trim();
+    if (!v) return;
+    onChange([...(items || []), v]);
+    setDraft('');
+  };
+  return (
+    <div className="space-y-2">
+      {(items || []).map((item, idx) => (
+        <div key={idx} className="flex gap-2 items-center">
+          <Input
+            value={item}
+            onChange={e => {
+              const next = [...items];
+              next[idx] = e.target.value;
+              onChange(next);
+            }}
+            className="text-xs"
+          />
+          <button
+            onClick={() => onChange(items.filter((_, i) => i !== idx))}
+            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-600 shrink-0"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder={placeholder || 'Add an item'}
+          className="text-xs"
+        />
+        <Button type="button" size="sm" variant="outline" className="bg-white shrink-0" onClick={add}>
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      {(!items || items.length === 0) && <p className="text-xs text-slate-400 italic">Nothing added yet.</p>}
+    </div>
+  );
+};
 
 // Interactive timeline association manager to map roles and initiatives as proofs
 interface TimelineLinkingWidgetProps {
