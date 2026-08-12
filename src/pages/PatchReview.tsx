@@ -1,0 +1,162 @@
+import React, { useState, useEffect } from 'react';
+import { useStore } from '../store';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '../components/ui';
+import { mockStageCareerJourneyPatch } from '../lib/mock-ai';
+import { CareerJourneyPatch } from '../types';
+import { Loader2, RefreshCw } from 'lucide-react';
+
+export default function PatchReview() {
+  const { id } = useParams();
+  const job = useStore((state) => state.jobs[id || '']);
+  const updateJob = useStore((state) => state.updateJob);
+  const careerJourney = useStore((state) => state.careerJourney);
+  const setCareerJourney = useStore((state) => state.setCareerJourney);
+  const navigate = useNavigate();
+
+  const [patch, setPatch] = useState<CareerJourneyPatch | null>(job?.careerJourneyPatch || null);
+  const [updatedCJ, setUpdatedCJ] = useState<any>(null); // Temp state to hold the AI's modified version of the journey before approval
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!patch && job?.contextEntries && Object.keys(job.contextEntries).length > 0) {
+      generatePatch();
+    }
+  }, []);
+
+  const generatePatch = async () => {
+    if (!job?.contextEntries || !careerJourney) return;
+    setIsGenerating(true);
+    try {
+      const result = await mockStageCareerJourneyPatch(careerJourney, job.contextEntries);
+      setPatch(result.summary);
+      setUpdatedCJ(result.updatedCareerJourney);
+      updateJob(job.id, { careerJourneyPatch: result.summary });
+    } catch (e: any) {
+      alert("Error generating patch: " + e.message);
+    }
+    setIsGenerating(false);
+  };
+
+  const handleApprove = () => {
+    if (patch) {
+      const updated = { ...patch, approvalStatus: 'Approved' as const };
+      setPatch(updated);
+      updateJob(job.id, { careerJourneyPatch: updated, status: 'Career Journey Patch Staged' });
+      
+      if (updatedCJ) {
+         setCareerJourney(updatedCJ); // Apply AI changes to main state!
+      }
+      
+      alert("Patch approved! The Career Journey has been updated globally.");
+      navigate(`/job/${job.id}/fit`);
+    }
+  };
+
+  if (!job) return null;
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-zinc-900">Career Journey Patch</h2>
+          <p className="text-zinc-500">Review structural updates based on approved context.</p>
+        </div>
+        <div className="space-x-3">
+          <Button variant="outline" onClick={generatePatch} disabled={isGenerating} className="flex items-center gap-2 min-w-[150px] justify-center">
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+                <span>Patching...</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4 text-slate-500" />
+                <span>Regenerate Patch</span>
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {!patch ? (
+        <Card className={`${isGenerating ? 'border-brand-200 bg-brand-50/10 animate-pulse' : ''}`}>
+          <CardContent className="py-16 text-center text-zinc-500">
+             {isGenerating ? (
+               <div className="flex flex-col items-center justify-center gap-4">
+                 <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+                 <div className="space-y-1">
+                   <p className="font-bold text-zinc-800">Synthesizing Ontology Modifications</p>
+                   <p className="text-xs text-zinc-400">Gemini is matching raw experience contexts back into structured JSON formats...</p>
+                 </div>
+               </div>
+             ) : (
+               "No approved context entries found. Go back and approve some context first."
+             )}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="bg-zinc-50 border-b pb-4">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-lg">Proposed Update: {patch.targetVersion}</CardTitle>
+                <Badge variant={patch.approvalStatus === 'Approved' ? 'success' : 'warning'}>{patch.approvalStatus}</Badge>
+              </div>
+              <p className="text-sm font-medium text-zinc-700 mt-2">Reason: {patch.reason}</p>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-6 font-mono text-sm leading-relaxed text-zinc-800">
+              
+              {patch.newSkills?.length > 0 && (
+                <div>
+                  <h4 className="font-bold border-b border-zinc-200 mb-2 pb-1">New Skills:</h4>
+                  <ul className="list-disc pl-5">
+                    {patch.newSkills.map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {(patch.newDeliverables?.length > 0 || patch.updatedDeliverables?.length > 0) && (
+                <div>
+                  <h4 className="font-bold border-b border-zinc-200 mb-2 pb-1">Deliverables Affected:</h4>
+                  <ul className="list-disc pl-5">
+                    {patch.newDeliverables?.map((d, i) => <li key={i} className="text-brand-700">[NEW] {d}</li>)}
+                    {patch.updatedDeliverables?.map((d, i) => <li key={i} className="text-orange-700">[UPDATE] {d}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {(patch.newAchievements?.length > 0 || patch.updatedAchievements?.length > 0) && (
+                <div>
+                  <h4 className="font-bold border-b border-zinc-200 mb-2 pb-1">Achievements Affected:</h4>
+                  <ul className="list-disc pl-5">
+                    {patch.newAchievements?.map((a, i) => <li key={i} className="text-brand-700">[NEW] {a}</li>)}
+                    {patch.updatedAchievements?.map((a, i) => <li key={i} className="text-orange-700">[UPDATE] {a}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div>
+                 <h4 className="font-bold border-b border-zinc-200 mb-2 pb-1">Meta Update:</h4>
+                 <div className="pl-2 bg-zinc-100 p-2 rounded">
+                    {JSON.stringify(patch.metaUpdate, null, 2)}
+                 </div>
+              </div>
+
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end gap-4">
+             <Button variant="outline" onClick={() => navigate(`/job/${job.id}/keywords`)}>Back to Context</Button>
+             <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleApprove} disabled={patch.approvalStatus === 'Approved'}>
+               {patch.approvalStatus === 'Approved' ? 'Approved' : 'Approve & Merge JSON'}
+             </Button>
+             {patch.approvalStatus === 'Approved' && (
+               <Button onClick={() => navigate(`/job/${job.id}/fit`)}>Continue to Fit Analysis</Button>
+             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

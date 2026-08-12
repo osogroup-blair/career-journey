@@ -1,0 +1,8 @@
+{
+  "name": "Job Fit & Resume Tailor",
+  "description": "Evaluate job descriptions, recognize missing experience, stage Career Journey updates, and prepare tailored resumes to pass ATS structured-field audits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
