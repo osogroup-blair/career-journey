@@ -1,14 +1,30 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { JobAnalysis } from './types';
+import { JobAnalysis, JobMatch, MatchPreferences } from './types';
 import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
+import { dataStore } from './data';
+import { generateId } from './lib/utils';
+
+const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
+  excludedKeywords: [],
+  minMatchScore: 0,
+  trackedCompanies: [],
+};
 
 interface AppState {
   jobs: Record<string, JobAnalysis>;
+  matches: Record<string, JobMatch>;
+  matchPreferences: MatchPreferences;
   careerJourney: any;
+  hydrate: () => Promise<void>;
   addJob: (job: JobAnalysis) => void;
   updateJob: (id: string, updates: Partial<JobAnalysis>) => void;
   deleteJob: (id: string) => void;
+  addMatch: (match: JobMatch) => void;
+  updateMatch: (id: string, updates: Partial<JobMatch>) => void;
+  deleteMatch: (id: string) => void;
+  /** Seeds a full JobAnalysis from a scanned match and hands it off to the existing pipeline. Returns the new job id, or null if the match doesn't exist. */
+  promoteMatch: (matchId: string) => string | null;
+  updateMatchPreferences: (updates: Partial<MatchPreferences>) => void;
   setCareerJourney: (data: any) => void;
   addAchievementToRole: (roleId: string, achievement: any) => void;
   addDeliverableToRole: (roleId: string, deliverable: string) => void;
@@ -23,26 +39,132 @@ interface AppState {
   updateSkillAtIndex: (index: number, skill: any) => void;
   deleteSkillAtIndex: (index: number) => void;
   updateCareerJourneyMeta: (metaUpdates: any) => void;
+  updateCareerJourneyPerson: (personUpdates: any) => void;
 }
 
-export const useStore = create<AppState>()(
-  persist(
-    (set) => ({
-      jobs: {},
-      careerJourney: DEFAULT_CAREER_JOURNEY,
-      addJob: (job) => set((state) => ({ jobs: { ...state.jobs, [job.id]: job } })),
-      updateJob: (id, updates) => set((state) => ({
+export const useStore = create<AppState>((set, get) => {
+  // Fire-and-forget persistence side effects, kept out of the synchronous
+  // zustand reducers above so UI updates never wait on storage I/O.
+  const persistCareerJourney = () => {
+    const cj = get().careerJourney;
+    if (cj) dataStore.saveCareerJourney(cj).catch((err) => console.error('Failed to save career journey', err));
+  };
+  const persistJob = (job: JobAnalysis) => {
+    dataStore.saveJob(job).catch((err) => console.error('Failed to save job', err));
+  };
+  const persistJobDelete = (id: string) => {
+    dataStore.deleteJob(id).catch((err) => console.error('Failed to delete job', err));
+  };
+  const persistMatch = (match: JobMatch) => {
+    dataStore.saveMatch(match).catch((err) => console.error('Failed to save match', err));
+  };
+  const persistMatchDelete = (id: string) => {
+    dataStore.deleteMatch(id).catch((err) => console.error('Failed to delete match', err));
+  };
+
+  return {
+    jobs: {},
+    matches: {},
+    matchPreferences: DEFAULT_MATCH_PREFERENCES,
+    careerJourney: DEFAULT_CAREER_JOURNEY,
+
+    hydrate: async () => {
+      const [careerJourney, jobs, matches, matchPreferences] = await Promise.all([
+        dataStore.getCareerJourney(),
+        dataStore.listJobs(),
+        dataStore.listMatches(),
+        dataStore.getMatchPreferences(),
+      ]);
+      set({
+        careerJourney: careerJourney ?? DEFAULT_CAREER_JOURNEY,
+        jobs: jobs ?? {},
+        matches: matches ?? {},
+        matchPreferences: { ...DEFAULT_MATCH_PREFERENCES, ...(matchPreferences ?? {}) },
+      });
+    },
+
+    addJob: (job) => {
+      set((state) => ({ jobs: { ...state.jobs, [job.id]: job } }));
+      persistJob(get().jobs[job.id]);
+    },
+    updateJob: (id, updates) => {
+      set((state) => ({
         jobs: {
           ...state.jobs,
           [id]: { ...state.jobs[id], ...updates, updatedAt: new Date().toISOString() }
         }
-      })),
-      deleteJob: (id) => set((state) => {
+      }));
+      const updated = get().jobs[id];
+      if (updated) persistJob(updated);
+    },
+    deleteJob: (id) => {
+      set((state) => {
         const newJobs = { ...state.jobs };
         delete newJobs[id];
         return { jobs: newJobs };
-      }),
-      addAchievementToRole: (roleId, achievement) => set((state) => {
+      });
+      persistJobDelete(id);
+    },
+    addMatch: (match) => {
+      set((state) => ({ matches: { ...state.matches, [match.id]: match } }));
+      persistMatch(get().matches[match.id]);
+    },
+    updateMatch: (id, updates) => {
+      set((state) => {
+        if (!state.matches[id]) return state;
+        return {
+          matches: {
+            ...state.matches,
+            [id]: { ...state.matches[id], ...updates, updatedAt: new Date().toISOString() }
+          }
+        };
+      });
+      const updated = get().matches[id];
+      if (updated) persistMatch(updated);
+    },
+    deleteMatch: (id) => {
+      set((state) => {
+        const newMatches = { ...state.matches };
+        delete newMatches[id];
+        return { matches: newMatches };
+      });
+      persistMatchDelete(id);
+    },
+    promoteMatch: (matchId) => {
+      const match = get().matches[matchId];
+      if (!match) return null;
+
+      const jobId = generateId('JOB');
+      const newJob: JobAnalysis = {
+        id: jobId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: match.parse ? 'JD Parsed' : 'Draft',
+        companyName: match.companyName,
+        roleTitle: match.roleTitle,
+        jdText: match.jdText,
+        parse: match.parse,
+      };
+
+      set((state) => ({ jobs: { ...state.jobs, [jobId]: newJob } }));
+      persistJob(get().jobs[jobId]);
+
+      set((state) => ({
+        matches: {
+          ...state.matches,
+          [matchId]: { ...state.matches[matchId], status: 'Promoted', promotedJobId: jobId, updatedAt: new Date().toISOString() }
+        }
+      }));
+      persistMatch(get().matches[matchId]);
+
+      return jobId;
+    },
+    updateMatchPreferences: (updates) => {
+      set((state) => ({ matchPreferences: { ...state.matchPreferences, ...updates } }));
+      dataStore.saveMatchPreferences(get().matchPreferences).catch((err) => console.error('Failed to save match preferences', err));
+    },
+    addAchievementToRole: (roleId, achievement) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const role = copy.roles?.find((r: any) => r.id === roleId);
@@ -52,8 +174,11 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      addDeliverableToRole: (roleId, deliverable) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    addDeliverableToRole: (roleId, deliverable) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const role = copy.roles?.find((r: any) => r.id === roleId);
@@ -63,8 +188,11 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      updateRole: (roleId, updates) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    updateRole: (roleId, updates) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const roleIndex = copy.roles?.findIndex((r: any) => r.id === roleId);
@@ -73,23 +201,32 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      addRole: (role) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    addRole: (role) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         if (!Array.isArray(copy.roles)) copy.roles = [];
         copy.roles.unshift(role);
         copy.meta.last_updated = new Date().toISOString().split('T')[0];
         return { careerJourney: copy };
-      }),
-      deleteRole: (roleId) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    deleteRole: (roleId) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         copy.roles = (copy.roles || []).filter((r: any) => r.id !== roleId);
         copy.meta.last_updated = new Date().toISOString().split('T')[0];
         return { careerJourney: copy };
-      }),
-      updateAchievementAtIndex: (roleId, index, achievement) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    updateAchievementAtIndex: (roleId, index, achievement) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const role = copy.roles?.find((r: any) => r.id === roleId);
@@ -98,8 +235,11 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      deleteAchievementAtIndex: (roleId, index) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    deleteAchievementAtIndex: (roleId, index) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const role = copy.roles?.find((r: any) => r.id === roleId);
@@ -108,8 +248,11 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      updateDeliverableAtIndex: (roleId, index, deliverable) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    updateDeliverableAtIndex: (roleId, index, deliverable) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const role = copy.roles?.find((r: any) => r.id === roleId);
@@ -118,8 +261,11 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      deleteDeliverableAtIndex: (roleId, index) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    deleteDeliverableAtIndex: (roleId, index) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         const role = copy.roles?.find((r: any) => r.id === roleId);
@@ -128,16 +274,22 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      addSkillToIndex: (skill) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    addSkillToIndex: (skill) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         if (!Array.isArray(copy.skills_index)) copy.skills_index = [];
         copy.skills_index.push(skill);
         copy.meta.last_updated = new Date().toISOString().split('T')[0];
         return { careerJourney: copy };
-      }),
-      updateSkillAtIndex: (index, skill) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    updateSkillAtIndex: (index, skill) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         if (Array.isArray(copy.skills_index) && copy.skills_index[index] !== undefined) {
@@ -145,8 +297,11 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      deleteSkillAtIndex: (index) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    deleteSkillAtIndex: (index) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         if (Array.isArray(copy.skills_index)) {
@@ -154,33 +309,49 @@ export const useStore = create<AppState>()(
           copy.meta.last_updated = new Date().toISOString().split('T')[0];
         }
         return { careerJourney: copy };
-      }),
-      updateCareerJourneyMeta: (metaUpdates) => set((state) => {
+      });
+      persistCareerJourney();
+    },
+    updateCareerJourneyMeta: (metaUpdates) => {
+      set((state) => {
         if (!state.careerJourney) return state;
         const copy = JSON.parse(JSON.stringify(state.careerJourney));
         copy.meta = { ...copy.meta, ...metaUpdates, last_updated: new Date().toISOString().split('T')[0] };
         return { careerJourney: copy };
-      }),
-      setCareerJourney: (data) => set(() => {
+      });
+      persistCareerJourney();
+    },
+    updateCareerJourneyPerson: (personUpdates) => {
+      set((state) => {
+        if (!state.careerJourney) return state;
+        const copy = JSON.parse(JSON.stringify(state.careerJourney));
+        copy.person = { ...copy.person, ...personUpdates };
+        if (copy.meta) copy.meta.last_updated = new Date().toISOString().split('T')[0];
+        return { careerJourney: copy };
+      });
+      persistCareerJourney();
+    },
+    setCareerJourney: (data) => {
+      set(() => {
         if (!data) return { careerJourney: null };
         const copy = JSON.parse(JSON.stringify(data));
-        
+
         // Auto-normalize older or partial structures into standard 12-tier ontology cleanly
         if (!copy.meta) {
-          copy.meta = { 
-            owner: "User Profile", 
-            version: "1.0.0", 
-            framework: "TailorFlow v2", 
-            description: "", 
-            last_updated: new Date().toISOString().split('T')[0], 
-            version_X_Y_changes: [] 
+          copy.meta = {
+            owner: "User Profile",
+            version: "1.0.0",
+            framework: "TailorFlow v2",
+            description: "",
+            last_updated: new Date().toISOString().split('T')[0],
+            version_X_Y_changes: []
           };
         }
         if (!Array.isArray(copy.meta.version_X_Y_changes)) {
           copy.meta.version_X_Y_changes = [];
         }
         copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        
+
         if (!copy.roles) copy.roles = [];
         copy.roles = copy.roles.map((r: any, idx: number) => {
           const newRole = { ...r };
@@ -213,18 +384,16 @@ export const useStore = create<AppState>()(
         if (!Array.isArray(copy.customer_engagements)) copy.customer_engagements = [];
         if (!Array.isArray(copy.education)) copy.education = [];
         if (!copy.vocabularies) {
-          copy.vocabularies = { 
-            competency_levels: ["L1-Associate", "L2-Intermediate", "L3-Senior", "L4-Principal", "L5-Distinguished"], 
-            proficiency_levels: ["Beginner", "Intermediate", "Advanced", "Expert"], 
-            value_stream_stages: ["Discovery", "Definition", "Refinement", "Validation", "Scale Operations"] 
+          copy.vocabularies = {
+            competency_levels: ["L1-Associate", "L2-Intermediate", "L3-Senior", "L4-Principal", "L5-Distinguished"],
+            proficiency_levels: ["Beginner", "Intermediate", "Advanced", "Expert"],
+            value_stream_stages: ["Discovery", "Definition", "Refinement", "Validation", "Scale Operations"]
           };
         }
 
         return { careerJourney: copy };
-      }),
-    }),
-    {
-      name: 'job-fit-storage',
-    }
-  )
-);
+      });
+      persistCareerJourney();
+    },
+  };
+});

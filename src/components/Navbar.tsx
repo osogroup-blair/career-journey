@@ -1,8 +1,10 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { signOut } from 'firebase/auth';
 import { useStore } from '../store';
 import { generateId } from '../lib/utils';
-import { Compass, Briefcase, Award, Plus, Upload, Download, Pencil } from 'lucide-react';
+import { auth, isFirebaseConfigured } from '../lib/firebase';
+import { Compass, Briefcase, Award, Plus, Upload, Download, Pencil, Radar, LogOut } from 'lucide-react';
 import { Button } from './ui';
 
 export default function Navbar() {
@@ -88,6 +90,18 @@ export default function Navbar() {
             </Link>
 
             <Link
+              to="/matches"
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive('/matches')
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Radar className="h-4 w-4" />
+              Matches
+            </Link>
+
+            <Link
               to="/edit"
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive('/edit')
@@ -150,6 +164,17 @@ export default function Navbar() {
             <Plus className="h-4 w-4 mr-1" />
             New Job Analysis
           </Button>
+
+          {isFirebaseConfigured && auth && (
+            <button
+              onClick={() => signOut(auth!)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign Out
+            </button>
+          )}
         </div>
 
       </div>

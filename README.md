@@ -178,6 +178,28 @@ npm start
 
 ---
 
+## Firebase & Firestore (Optional Cloud Mode)
+
+The app runs entirely on browser local storage by default — no Firebase project required. It's built to switch into a Firestore-backed, single-account-authenticated mode once one exists, without any code changes:
+
+- `src/data/DataStore.ts` is the persistence interface every page depends on; `LocalStorageDataStore` (default) and `FirestoreDataStore` are interchangeable implementations of it.
+- `src/components/AuthGate.tsx` gates the app behind Firebase Auth and swaps in `FirestoreDataStore` once signed in. There's no sign-up form — this app is scoped to one pre-provisioned account.
+- `server/firebaseAdmin.ts` verifies a Firebase ID token on `/api/ai/*` and `/api/sources/*` once configured, so a deployed instance can't have its Gemini quota burned by strangers.
+- Firestore documents live under `users/{uid}/...` — multi-tenant-shaped even though the app itself is single-user.
+
+**To turn cloud mode on:**
+
+1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com), enable **Firestore** and **Authentication → Email/Password**.
+2. Create the one account this app will use, under Authentication → Users → Add user.
+3. Copy the web app config (Project Settings → General → Your apps) into `.env` as the `VITE_FIREBASE_*` vars — see `.env.example`.
+4. Generate a service account key (Project Settings → Service Accounts → Generate new private key) and paste the JSON into `.env` as `FIREBASE_SERVICE_ACCOUNT_JSON`.
+5. Restart the app, sign in, then visit `/migrate` once to copy any existing local data into Firestore.
+6. Deploy security rules: `firebase deploy --only firestore:rules` (after `firebase use --add` to link this repo to your project).
+
+Hosting/API deployment (Firebase Hosting + Cloud Run for the Express server) is scaffolded in `firebase.json` but not yet deployed — that's the one remaining manual step once you're ready to put this on the public internet.
+
+---
+
 ## What I Designed / Built
 
 While this repository utilizes standard scaffolding patterns, the underlying architecture and core logic were designed and built by **Blair**:

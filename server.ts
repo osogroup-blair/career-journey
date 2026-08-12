@@ -7,6 +7,7 @@ import { FULL_KNOWLEDGE } from "./server/knowledge";
 import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/careerJourneyVersioning";
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
+import { requireFirebaseAuth } from "./server/firebaseAdmin";
 
 dotenv.config();
 
@@ -30,6 +31,11 @@ async function startServer() {
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
+
+  // No-op until FIREBASE_SERVICE_ACCOUNT_JSON is set (see server/firebaseAdmin.ts) —
+  // guards the AI/sourcing endpoints once the app is deployed publicly.
+  app.use("/api/ai", requireFirebaseAuth);
+  app.use("/api/sources", requireFirebaseAuth);
 
   app.post("/api/ai/parse", async (req, res) => {
     try {
@@ -323,6 +329,148 @@ Your instructions:
               }
             },
             required: ["overallVerdict", "gates"]
+          }
+        }
+      });
+      res.json(JSON.parse(response.text!));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  function stripHtml(html: string): string {
+    return html
+      // Greenhouse/Lever content fields arrive HTML-entity-escaped (e.g. "&lt;div&gt;"), so decode first.
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<\/(p|div|li|br|h[1-6])>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n[ \t]+/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  app.post("/api/sources/fetchCompanyJobs", async (req, res) => {
+    const { boardToken } = req.body as { boardToken: string };
+    if (!boardToken || typeof boardToken !== "string") {
+      return res.status(400).json({ error: "boardToken is required" });
+    }
+    const token = boardToken.trim();
+
+    try {
+      const ghRes = await fetch(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(token)}/jobs?content=true`);
+      if (ghRes.ok) {
+        const data: any = await ghRes.json();
+        const jobs = (data.jobs || []).map((j: any) => ({
+          source: "greenhouse",
+          externalId: String(j.id),
+          companyName: j.company_name || token,
+          title: j.title,
+          location: j.location?.name,
+          absoluteUrl: j.absolute_url,
+          jdText: stripHtml(j.content || ""),
+        }));
+        return res.json({ source: "greenhouse", jobs });
+      }
+    } catch (e) {
+      console.error(`Greenhouse lookup failed for "${token}"`, e);
+    }
+
+    try {
+      const leverRes = await fetch(`https://api.lever.co/v0/postings/${encodeURIComponent(token)}?mode=json`);
+      if (leverRes.ok) {
+        const data: any = await leverRes.json();
+        if (Array.isArray(data)) {
+          const jobs = data.map((j: any) => ({
+            source: "lever",
+            externalId: String(j.id),
+            companyName: token,
+            title: j.text,
+            location: j.categories?.location,
+            absoluteUrl: j.hostedUrl,
+            jdText: stripHtml(
+              [j.descriptionPlain || j.description, ...(j.lists || []).map((l: any) => `${l.text}\n${l.content || ""}`)]
+                .filter(Boolean)
+                .join("\n\n")
+            ),
+          }));
+          return res.json({ source: "lever", jobs });
+        }
+      }
+    } catch (e) {
+      console.error(`Lever lookup failed for "${token}"`, e);
+    }
+
+    return res.status(404).json({ error: `No public job board found for "${token}" on Greenhouse or Lever. Check the token from the company's careers page URL.` });
+  });
+
+  app.post("/api/ai/liteScan", async (req, res) => {
+    try {
+      const { jdText, careerJourney } = req.body;
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running a fast Match Triage Scan for Blair Boylan — a single-call condensed version of JD_pipeline_SKILL.md Stages 1, 3, and 4, used to rank a batch of job postings before he commits to the full pipeline on any one of them. Be decisive, not exhaustive: this is a triage signal, not the final audit.
+
+In one pass:
+1. Parse the JD exactly as Stage 1 does: company & exact role title, reporting line, team scope, must-haves, nice-to-haves, strategic signals, industry/domain, stage signals, top 4-6 critical skills, and hard gates (evaluated against Blair's actual default position: US-authorized; remote-first from Telluride CO, Mountain Time, willing to travel 10-20%; Mechanical Engineering coursework at MSOE, not completed; no clearance/PMP held). Only include a hard gate if the JD actually states or implies it.
+2. Score fit using Stage 3's four dimensions (role scope, industry/domain, seniority/stage, technical & AI fit) against Blair's Career Journey below, and land on one verdict: PASS / BORDERLINE / SKIP.
+3. Judge hard-gate risk the way Stage 4 does, and land on one of: "CLEAR TO APPLY" / "VERIFY FIRST" / "LIKELY AUTO-REJECT".
+4. Give a 0-100 matchScore reflecting overall pursue-worthiness (weight the fit verdict and hard-gate risk together, not just keyword overlap).
+5. List the 3-5 biggest evidence gaps (topGaps) and the 2-3 strongest proof points already in the Career Journey worth leading with (leadWith) — short, concrete phrases, not full sentences.
+
+Job Description:
+${jdText}
+
+Candidate Career Journey:
+${JSON.stringify(careerJourney || {}, null, 2)}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              parse: {
+                type: Type.OBJECT,
+                properties: {
+                  company: { type: Type.STRING },
+                  roleTitle: { type: Type.STRING },
+                  reportingLine: { type: Type.STRING },
+                  teamScope: { type: Type.STRING },
+                  mustHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  niceToHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  strategicSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  industryDomain: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  stageSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  topCriticalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  hardGates: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        category: { type: Type.STRING },
+                        requirement: { type: Type.STRING }
+                      }
+                    }
+                  }
+                },
+                required: ["company", "roleTitle", "reportingLine", "teamScope", "mustHaves", "niceToHaves", "strategicSignals", "industryDomain", "stageSignals", "topCriticalSkills", "hardGates"]
+              },
+              matchScore: { type: Type.NUMBER },
+              verdict: { type: Type.STRING, description: "'PASS' | 'BORDERLINE' | 'SKIP'" },
+              hardGateRisk: { type: Type.STRING, description: "'CLEAR TO APPLY' | 'VERIFY FIRST' | 'LIKELY AUTO-REJECT'" },
+              topGaps: { type: Type.ARRAY, items: { type: Type.STRING } },
+              leadWith: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["parse", "matchScore", "verdict", "hardGateRisk", "topGaps", "leadWith"]
           }
         }
       });

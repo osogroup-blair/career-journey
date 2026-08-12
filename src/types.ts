@@ -173,6 +173,65 @@ export interface KeywordCoverage {
   unsupportedKeywords: string[];
 }
 
+export type MatchStatus = 'New' | 'Promoted' | 'Dismissed';
+export type MatchVerdict = 'PASS' | 'BORDERLINE' | 'SKIP';
+export type MatchHardGateRisk = 'CLEAR TO APPLY' | 'VERIFY FIRST' | 'LIKELY AUTO-REJECT';
+
+export interface JobMatchScanResult {
+  parse: JDParse;
+  matchScore: number;
+  verdict: MatchVerdict;
+  hardGateRisk: MatchHardGateRisk;
+  topGaps: string[];
+  leadWith: string[];
+}
+
+export type MatchSource = 'manual-paste' | 'greenhouse' | 'lever';
+
+export interface JobMatch {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  source: MatchSource;
+  /** Dedup key for API-sourced postings: the posting's id on its origin ATS. */
+  externalId?: string;
+  /** Link back to the original posting, for API-sourced postings. */
+  sourceUrl?: string;
+  companyName: string;
+  roleTitle: string;
+  jdText: string;
+  status: MatchStatus;
+  parse?: JDParse;
+  matchScore?: number;
+  verdict?: MatchVerdict;
+  hardGateRisk?: MatchHardGateRisk;
+  topGaps?: string[];
+  leadWith?: string[];
+  scanError?: string;
+  /** Set when a posting was auto-dismissed by the excluded-keyword prefilter, before any AI call was made. */
+  dismissReason?: string;
+  promotedJobId?: string;
+}
+
+export interface MatchPreferences {
+  /** Case-insensitive substrings; a JD containing any of these skips the AI scan entirely and is auto-dismissed. */
+  excludedKeywords: string[];
+  /** 0-100. Matches scored below this are hidden from view (except already-promoted ones). 0 = show everything. */
+  minMatchScore: number;
+  /** Greenhouse/Lever job board tokens (the slug in boards.greenhouse.io/<token> or jobs.lever.co/<token>) to pull postings from on refresh. */
+  trackedCompanies: string[];
+}
+
+export interface SourcedJobPosting {
+  source: 'greenhouse' | 'lever';
+  externalId: string;
+  companyName: string;
+  title: string;
+  location?: string;
+  absoluteUrl: string;
+  jdText: string;
+}
+
 export interface ClarificationQuestion {
   id: string;
   keywordId: string;

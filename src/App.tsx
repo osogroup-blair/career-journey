@@ -8,6 +8,8 @@ import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import EditJourney from './pages/EditJourney';
 import Applications from './pages/Applications';
+import Matches from './pages/Matches';
+import Migrate from './pages/Migrate';
 import JobLayout from './layouts/JobLayout';
 import Intake from './pages/Intake';
 import ParseReview from './pages/ParseReview';
@@ -30,6 +32,8 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/edit" element={<EditJourney />} />
             <Route path="/journey" element={<CareerJourney />} />
+            <Route path="/matches" element={<Matches />} />
+            <Route path="/migrate" element={<Migrate />} />
             <Route path="/applications" element={<Applications />} />
             <Route path="/job/:id" element={<JobLayout />}>
               <Route path="intake" element={<Intake />} />
