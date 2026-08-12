@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Badge, Card, Label } from '../components/ui';
 import { mockGenerateFullResume } from '../lib/mock-ai';
-import { Download, ArrowLeft, Printer, Sparkles, Loader2 } from 'lucide-react';
+import { Download, ArrowLeft, Printer, Sparkles, Loader2, Mail } from 'lucide-react';
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../components/ResumeTemplates';
 
 type TemplateType = 'classic' | 'modern' | 'executive';
@@ -17,6 +17,7 @@ export default function ResumePreview() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [template, setTemplate] = useState<TemplateType>('classic');
+  const [isDownloadingDocx, setIsDownloadingDocx] = useState(false);
 
   const [showPrintWarning, setShowPrintWarning] = useState(false);
 
@@ -40,6 +41,30 @@ export default function ResumePreview() {
   };
 
   if (!job) return null;
+
+  const downloadDocx = async () => {
+    if (!job.resume) return;
+    setIsDownloadingDocx(true);
+    try {
+      const res = await fetch('/api/export/resume.docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resume: job.resume, strategy: job.resumeStrategy, companyName: job.companyName, roleTitle: job.roleTitle })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Blair_Boylan_Resume_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDownloadingDocx(false);
+    }
+  };
 
   const handlePrint = () => {
     if (window.self !== window.top) {
@@ -99,6 +124,14 @@ export default function ResumePreview() {
                   <span>Regenerate</span>
                 </>
               )}
+            </Button>
+            <Button variant="outline" onClick={() => navigate(`/job/${job.id}/cover-letter`)} disabled={!job.resume} className="flex items-center gap-1.5 text-xs font-bold">
+              <Mail className="w-3.5 h-3.5" />
+              {job.coverLetter ? 'View Cover Letter' : 'Need a Cover Letter?'}
+            </Button>
+            <Button variant="outline" onClick={downloadDocx} disabled={!job.resume || isDownloadingDocx} className="flex items-center gap-1.5 text-xs font-bold">
+              {isDownloadingDocx ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              Download .docx
             </Button>
             <div className="relative">
               <Button onClick={handlePrint} disabled={!job.resume || isGenerating}>

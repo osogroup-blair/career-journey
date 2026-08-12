@@ -3,8 +3,19 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { FULL_KNOWLEDGE } from "./server/knowledge";
+import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/careerJourneyVersioning";
+import { generateId } from "./src/lib/utils";
+import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
 
 dotenv.config();
+
+const KNOWLEDGE_PREAMBLE = `Reference material below is Blair Boylan's actual job-application pipeline: his project instructions plus five skill files (JD pipeline, cover letter, voice, ATS tactics, JD signal map). Follow these rules exactly wherever they apply to the task requested after the reference material. Do not summarize or explain the reference material back; use it silently to inform your output.
+
+${FULL_KNOWLEDGE}
+
+---
+`;
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -25,8 +36,13 @@ async function startServer() {
       const { jdText, company, roleTitle } = req.body;
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `You are an expert ATS (Applicant Tracking System) parser and recruiter. Extract structured information from the following Job Description.
-Identify the Hard Gates (work authorization, mandatory licenses, location, clearance), the Top Critical Skills (core competencies, mandatory tools), and Secondary Skills (nice to haves, acronyms, methodologies).
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 1 (Parse the JD) of JD_pipeline_SKILL.md for Blair Boylan. Extract structured information from the following Job Description.
+
+Follow Stage 1 exactly: extract company & exact role title (establish the canonical "[Company] — [Exact Job Title]" name), reporting line & team scope, must-haves, nice-to-haves, strategic signals, industry/domain, stage signals, and the top 4-6 critical skills.
+
+For hardGates, audit against the Stage 1 / jd_signal_map.md hard-gate checklist specifically (work authorization, location/time zone, required degree, required license/cert/clearance, minimum years, shift/travel/relocation, language) and evaluate each against Blair's actual default position from the reference material above (US-authorized; remote-first from Telluride CO, Mountain Time, willing to travel 10-20%; Mechanical Engineering coursework at MSOE, not completed; no clearance/PMP held). Only include a hard gate here if the JD actually states or implies that requirement - do not invent gates the JD doesn't mention.
+
 Company: ${company || ''}
 Role: ${roleTitle || ''}
 
@@ -74,8 +90,12 @@ ${jdText}`,
       const { parse, careerJourney } = req.body;
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `You are an expert ATS screening system parser and technical recruiter evaluating a candidate's resume against a job description.
-Your task is to exhaustively extract ALL relevant keywords, skills, and signals from the Job Parse, and evaluate if the Candidate's Career Journey supports them. 
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 2 (Keyword breakdown & experience recognition) of JD_pipeline_SKILL.md for Blair Boylan.
+
+Use jd_signal_map.md's JD-signal-to-anchor-story table wherever a JD phrase matches or closely resembles one of its rows: base "currentAnchor" and "whatCouldCount" on that table's anchor story and bullet framing rather than inventing generic phrasing. Use the role-family positioning guardrail table (jd_signal_map.md) to judge whether a keyword should be a dominant top-third signal or a supporting one for this JD's target role family.
+
+Your task is to exhaustively extract ALL relevant keywords, skills, and signals from the Job Parse, and evaluate if the Candidate's Career Journey supports them.
 Based on industry-standard ATS matching criteria (e.g., Workday, Greenhouse, Taleo), a typical ATS parse yields 20 to 40 distinct keywords and criteria. Extract them ALL.
 
 Instructions:
@@ -120,7 +140,7 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
               properties: {
                 id: { type: Type.STRING },
                 phrase: { type: Type.STRING },
-                category: { type: Type.STRING, description: "'Critical skill' | 'Hard gate' | 'Secondary keyword' | 'Tool / platform' | 'Domain signal' | 'Metric / Outcome' | 'Acronym/Synonym'" },
+                category: { type: Type.STRING, description: "Exactly one of: 'Critical skill' | 'Required keyword' | 'Secondary keyword' | 'Hard gate' | 'Domain signal' | 'Tool / platform'" },
                 jdImportance: { type: Type.STRING, description: "'High' | 'Medium' | 'Low'" },
                 evidenceStatus: { type: Type.STRING, description: "'EVIDENCED' | 'PARTIAL' | 'MISSING / POSSIBLE' | 'NOT SUPPORTED' | 'HARD GATE'" },
                 currentAnchor: { type: Type.STRING },
@@ -156,7 +176,9 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
 
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `You are an expert technical resume interviewer.
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running the Stage 2 recognition-prompt step of JD_pipeline_SKILL.md for Blair Boylan (the "what counts as experience" pattern - be specific to Blair using jd_signal_map.md's anchor stories when a gap keyword matches one of its rows, e.g. prompt him with the Google Workspace to SharePoint migration for "change management", or the Nymbl PADRE motion for "revenue operations").
+
 We are analyzing a candidate's master Career Journey against a job description. We found several gap areas where the candidate's journey has PARTIAL or MISSING evidence for keywords required by the job.
 
 Your task is to generate exactly 1 clarifying question for each of the selected gap keywords so that when the candidate answers, we can generate a structured deliverable, achievement, or skill to patch into their Career Journey.
@@ -208,7 +230,15 @@ Return a structured JSON array matching the schema.`,
       // Provide a simpler schema since Gemini struggles with nested enums sometimes
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `Evaluate the fit between the candidate's journey and context vs the Job Parse.
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 3 (Score the fit) of JD_pipeline_SKILL.md for Blair Boylan. Score these four dimensions exactly as Stage 3 defines them, not generically:
+
+1. Role scope fit - does the JD's actual scope match Blair's executive scope at Nymbl + Oso Group (post-sales leadership, services scaling, AI-enabled delivery, operating-system design)?
+2. Industry & domain fit - is the vertical one Blair has shipped in (healthcare, fintech, logistics, SaaS-adjacent enterprise software) or credibly adjacent?
+3. Seniority & stage fit - is the level (VP / Director / Head of / Principal) appropriate given Blair's CSO + Founder background, and is the company stage one where his "$1.5M to $9.2M" scaling story would be a compelling proof point?
+4. Technical & AI fit - does the role reward AI orchestration, solutions architecture, technical depth, or operating-system thinking - Blair's differentiators?
+
+End with one of PASS / BORDERLINE / SKIP per Stage 3's definitions (PASS = strong alignment, clear resume path; BORDERLINE = real gaps but a sharp resume could break through, name the gaps; SKIP = fundamental mismatch, say so plainly).
 
 Job Parse:
 ${JSON.stringify(parse)}
@@ -250,7 +280,10 @@ Generate an objective fit analysis. If the candidate has provided convincing exp
       const { parse, careerJourney, gateClarifications } = req.body;
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `You are an expert technical recruiter and ATS compliance system evaluating a candidate's credentials against a list of "Hard Gates" (such as location, work authorization, clearances, or minimum years of experience).
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 4 (ATS structured-field audit) of JD_pipeline_SKILL.md for Blair Boylan. Use his actual default position on each gate type from the reference material above (work authorization: US-authorized; location: remote-first, Telluride CO, Mountain Time; degree: Mechanical Engineering coursework at MSOE, not completed - usually a soft gate for senior roles unless the JD is emphatic; license/cert/clearance: none held; travel/relocation: willing to travel 10-20%, no relocation) rather than inferring it solely from role-location fields in the Career Journey, which may be incomplete for older roles.
+
+You are an expert technical recruiter and ATS compliance system evaluating a candidate's credentials against a list of "Hard Gates" (such as location, work authorization, clearances, or minimum years of experience).
 
 Job Parse (containing requirements & hard gates):
 ${JSON.stringify(parse, null, 2)}
@@ -303,9 +336,18 @@ Your instructions:
   app.post("/api/ai/patchJourney", async (req, res) => {
     try {
       const { careerJourney, contextEntries } = req.body;
+      const nextIds = computeNextIds(careerJourney);
+      const nextVersion = computeNextVersion(careerJourney?.meta?.version);
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview", // Need a smarter model for JSON merging
-        contents: `You are an expert resume writer and data structure manager.
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running the Career Journey capture step of JD_pipeline_SKILL.md for Blair Boylan. Never invent an employer, client, metric, title, certification, degree, tool, or claim Blair did not confirm in the context entries below - only structure what's already there.
+
+ID discipline: never reuse an existing ID. When you add a new item, assign IDs starting exactly from these precomputed next-available values (increment further within this same call if you add more than one item of the same type): ${JSON.stringify(nextIds)}
+
+Versioning: this patch becomes Career Journey version ${nextVersion} (bumped from ${careerJourney?.meta?.version || "unknown"}). Set updatedCareerJourney.meta.version to exactly "${nextVersion}" and updatedCareerJourney.meta.last_updated to today's date. Do not invent a different version number.
+
+You are an expert resume writer and data structure manager.
 Your task is to take a candidate's existing CareerJourney JSON and a set of new context entries (experiences), and merge them thoughtfully.
 
 Existing Career Journey:
@@ -318,8 +360,7 @@ Instructions:
 1. For each context entry with approvalStatus="Approved for patch":
    - Find the specified target role via targetRoleId.
    - If proposedAdditionType includes "Update existing", find the target item using targetDeliverableId and modify its text/outcomes.
-   - If proposedAdditionType includes "Add new", insert a new deliverable, achievement, skill, etc. into the target role.
-   - Generate IDs for new items if needed.
+   - If proposedAdditionType includes "Add new", insert a new deliverable, achievement, skill, etc. into the target role, using the precomputed next-available IDs above.
 2. Output BOTH the fully updated CareerJourney JSON object AND a summary of changes.
 
 Format your output carefully to match the schema.`,
@@ -353,7 +394,25 @@ Format your output carefully to match the schema.`,
           }
         }
       });
-      res.json(JSON.parse(response.text!));
+      const result = JSON.parse(response.text!);
+      // Enforce version/ID discipline server-side rather than trusting the model's output.
+      if (result.updatedCareerJourney) {
+        if (!result.updatedCareerJourney.meta) result.updatedCareerJourney.meta = {};
+        result.updatedCareerJourney.meta.version = nextVersion;
+        result.updatedCareerJourney.meta.last_updated = new Date().toISOString().split("T")[0];
+        const changesKey = versionChangesKey(nextVersion);
+        result.updatedCareerJourney.meta[changesKey] = [result.summary?.reason].filter(Boolean);
+      }
+      if (result.summary) {
+        result.summary.id = result.summary.id || generateId("PATCH");
+        result.summary.targetVersion = nextVersion;
+        result.summary.approvalStatus = "Pending";
+        if (!Array.isArray(result.summary.linkUpdates)) result.summary.linkUpdates = [];
+        if (result.summary.metaUpdate) {
+          result.summary.metaUpdate.version = nextVersion;
+        }
+      }
+      res.json(result);
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -362,10 +421,13 @@ Format your output carefully to match the schema.`,
 
   app.post("/api/ai/resumeStrategy", async (req, res) => {
     try {
-      const { parse, careerJourney, contextEntries } = req.body;
+      const { parse, careerJourney, contextEntries, remediation } = req.body as { parse: any; careerJourney: any; contextEntries: any; remediation?: string[] };
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `Generate a Resume Strategy for this job posting based on candidate's context.
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 6's resume positioning integrity gate (JD_pipeline_SKILL.md) for Blair Boylan. Before drafting the strategy, define the candidate identity the top third must communicate per the role-family positioning guardrail in jd_signal_map.md. Apply the title-reframing tactic from ats_tactics.md (hybrid title: "Real Title | Head of [JD's preferred phrase]") to roleStrategies.titleReframe. Preserve the canonical resume_company_descriptor values from the Career Journey exactly - never rewrite them to mirror the JD. Use exact JD terminology in keywordPlacement where truthful. headerTagline should mirror the JD's framing of the role.
+${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed Stage 7 keyword gate. Work these missing keywords truthfully into keywordPlacement, skillRows, and/or selectedOutcomes wherever the Career Journey honestly supports them - never fabricate evidence for one that has none: ${remediation.join(', ')}\n` : ''}
+Generate a Resume Strategy for this job posting based on candidate's context.
 
 Job Parse:
 ${JSON.stringify(parse)}
@@ -436,7 +498,10 @@ Output a detailed strategy.`,
       const { strategy, keywords } = req.body;
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `Evaluate the generated Resume Strategy against the Original JD Keywords to ensure we hit ATS marks.
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 7 (Keyword scoring gate) of JD_pipeline_SKILL.md for Blair Boylan. Weight the top 4-6 critical skills most heavily; a term appearing in the summary or most-recent role counts more than one buried in an older role. Compute coverage as (matched critical-skill keywords + matched secondary keywords, weighted) / total, as a percentage. Every one of the top critical skills must be present for the gate to pass, regardless of overall percentage.
+
+Evaluate the generated Resume Strategy against the Original JD Keywords to ensure we hit ATS marks.
 
 Strategy:
 ${JSON.stringify(strategy)}
@@ -465,7 +530,13 @@ ${JSON.stringify(keywords)}`,
           }
         }
       });
-      res.json(JSON.parse(response.text!));
+      const coverage = JSON.parse(response.text!);
+      // Fixed 85% bar per Stage 7 - never let the model set its own threshold.
+      const THRESHOLD = 85;
+      coverage.threshold = THRESHOLD;
+      const allCriticalPresent = (coverage.criticalSkillCoverage || []).every((c: any) => c.present);
+      coverage.passed = allCriticalPresent && coverage.score >= THRESHOLD;
+      res.json(coverage);
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -474,10 +545,12 @@ ${JSON.stringify(keywords)}`,
 
   app.post("/api/ai/generateResume", async (req, res) => {
     try {
-      const { careerJourney, strategy, parse } = req.body;
+      const { careerJourney, strategy, parse, remediation } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[] };
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: `Generate a fully tailored Resume ready for PDF export, adhering to a strict 2-page limit.
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 6 (Generate the tailored resume) of JD_pipeline_SKILL.md for Blair Boylan. Apply ats_tactics.md's Screen 1 and Screen 2 tactics: keyword mirroring in the JD's exact vocabulary, standard section headers, full month-year dates, acronym long-form+short-form pairing on first use, and the role-identity/seniority-balance guardrail so implementation languages don't dominate a senior architecture/strategy identity. Apply Blair Voice lightly per Blair_Voice_SKILL.md rule 8 in the Job Applications integration section: remove generic executive adjectives ("seasoned," "results-driven," "proven track record"), use the verb that names the actual mechanism rather than swapping synonyms for style. Never fabricate a metric, employer, client, or credential that isn't in the Career Journey.
+${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed keyword gate. These keywords are missing and must be truthfully worked into the summary, skills, or a role bullet if any honest evidence supports them (do not fabricate experience for a keyword that has none): ${remediation.join(', ')}\n` : ''}
 Combine the candidate's existing CareerJourney data with the newly generated tailored Resume Strategy, ensuring all Top Critical Skills and Keywords from the Job Parse are organically incorporated.
 
 Career Journey:
@@ -493,8 +566,9 @@ Instructions:
 1. Ensure the resume fits within a 2-page constraint (be concise with bullet points, max 4-5 per role, impact focused).
 2. Use the strategy's exact wording for the Summary and core skills.
 3. Organize experience chronologically.
-4. If contact info isn't in careerJourney, put placeholders like "[Name]" or "user@example.com".
-5. Return a strict JSON object of the GeneratedResume.
+4. Use Blair's canonical contact details from the reference material above (phone, email, and blairboylan.com as the final contact item; no LinkedIn unless the request says otherwise). If contact info truly isn't derivable, use placeholders like "[Name]" or "user@example.com".
+5. For each experience entry, if the matching Career Journey role has resume_company_descriptor and/or resume_company_url, populate companyDescriptor and companyUrl on that entry exactly as given - never rewrite the descriptor.
+6. Return a strict JSON object of the GeneratedResume.
 `,
         config: {
           responseMimeType: "application/json",
@@ -518,6 +592,8 @@ Instructions:
                   type: Type.OBJECT,
                   properties: {
                     company: { type: Type.STRING },
+                    companyDescriptor: { type: Type.STRING, description: "The canonical resume_company_descriptor for this role's employer, verbatim from the Career Journey, if one exists." },
+                    companyUrl: { type: Type.STRING, description: "The canonical resume_company_url for this role's employer, verbatim from the Career Journey, if one exists." },
                     title: { type: Type.STRING },
                     dates: { type: Type.STRING },
                     location: { type: Type.STRING },
@@ -544,6 +620,87 @@ Instructions:
         }
       });
       res.json(JSON.parse(response.text!));
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ai/coverLetter", async (req, res) => {
+    try {
+      const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: `${KNOWLEDGE_PREAMBLE}
+You are running Stage 9 (Cover Letter) of JD_pipeline_SKILL.md for Blair Boylan, governed by Blair_Cover_Letter_SKILL.md for strategy/structure/quality and Blair_Voice_SKILL.md (Mode A: Blair Personal Voice) for sentence construction and anti-AI editing. Do not rerun the JD/fit analysis - reuse the parse, fit analysis, and resume strategy already supplied below.
+
+Before writing, silently work through Blair_Cover_Letter_SKILL.md's Opening Thesis Gate: generate at least three materially different opening directions internally, reject any that fail the opening rejection test, and only draft the full letter once one clearly passes.
+
+Default to four paragraphs, 325-400 words, one page. Use one primary proof story with one strong metric from the Career Journey, never a resume-in-prose. Never fabricate a client, employer, metric, or credential not present in the Career Journey.
+
+Before returning your answer, silently self-apply, in order:
+1. The Cover-letter Anti-Slop Hard Gate (Blair_Cover_Letter_SKILL.md section 10A) - reject slogans, buzzword stacks, unsupported tails on real metrics, process-as-reason phrasing, and canned conclusions.
+2. Blair_Voice_SKILL.md's sentence-level anti-slop standard and AI-Suspicion Audit - target 2/10 or lower, no em dashes, no cover-letter throat clearing, no "What interests me about..." openings.
+3. Blair_Cover_Letter_SKILL.md's 10-point rubric - only return a letter that would score 8.5/10 or higher. If your first draft would not, revise internally before responding. Do not narrate this process - return only the final passing letter.
+
+Job Parse:
+${JSON.stringify(parse, null, 2)}
+
+Career Journey:
+${JSON.stringify(careerJourney, null, 2)}
+
+Fit Analysis (reuse, do not re-derive):
+${JSON.stringify(fitAnalysis || {}, null, 2)}
+
+Resume Strategy (reuse for positioning consistency):
+${JSON.stringify(resumeStrategy || {}, null, 2)}
+
+Return the final cover letter body text only (no subject line, no "Dear Hiring Manager" placeholder unless no name is available - use a natural team salutation like "Dear [Company] team," when no specific name is known), plus its word count.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              content: { type: Type.STRING },
+              wordCount: { type: Type.NUMBER }
+            },
+            required: ["content", "wordCount"]
+          }
+        }
+      });
+      const result = JSON.parse(response.text!);
+      result.approvalStatus = "Draft";
+      res.json(result);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/export/resume.docx", async (req, res) => {
+    try {
+      const { resume, strategy, companyName, roleTitle } = req.body;
+      const buffer = await buildResumeDocx(resume, strategy);
+      const roleSlug = String(roleTitle || "Role").replace(/[^a-zA-Z0-9]+/g, "");
+      const companySlug = String(companyName || "Company").replace(/[^a-zA-Z0-9]+/g, "");
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="Blair_Boylan_Resume_${companySlug}_${roleSlug}.docx"`);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/export/coverLetter.docx", async (req, res) => {
+    try {
+      const { coverLetter, companyName, roleTitle } = req.body;
+      const buffer = await buildCoverLetterDocx(coverLetter);
+      const roleSlug = String(roleTitle || "Role").replace(/[^a-zA-Z0-9]+/g, "");
+      const companySlug = String(companyName || "Company").replace(/[^a-zA-Z0-9]+/g, "");
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="Blair_Boylan_CoverLetter_${companySlug}_${roleSlug}.docx"`);
+      res.send(buffer);
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });

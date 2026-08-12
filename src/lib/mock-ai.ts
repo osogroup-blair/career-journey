@@ -1,4 +1,4 @@
-import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, KeywordCoverage, CareerJourneyPatch, ExperienceContext, GeneratedResume, ClarificationQuestion } from '../types';
+import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, KeywordCoverage, CareerJourneyPatch, ExperienceContext, GeneratedResume, ClarificationQuestion, CoverLetter } from '../types';
 import { generateId } from './utils';
 
 export async function mockParseJobDescription(jdText: string, companyName: string, roleTitle: string): Promise<JDParse> {
@@ -51,11 +51,11 @@ export async function mockStageCareerJourneyPatch(careerJourney: any, contextEnt
   return await res.json();
 }
 
-export async function mockGenerateResumeStrategy(parse: JDParse, careerJourney: any, contextEntries: Record<string, ExperienceContext>): Promise<ResumeStrategy> {
+export async function mockGenerateResumeStrategy(parse: JDParse, careerJourney: any, contextEntries: Record<string, ExperienceContext>, remediation?: string[]): Promise<ResumeStrategy> {
   const res = await fetch('/api/ai/resumeStrategy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parse, careerJourney, contextEntries })
+    body: JSON.stringify({ parse, careerJourney, contextEntries, remediation })
   });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();
@@ -71,11 +71,11 @@ export async function mockScoreKeywordCoverage(strategy: ResumeStrategy, keyword
   return await res.json();
 }
 
-export async function mockGenerateFullResume(careerJourney: any, strategy: ResumeStrategy, parse: JDParse): Promise<GeneratedResume> {
+export async function mockGenerateFullResume(careerJourney: any, strategy: ResumeStrategy, parse: JDParse, remediation?: string[]): Promise<GeneratedResume> {
   const res = await fetch('/api/ai/generateResume', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ careerJourney, strategy, parse })
+    body: JSON.stringify({ careerJourney, strategy, parse, remediation })
   });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();
@@ -86,6 +86,16 @@ export async function mockGenerateClarifyingQuestions(parse: JDParse, careerJour
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ parse, careerJourney, keywords })
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+export async function mockGenerateCoverLetter(parse: JDParse, careerJourney: any, fitAnalysis: FitAnalysis | undefined, resumeStrategy: ResumeStrategy | undefined): Promise<CoverLetter> {
+  const res = await fetch('/api/ai/coverLetter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parse, careerJourney, fitAnalysis, resumeStrategy })
   });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();

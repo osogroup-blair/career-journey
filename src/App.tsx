@@ -18,6 +18,7 @@ import ResumeStrategy from './pages/ResumeStrategy';
 import ExportReady from './pages/Export';
 import CareerJourney from './pages/CareerJourney';
 import ResumePreview from './pages/ResumePreview';
+import CoverLetter from './pages/CoverLetter';
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="strategy" element={<ResumeStrategy />} />
               <Route path="export" element={<ExportReady />} />
               <Route path="preview" element={<ResumePreview />} />
+              <Route path="cover-letter" element={<CoverLetter />} />
             </Route>
           </Routes>
         </div>

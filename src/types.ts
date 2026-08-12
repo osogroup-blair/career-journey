@@ -1,12 +1,19 @@
-export type JobStatus = 
-  | 'Draft' 
-  | 'JD Parsed' 
-  | 'Keywords Reviewed' 
-  | 'Context Captured' 
-  | 'Career Journey Patch Staged' 
-  | 'Fit Scored' 
-  | 'Resume Strategy Ready' 
-  | 'Resume Build Ready';
+export type JobStatus =
+  | 'Draft'
+  | 'JD Parsed'
+  | 'Keywords Reviewed'
+  | 'Context Captured'
+  | 'Career Journey Patch Staged'
+  | 'Fit Scored'
+  | 'Resume Strategy Ready'
+  | 'Resume Build Ready'
+  | 'Cover Letter Ready';
+
+export interface CoverLetter {
+  content: string;
+  wordCount: number;
+  approvalStatus: 'Draft' | 'Approved';
+}
 
 export interface GeneratedResume {
   name: string;
@@ -15,6 +22,8 @@ export interface GeneratedResume {
   skills: { category: string; terms: string }[];
   experience: {
     company: string;
+    companyDescriptor?: string;
+    companyUrl?: string;
     title: string;
     dates: string;
     location: string;
@@ -51,6 +60,7 @@ export interface JobAnalysis {
   resumeStrategy?: ResumeStrategy;
   keywordCoverage?: KeywordCoverage;
   resume?: GeneratedResume;
+  coverLetter?: CoverLetter;
 }
 
 export interface JDParse {

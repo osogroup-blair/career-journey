@@ -65,7 +65,12 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
               <div className="flex justify-between items-end mb-1">
                 <div>
                   <h4 className="font-bold text-slate-900 text-[14px]">{exp.title}</h4>
-                  <div className="font-semibold text-slate-700 text-[13px]">{exp.company}</div>
+                  <div className="font-semibold text-slate-700 text-[13px]">
+                    {exp.companyUrl ? (
+                      <a href={exp.companyUrl} target="_blank" rel="noopener noreferrer" className="text-brand-700 underline decoration-1 underline-offset-2">{exp.company}</a>
+                    ) : exp.company}
+                    {exp.companyDescriptor && <span className="text-slate-500 font-normal"> — {exp.companyDescriptor}</span>}
+                  </div>
                 </div>
                 <div className="text-right">
                   <div className="text-[13px] text-slate-800 font-medium">{exp.dates}</div>
@@ -170,7 +175,12 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
               <div className="flex flex-col md:flex-row md:justify-between mb-2">
                 <div>
                   <h4 className="font-bold text-zinc-900 text-base">{exp.title}</h4>
-                  <div className="text-brand-600 font-semibold text-[14px]">{exp.company}</div>
+                  <div className="text-brand-600 font-semibold text-[14px]">
+                    {exp.companyUrl ? (
+                      <a href={exp.companyUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-1 underline-offset-2">{exp.company}</a>
+                    ) : exp.company}
+                    {exp.companyDescriptor && <span className="text-zinc-500 font-normal"> — {exp.companyDescriptor}</span>}
+                  </div>
                 </div>
                 <div className="text-left md:text-right mt-1 md:mt-0">
                   <div className="text-[14px] text-zinc-900 font-medium">{exp.dates}</div>
@@ -273,9 +283,16 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
             <div key={i} className="break-inside-avoid">
               <div className="mb-2">
                 <div className="flex justify-between items-baseline">
-                  <h4 className="font-bold text-gray-900 text-[15px]">{exp.company}</h4>
+                  <h4 className="font-bold text-gray-900 text-[15px]">
+                    {exp.companyUrl ? (
+                      <a href={exp.companyUrl} target="_blank" rel="noopener noreferrer" className="underline decoration-1 underline-offset-2">{exp.company}</a>
+                    ) : exp.company}
+                  </h4>
                   <div className="text-[12px] text-gray-600 font-sans">{exp.dates}</div>
                 </div>
+                {exp.companyDescriptor && (
+                  <div className="text-[11px] text-gray-500 font-sans mb-0.5">{exp.companyDescriptor}</div>
+                )}
                 <div className="flex justify-between items-baseline">
                   <div className="italic text-gray-800 text-[14px]">{exp.title}</div>
                   <div className="text-[11px] text-gray-500 font-sans uppercase tracking-wider">{exp.location}</div>

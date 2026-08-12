@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '../components/ui';
 import { mockStageCareerJourneyPatch } from '../lib/mock-ai';
 import { CareerJourneyPatch } from '../types';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw, CheckCircle2 } from 'lucide-react';
 
 export default function PatchReview() {
   const { id } = useParams();
@@ -17,6 +17,7 @@ export default function PatchReview() {
   const [patch, setPatch] = useState<CareerJourneyPatch | null>(job?.careerJourneyPatch || null);
   const [updatedCJ, setUpdatedCJ] = useState<any>(null); // Temp state to hold the AI's modified version of the journey before approval
   const [isGenerating, setIsGenerating] = useState(false);
+  const [approvedVersion, setApprovedVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (!patch && job?.contextEntries && Object.keys(job.contextEntries).length > 0) {
@@ -43,13 +44,22 @@ export default function PatchReview() {
       const updated = { ...patch, approvalStatus: 'Approved' as const };
       setPatch(updated);
       updateJob(job.id, { careerJourneyPatch: updated, status: 'Career Journey Patch Staged' });
-      
+
       if (updatedCJ) {
          setCareerJourney(updatedCJ); // Apply AI changes to main state!
+
+         // Give Blair the actual versioned file per JD_pipeline_SKILL.md's Career Journey
+         // capture rules - never a silent overwrite, always a downloadable new version.
+         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(updatedCJ, null, 2));
+         const downloadAnchor = document.createElement('a');
+         downloadAnchor.setAttribute("href", dataStr);
+         downloadAnchor.setAttribute("download", `blair_boylan_career_journey_v${(patch.targetVersion || updatedCJ?.meta?.version || '').replace(/\./g, '_')}.json`);
+         document.body.appendChild(downloadAnchor);
+         downloadAnchor.click();
+         downloadAnchor.remove();
       }
-      
-      alert("Patch approved! The Career Journey has been updated globally.");
-      navigate(`/job/${job.id}/fit`);
+
+      setApprovedVersion(patch.targetVersion || updatedCJ?.meta?.version || null);
     }
   };
 
@@ -97,10 +107,19 @@ export default function PatchReview() {
         </Card>
       ) : (
         <div className="space-y-6">
+          {approvedVersion && (
+            <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-sm">
+              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Career Journey updated to v{approvedVersion}.</p>
+                <p className="text-emerald-700 mt-0.5">The new versioned file downloaded automatically — keep it as your canonical record.</p>
+              </div>
+            </div>
+          )}
           <Card>
             <CardHeader className="bg-zinc-50 border-b pb-4">
               <div className="flex justify-between items-center">
-                <CardTitle className="text-lg">Proposed Update: {patch.targetVersion}</CardTitle>
+                <CardTitle className="text-lg">Proposed Update: v{patch.targetVersion}</CardTitle>
                 <Badge variant={patch.approvalStatus === 'Approved' ? 'success' : 'warning'}>{patch.approvalStatus}</Badge>
               </div>
               <p className="text-sm font-medium text-zinc-700 mt-2">Reason: {patch.reason}</p>

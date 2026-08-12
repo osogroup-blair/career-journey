@@ -2,16 +2,20 @@ import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '../components/ui';
-import { mockScoreKeywordCoverage } from '../lib/mock-ai';
+import { mockScoreKeywordCoverage, mockGenerateResumeStrategy } from '../lib/mock-ai';
 import { CheckCircle2, XCircle, AlertCircle, Download, FileJson, FileText, Loader2 } from 'lucide-react';
+
+const MAX_REBUILD_ATTEMPTS = 2;
 
 export default function ExportReady() {
   const { id } = useParams();
   const navigate = useNavigate();
   const job = useStore((state) => state.jobs[id || '']);
   const updateJob = useStore((state) => state.updateJob);
+  const careerJourney = useStore((state) => state.careerJourney);
 
   const [loading, setLoading] = useState(true);
+  const [rebuildStatus, setRebuildStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (job?.resumeStrategy && job?.keywords) {
@@ -21,14 +25,33 @@ export default function ExportReady() {
 
   const runGateCheck = async () => {
     setLoading(true);
-    const coverage = await mockScoreKeywordCoverage(job.resumeStrategy!, job.keywords!);
-    
-    // Set to Build Ready if passes
-    if (coverage.passed) {
-       updateJob(job.id, { keywordCoverage: coverage, status: 'Resume Build Ready' });
-    } else {
-       updateJob(job.id, { keywordCoverage: coverage });
+    setRebuildStatus(null);
+
+    let strategy = job.resumeStrategy!;
+    let coverage = await mockScoreKeywordCoverage(strategy, job.keywords!);
+    const firstScore = coverage.score;
+
+    // Stage 7: rebuild automatically while honest gaps remain, up to a couple of attempts,
+    // before reporting the remaining gaps as-is - never fabricate a keyword's evidence.
+    let attempt = 0;
+    while (!coverage.passed && attempt < MAX_REBUILD_ATTEMPTS) {
+      attempt++;
+      setRebuildStatus(`Rebuilding (attempt ${attempt}/${MAX_REBUILD_ATTEMPTS}) — missing: ${coverage.missingKeywords.join(', ') || 'top critical skill'}...`);
+      strategy = await mockGenerateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, coverage.missingKeywords);
+      coverage = await mockScoreKeywordCoverage(strategy, job.keywords!);
     }
+
+    if (attempt > 0) {
+      setRebuildStatus(coverage.passed
+        ? `Rebuilt from ${firstScore}% → ${coverage.score}%`
+        : `Rebuilt from ${firstScore}% → ${coverage.score}% (still below gate — remaining gaps are honest, not fabricated)`);
+    }
+
+    updateJob(job.id, {
+      resumeStrategy: strategy,
+      keywordCoverage: coverage,
+      status: coverage.passed ? 'Resume Build Ready' : job.status
+    });
     setLoading(false);
   };
 
@@ -71,7 +94,12 @@ export default function ExportReady() {
          </Card>
       ) : (
          <div className="space-y-6">
-            
+            {rebuildStatus && (
+              <div className="text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-md px-3 py-2">
+                {rebuildStatus}
+              </div>
+            )}
+
             <Card className={`border-2 ${coverage.passed ? 'border-green-500' : 'border-red-500'}`}>
               <CardHeader className={`${coverage.passed ? 'bg-green-50' : 'bg-red-50'} border-b pb-4`}>
                 <div className="flex justify-between items-center">
