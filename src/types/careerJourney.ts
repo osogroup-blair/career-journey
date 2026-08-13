@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Canonical Career Journey schema — reverse-engineered from Blair's real, hand-maintained
- * data (`blair_boylan_career_journey_v3_35.json`), not from the app's original sample data.
+ * Canonical Career Journey schema — reverse-engineered from a real, hand-maintained
+ * career journey dataset, not from the app's original sample data.
  *
  * Two structural things worth knowing before editing this file:
  *

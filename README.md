@@ -216,7 +216,7 @@ Hosting/API deployment (Firebase Hosting + Cloud Run for the Express server) is 
 
 ## What I Designed / Built
 
-While this repository utilizes standard scaffolding patterns, the underlying architecture and core logic were designed and built by **Blair**:
+While this repository utilizes standard scaffolding patterns, the underlying architecture and core logic were hand-designed and built from scratch:
 
 - **Persistent Career Schema & Domain Model**: Designed the multi-tier structured JSON model representing complex career trajectories, initiatives, deliverables, and skill mappings.
 - **8-Step AI Decision Pipeline**: Architected the sequential multi-stage LLM workflow, ensuring strict schema enforcement at every boundary.
