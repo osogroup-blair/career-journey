@@ -163,7 +163,7 @@ export interface AdminPromptConfig {
 }
 
 export async function getAdminPrompts(): Promise<Record<string, AdminPromptConfig>> {
-  const res = await fetch('/api/admin/prompts');
+  const res = await fetch('/api/admin/prompts', { headers: await authHeaders() });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();
 }
