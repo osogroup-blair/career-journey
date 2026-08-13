@@ -1,0 +1,315 @@
+{
+  "meta": {
+    "owner": "Jordan Rivera",
+    "version": "1.0",
+    "framework": "Career Journey",
+    "description": "Demo account — fictional data for testing and screenshots. Not a real person.",
+    "last_updated": "2026-08-13",
+    "template": false
+  },
+  "person": {
+    "name": "Jordan Rivera",
+    "brand": "Product leader who ships",
+    "summary": "Product management leader with 9 years building and scaling B2B SaaS platforms, from 0-to-1 launches to leading multi-team roadmaps at scale. Known for pairing rigorous prioritization with hands-on execution.",
+    "location": "Denver, CO (Remote-friendly)",
+    "signature_outcomes": [
+      "Took a 0-to-1 analytics product from concept to $4M ARR in 18 months",
+      "Cut customer onboarding time by 60% by redesigning the activation funnel",
+      "Grew and led a cross-functional product team from 3 to 11 people"
+    ],
+    "phone": "555-010-2938",
+    "email": "jordan.rivera@example.com",
+    "linkedin": "linkedin.com/in/jordanrivera-demo",
+    "website": "",
+    "github": "",
+    "work_preference": "Remote or hybrid, open to occasional travel",
+    "resume_contact_preference": "email",
+    "positioning": {
+      "primary_tagline": "B2B SaaS product leader focused on 0-to-1 growth and platform scale",
+      "target_role_families": ["Senior Product Manager", "Group Product Manager", "Director of Product"],
+      "role_orientation": "Individual contributor to first-line people manager",
+      "narrative_anchors": [
+        "0-to-1 product launches",
+        "Data-driven prioritization",
+        "Cross-functional team leadership"
+      ]
+    }
+  },
+  "education": [
+    {
+      "id": "EDU-001",
+      "institution": "Colorado State University",
+      "program": "B.S. Business Administration, Marketing Concentration",
+      "degree_type": "Bachelor's",
+      "start": "2011-08",
+      "end": "2015-05",
+      "location": "Fort Collins, CO",
+      "description": "",
+      "capability_alignment": ["CAP-001"],
+      "skills_reinforced": ["SK-010"],
+      "achievements": [],
+      "completion_status": "Completed",
+      "resume_display": "B.S. Business Administration — Colorado State University"
+    }
+  ],
+  "certifications": [
+    { "id": "CERT-001", "name": "Certified Scrum Product Owner (CSPO)", "issuer": "Scrum Alliance", "date": "2019-03" }
+  ],
+  "capabilities": [
+    {
+      "id": "CAP-001",
+      "name": "Product Strategy & Discovery",
+      "description": "Defining product direction from market signal, customer research, and business goals.",
+      "maturity_level": "Advanced",
+      "functions": [
+        {
+          "id": "FUNC-001",
+          "name": "Roadmap Prioritization",
+          "description": "Sequencing work against impact, effort, and strategic bets.",
+          "competency_level": "Specialized",
+          "value_stream_stage": "Strategy",
+          "skills": [
+            { "id": "SK-001", "name": "RICE / weighted scoring frameworks", "description": "", "proficiency": "Advanced", "last_used": "2026-07" },
+            { "id": "SK-002", "name": "Customer discovery interviews", "description": "", "proficiency": "Advanced", "last_used": "2026-06" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CAP-002",
+      "name": "Cross-Functional Delivery",
+      "description": "Running the day-to-day mechanics of shipping product with engineering and design.",
+      "maturity_level": "Advanced",
+      "functions": [
+        {
+          "id": "FUNC-002",
+          "name": "Agile Delivery Management",
+          "description": "Sprint planning, backlog grooming, release coordination.",
+          "competency_level": "Expert",
+          "value_stream_stage": "Execution",
+          "skills": [
+            { "id": "SK-003", "name": "Jira / Linear roadmap tooling", "description": "", "proficiency": "Expert", "last_used": "2026-08" },
+            { "id": "SK-004", "name": "Cross-functional stakeholder alignment", "description": "", "proficiency": "Advanced", "last_used": "2026-08" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CAP-003",
+      "name": "Data-Informed Decision Making",
+      "description": "Using quantitative and qualitative data to validate bets and measure outcomes.",
+      "maturity_level": "Established",
+      "functions": [
+        {
+          "id": "FUNC-003",
+          "name": "Product Analytics",
+          "description": "Instrumenting funnels, running experiments, reading dashboards.",
+          "competency_level": "Proficient",
+          "value_stream_stage": "Execution",
+          "skills": [
+            { "id": "SK-005", "name": "SQL for product analysis", "description": "", "proficiency": "Intermediate", "last_used": "2026-05" },
+            { "id": "SK-006", "name": "A/B testing & experiment design", "description": "", "proficiency": "Advanced", "last_used": "2026-07" }
+          ]
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "ROLE-001",
+      "organization": "Meridian Cloudworks",
+      "company": "Meridian Cloudworks",
+      "title": "Senior Product Manager",
+      "start_date": "2022-03",
+      "end_date": "Present",
+      "dates": "Mar 2022 – Present",
+      "location": "Denver, CO (Remote)",
+      "description": "Own the platform analytics product line, leading a team of 2 PMs, 6 engineers, and 2 designers.",
+      "initiatives": [
+        {
+          "id": "INIT-001",
+          "name": "Self-serve analytics launch",
+          "description": "Took the analytics dashboard product from concept to GA.",
+          "deliverables": [
+            {
+              "id": "DEL-001",
+              "description": "Led discovery and launch of a self-serve analytics dashboard, from customer interviews through GA rollout.",
+              "impact": "Reached $4M ARR within 18 months of launch; became the #2 revenue driver in the platform.",
+              "capability_alignment": ["CAP-001", "CAP-002"],
+              "skill_ids": ["SK-001", "SK-002", "SK-004"]
+            },
+            {
+              "id": "DEL-002",
+              "description": "Redesigned the onboarding activation funnel using session-replay and funnel-drop data.",
+              "impact": "Cut time-to-first-value from 12 days to under 5, reducing 30-day churn by 18%.",
+              "capability_alignment": ["CAP-003"],
+              "skill_ids": ["SK-005", "SK-006"]
+            }
+          ]
+        }
+      ],
+      "positioning_note": "Primary evidence for platform-scale ownership and 0-to-1 delivery.",
+      "company_descriptor": "B2B SaaS infrastructure company, ~450 employees",
+      "resume_company_descriptor": "B2B SaaS infrastructure company",
+      "resume_company_url": "",
+      "deliverables": [],
+      "achievements": [],
+      "skills": ["SK-001", "SK-002", "SK-003", "SK-004", "SK-005", "SK-006"]
+    },
+    {
+      "id": "ROLE-002",
+      "organization": "Fernbank Logistics",
+      "company": "Fernbank Logistics",
+      "title": "Product Manager",
+      "start_date": "2018-06",
+      "end_date": "2022-02",
+      "dates": "Jun 2018 – Feb 2022",
+      "location": "Austin, TX",
+      "description": "Owned the carrier-facing mobile app and internal dispatch tooling.",
+      "initiatives": [
+        {
+          "id": "INIT-002",
+          "name": "Dispatch tooling modernization",
+          "description": "Replaced a legacy internal tool used by 200+ dispatchers.",
+          "deliverables": [
+            {
+              "id": "DEL-003",
+              "description": "Rebuilt the dispatch assignment tool with a real-time routing engine, partnering with a team of 5 engineers.",
+              "impact": "Reduced average dispatch time by 35%, saving an estimated 1,200 dispatcher-hours per month.",
+              "capability_alignment": ["CAP-002"],
+              "skill_ids": ["SK-003", "SK-004"]
+            }
+          ]
+        }
+      ],
+      "positioning_note": "Evidence for logistics/ops domain and internal-tooling delivery.",
+      "company_descriptor": "Mid-market freight logistics company",
+      "resume_company_descriptor": "Freight logistics company",
+      "resume_company_url": "",
+      "deliverables": [],
+      "achievements": [],
+      "skills": ["SK-003", "SK-004"]
+    },
+    {
+      "id": "ROLE-003",
+      "organization": "Hollowell Retail Group",
+      "company": "Hollowell Retail Group",
+      "title": "Associate Product Manager",
+      "start_date": "2015-07",
+      "end_date": "2018-05",
+      "dates": "Jul 2015 – May 2018",
+      "location": "Denver, CO",
+      "description": "Supported the e-commerce checkout and payments team.",
+      "initiatives": [
+        {
+          "id": "INIT-003",
+          "name": "Checkout conversion program",
+          "description": "Ran a quarterly experimentation program on the checkout flow.",
+          "deliverables": [
+            {
+              "id": "DEL-004",
+              "description": "Ran 20+ A/B tests on the checkout flow over two years, including a one-click reorder feature.",
+              "impact": "Improved checkout conversion rate by 9 percentage points cumulatively.",
+              "capability_alignment": ["CAP-003"],
+              "skill_ids": ["SK-005", "SK-006"]
+            }
+          ]
+        }
+      ],
+      "positioning_note": "Early-career evidence for experimentation and e-commerce domain.",
+      "company_descriptor": "Regional e-commerce retailer",
+      "resume_company_descriptor": "E-commerce retailer",
+      "resume_company_url": "",
+      "deliverables": [],
+      "achievements": [],
+      "skills": ["SK-005", "SK-006"]
+    }
+  ],
+  "achievements": [
+    {
+      "id": "ACH-001",
+      "title": "Scaled self-serve analytics to $4M ARR",
+      "description": "Took the self-serve analytics dashboard from zero to $4M ARR in 18 months, becoming the company's #2 revenue driver.",
+      "category": "Revenue Growth",
+      "role_ids": ["ROLE-001"],
+      "skill_ids": ["SK-001", "SK-002"]
+    },
+    {
+      "id": "ACH-002",
+      "title": "Grew product team from 3 to 11",
+      "description": "Built out the analytics product team from 3 to 11 people across PM, design, and engineering over two years.",
+      "category": "Team Leadership",
+      "role_ids": ["ROLE-001"],
+      "skill_ids": ["SK-004"]
+    },
+    {
+      "id": "ACH-003",
+      "title": "Cut dispatch time 35% with real-time routing",
+      "description": "Rebuilt the internal dispatch tool with a real-time routing engine, cutting average dispatch time by over a third.",
+      "category": "Operational Efficiency",
+      "role_ids": ["ROLE-002"],
+      "skill_ids": ["SK-003"]
+    }
+  ],
+  "skills_index": [
+    { "id": "SK-001", "name": "RICE / weighted scoring frameworks", "category": "Product Strategy", "proficiency": "Advanced", "years_experience": 6, "last_used": "2026-07" },
+    { "id": "SK-002", "name": "Customer discovery interviews", "category": "Product Strategy", "proficiency": "Advanced", "years_experience": 8, "last_used": "2026-06" },
+    { "id": "SK-003", "name": "Jira / Linear roadmap tooling", "category": "Delivery", "proficiency": "Expert", "years_experience": 9, "last_used": "2026-08" },
+    { "id": "SK-004", "name": "Cross-functional stakeholder alignment", "category": "Delivery", "proficiency": "Advanced", "years_experience": 9, "last_used": "2026-08" },
+    { "id": "SK-005", "name": "SQL for product analysis", "category": "Analytics", "proficiency": "Intermediate", "years_experience": 5, "last_used": "2026-05" },
+    { "id": "SK-006", "name": "A/B testing & experiment design", "category": "Analytics", "proficiency": "Advanced", "years_experience": 7, "last_used": "2026-07" },
+    { "id": "SK-010", "name": "Go-to-market planning", "category": "Strategy", "proficiency": "Intermediate", "years_experience": 4, "last_used": "2026-04" }
+  ],
+  "vocabularies": {
+    "maturity_levels": ["Foundational", "Developing", "Established", "Advanced", "Transformational"],
+    "competency_levels": ["Basic", "Operational", "Proficient", "Specialized", "Expert"],
+    "proficiency_levels": ["Beginner", "Intermediate", "Advanced", "Expert"],
+    "value_stream_stages": ["Strategy", "Architecture", "Execution"]
+  },
+  "links": {
+    "keywords": [
+      { "term": "product-led growth", "entity_id": "ROLE-001", "entity_type": "role" },
+      { "term": "real-time routing", "entity_id": "DEL-003", "entity_type": "deliverable" }
+    ],
+    "industries": [
+      { "industry": "B2B SaaS", "entity_id": "ROLE-001", "entity_type": "role" },
+      { "industry": "Logistics", "entity_id": "ROLE-002", "entity_type": "role" },
+      { "industry": "E-commerce / Retail", "entity_id": "ROLE-003", "entity_type": "role" }
+    ],
+    "education_alignment": [
+      { "education_id": "EDU-001", "capability_id": "CAP-001" }
+    ],
+    "deliverable_function": [
+      { "function_id": "FUNC-001", "deliverable_id": "DEL-001" },
+      { "function_id": "FUNC-002", "deliverable_id": "DEL-003" }
+    ],
+    "certification_alignment": [],
+    "deliverable_achievement": [
+      { "achievement_id": "ACH-001", "deliverable_id": "DEL-001" },
+      { "achievement_id": "ACH-003", "deliverable_id": "DEL-003" }
+    ],
+    "timeline_mappings": [
+      { "id": "MAP-001", "entity_type": "achievement", "entity_id": "ACH-001", "role_id": "ROLE-001", "initiative_id": "INIT-001", "context": "Added as the headline outcome for the analytics launch." }
+    ]
+  },
+  "application_artifacts": {
+    "description": "Reusable positioning artifacts for tailoring applications.",
+    "artifacts": [
+      { "id": "ART-001", "name": "0-to-1 SaaS launch narrative", "type": "positioning", "audience": "Series B-D SaaS companies", "positioning": "Lead with the self-serve analytics launch and its ARR outcome.", "notes": "" }
+    ]
+  },
+  "interview_answers": {
+    "description": "Pre-drafted answers to common behavioral questions.",
+    "answers": [
+      { "question": "Tell me about a time you had to say no to a stakeholder.", "version_for_general": "On the analytics launch, I pushed back on adding a custom-reporting feature pre-GA because it would have delayed launch by 6 weeks for a request only 2 of 40 interviewed customers cared about. I shipped without it and added it as a fast-follow once usage data confirmed demand." }
+    ]
+  },
+  "methodologies": [
+    { "id": "METH-001", "name": "Dual-track agile", "description": "Running discovery and delivery as parallel, continuous tracks rather than sequential phases.", "context": "Used at Meridian Cloudworks to keep the roadmap validated ahead of each sprint." }
+  ],
+  "customer_engagements": [
+    { "id": "CE-001", "client": "12 mid-market analytics customers", "project": "Self-serve dashboard discovery interviews", "description": "Ran structured discovery interviews to validate the self-serve analytics concept before build.", "dates": "2022-04 – 2022-06", "display": true }
+  ],
+  "functions": [],
+  "deliverables": []
+}
