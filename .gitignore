@@ -7,5 +7,4 @@ coverage/
 .env*
 !.env.example
 .claude/settings.local.json
-src/lib/blair_career_journey.json
 server/promptConfig/
