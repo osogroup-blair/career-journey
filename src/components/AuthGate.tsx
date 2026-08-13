@@ -27,6 +27,11 @@ function authErrorMessage(err: any): string {
   return AUTH_ERROR_MESSAGES[err?.code] || err?.message || 'Something went wrong — try again.';
 }
 
+// Matches server/scripts/seedDemo.ts's defaults (documented in the README) — a
+// fictional account, safe to expose client-side as a one-click "try it" shortcut.
+const DEMO_EMAIL = 'demo@career-journey.app';
+const DEMO_PASSWORD = 'DemoPass123!';
+
 function FullScreenStatus({ label }: { label: string }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -83,6 +88,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
+    } catch (err: any) {
+      setError(authErrorMessage(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    if (!auth) return;
+    setIsSubmitting(true);
+    setError('');
+    setInfo('');
+    try {
+      await signInWithEmailAndPassword(auth, DEMO_EMAIL, DEMO_PASSWORD);
     } catch (err: any) {
       setError(authErrorMessage(err));
     } finally {
@@ -174,6 +193,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           >
             {mode === 'signup' ? 'Already have an account? Sign in' : "Don't have an account? Create one"}
           </button>
+          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+            <div className="h-px flex-1 bg-slate-200" />
+            OR
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+          <Button type="button" variant="outline" onClick={handleDemoLogin} disabled={isSubmitting} className="w-full">
+            Try the demo
+          </Button>
         </div>
       </div>
     );
