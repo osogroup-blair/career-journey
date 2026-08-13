@@ -82,7 +82,7 @@ export default function ParseReview() {
 
         <Card className="col-span-2 border-red-200">
           <CardHeader className="bg-red-50/50 border-b border-red-100">
-            <CardTitle className="text-red-900">Hard Gates / Structured Risks</CardTitle>
+            <CardTitle className="text-red-900">Hard Gates & Risks</CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
              {parse.hardGates.length === 0 ? (

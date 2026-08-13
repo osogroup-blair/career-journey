@@ -1,19 +1,60 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { useStore } from '../store';
 import { generateId } from '../lib/utils';
 import { auth, isFirebaseConfigured } from '../lib/firebase';
-import { Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar, LogOut, Sparkles, TrendingUp } from 'lucide-react';
-import { Button } from './ui';
+import {
+  Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar,
+  LogOut, Sparkles, TrendingUp, Menu, X, MoreHorizontal, ChevronDown
+} from 'lucide-react';
+import { Button, useToast } from './ui';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
 import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
 import { validateCareerJourney } from '../lib/careerJourneyNormalize';
+
+type NavItem = {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+// Primary journey, grouped by phase: shape your Career Journey, then find & pursue jobs with it.
+const JOURNEY_GROUPS: NavItem[][] = [
+  [
+    { to: '/build', label: 'Build', icon: Sparkles },
+    { to: '/edit', label: 'Edit', icon: Pencil },
+    { to: '/strengthen', label: 'Strengthen', icon: TrendingUp },
+  ],
+  [
+    { to: '/matches', label: 'Matches', icon: Radar },
+    { to: '/applications', label: 'Applications', icon: Briefcase },
+  ],
+];
 
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { careerJourney, addJob, setCareerJourney } = useStore();
+  const toast = useToast();
+
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  // Close mobile menu on route change.
+  useEffect(() => {
+    setMobileOpen(false);
+    setMoreOpen(false);
+  }, [location.pathname]);
 
   const downloadJSON = (data: any, filename: string) => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
@@ -60,9 +101,9 @@ export default function Navbar() {
         if (isTemplate) notes.push('Loaded the blank template — fill it in from the Edit or Advanced pages.');
         if (issues.length > 0) notes.push(`${issues.length} field${issues.length === 1 ? '' : 's'} didn't match the expected shape and were left as-is or defaulted:\n${issues.join('\n')}`);
         if (addedSections.length > 0) notes.push(`Added empty defaults for sections missing from the file: ${addedSections.join(', ')}.`);
-        alert(notes.length > 0 ? `Career Journey loaded.\n\n${notes.join('\n\n')}` : 'Career Journey loaded successfully!');
+        toast.success(notes.length > 0 ? `Career Journey loaded.\n\n${notes.join('\n\n')}` : 'Career Journey loaded successfully!');
       } catch (err) {
-        alert('Invalid JSON file format.');
+        toast.error('Invalid JSON file format.');
       }
     };
     reader.readAsText(file);
@@ -88,158 +129,186 @@ export default function Navbar() {
     return false;
   };
 
+  const linkClass = (path: string) =>
+    `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+      isActive(path)
+        ? 'bg-brand-50 text-brand-700'
+        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+    }`;
+
+  const renderNavItem = (item: NavItem) => (
+    <Link key={item.to} to={item.to} className={linkClass(item.to)}>
+      <item.icon className="h-4 w-4" />
+      {item.label}
+    </Link>
+  );
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-xs">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        
+
         {/* Brand Logo */}
-        <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-2 group">
+        <div className="flex items-center gap-4 min-w-0">
+          <Link to="/" className="flex items-center gap-2 group shrink-0">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-brand-500 text-white shadow-sm transition-transform group-hover:scale-105">
               <Compass className="h-5 w-5" />
             </div>
-            <div>
+            <div className="hidden sm:block">
               <span className="text-lg font-bold tracking-tight text-slate-900">Career Journey</span>
-              <span className="block text-[10px] uppercase font-semibold text-brand-600 tracking-wider">Master Taxonomy & Tailor</span>
+              <span className="block text-[10px] uppercase font-semibold text-brand-600 tracking-wider">Tailor your resume to any role</span>
             </div>
           </Link>
 
-          {/* Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1 ml-4">
-            <Link
-              to="/"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/') && !location.pathname.startsWith('/job')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
+          {/* Desktop Navigation — grouped by phase of the journey */}
+          <nav className="hidden md:flex items-center gap-1 ml-2">
+            <Link to="/" className={linkClass('/')}>
               <Compass className="h-4 w-4" />
               Dashboard
             </Link>
 
-            <Link
-              to="/matches"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/matches')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Radar className="h-4 w-4" />
-              Matches
-            </Link>
+            {JOURNEY_GROUPS.map((group, i) => (
+              <React.Fragment key={i}>
+                <span className="w-px h-5 bg-slate-200 mx-1" aria-hidden="true" />
+                {group.map(renderNavItem)}
+              </React.Fragment>
+            ))}
 
-            <Link
-              to="/edit"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/edit')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Pencil className="h-4 w-4" />
-              Edit
-            </Link>
+            {/* More — secondary/power-user tools, out of the primary flow */}
+            <div className="relative ml-1" ref={moreRef}>
+              <button
+                onClick={() => setMoreOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  moreOpen || isActive('/journey')
+                    ? 'bg-brand-50 text-brand-700'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+                More
+                <ChevronDown className={`h-3 w-3 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-            <Link
-              to="/build"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/build')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Sparkles className="h-4 w-4" />
-              Build
-            </Link>
+              {moreOpen && (
+                <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50">
+                  <Link
+                    to="/journey"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Award className="h-4 w-4 text-slate-400" />
+                    Advanced Editor
+                  </Link>
 
-            <Link
-              to="/strengthen"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/strengthen')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <TrendingUp className="h-4 w-4" />
-              Strengthen
-            </Link>
+                  <div className="my-1.5 border-t border-slate-100" />
 
-            <Link
-              to="/journey"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/journey')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Award className="h-4 w-4" />
-              Advanced
-            </Link>
+                  <label className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer">
+                    <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+                    <Upload className="h-4 w-4 text-slate-400" />
+                    Import JSON
+                  </label>
 
-            <Link
-              to="/applications"
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive('/applications')
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Briefcase className="h-4 w-4" />
-              Applications
-            </Link>
+                  {careerJourney && (
+                    <button
+                      onClick={handleExportJSON}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 text-left"
+                    >
+                      <Download className="h-4 w-4 text-slate-400" />
+                      Export JSON
+                    </button>
+                  )}
+
+                  <button
+                    onClick={handleDownloadTemplate}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 text-left"
+                  >
+                    <FileDown className="h-4 w-4 text-slate-400" />
+                    Blank Template
+                  </button>
+                </div>
+              )}
+            </div>
           </nav>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-3">
-          <label className="cursor-pointer">
-            <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors">
-              <Upload className="h-3.5 w-3.5" />
-              Import JSON
-            </span>
-          </label>
-
-          {careerJourney && (
-            <button
-              onClick={handleExportJSON}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-              title="Export full Career Journey JSON (your data)"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export JSON
-            </button>
-          )}
-
-          <button
-            onClick={handleDownloadTemplate}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-            title="Download a blank Career Journey template (no personal data)"
-          >
-            <FileDown className="h-3.5 w-3.5" />
-            Template
-          </button>
-
-          <Button onClick={createNewJob} size="sm" className="bg-brand-600 hover:bg-brand-700 text-white shadow-xs">
+        {/* Primary Actions */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Button onClick={createNewJob} size="sm" className="hidden sm:inline-flex bg-brand-600 hover:bg-brand-700 text-white shadow-xs">
             <Plus className="h-4 w-4 mr-1" />
             New Job Analysis
+          </Button>
+          <Button onClick={createNewJob} size="sm" className="sm:hidden bg-brand-600 hover:bg-brand-700 text-white shadow-xs px-2.5">
+            <Plus className="h-4 w-4" />
           </Button>
 
           {isFirebaseConfigured && auth && (
             <button
               onClick={() => signOut(auth!)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
               title="Sign out"
             >
               <LogOut className="h-3.5 w-3.5" />
               Sign Out
             </button>
           )}
+
+          {/* Mobile menu toggle */}
+          <button
+            onClick={() => setMobileOpen((v) => !v)}
+            className="md:hidden inline-flex items-center justify-center h-9 w-9 rounded-lg text-slate-600 hover:bg-slate-100"
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
 
       </div>
+
+      {/* Mobile Navigation Panel */}
+      {mobileOpen && (
+        <nav className="md:hidden border-t border-slate-200 bg-white px-4 py-3 space-y-1 max-h-[calc(100vh-4rem)] overflow-y-auto">
+          <Link to="/" className={linkClass('/') + ' w-full'}>
+            <Compass className="h-4 w-4" />
+            Dashboard
+          </Link>
+          {JOURNEY_GROUPS.flat().map((item) => (
+            <Link key={item.to} to={item.to} className={linkClass(item.to) + ' w-full'}>
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </Link>
+          ))}
+
+          <div className="my-2 border-t border-slate-100" />
+
+          <Link to="/journey" className={linkClass('/journey') + ' w-full'}>
+            <Award className="h-4 w-4" />
+            Advanced Editor
+          </Link>
+
+          <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 cursor-pointer">
+            <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+            <Upload className="h-4 w-4" />
+            Import JSON
+          </label>
+
+          {careerJourney && (
+            <button onClick={handleExportJSON} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 text-left">
+              <Download className="h-4 w-4" />
+              Export JSON
+            </button>
+          )}
+
+          <button onClick={handleDownloadTemplate} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 text-left">
+            <FileDown className="h-4 w-4" />
+            Blank Template
+          </button>
+
+          {isFirebaseConfigured && auth && (
+            <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 text-left">
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </button>
+          )}
+        </nav>
+      )}
     </header>
   );
 }

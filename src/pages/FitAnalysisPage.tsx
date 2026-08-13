@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '../components/ui';
+import { Button, Card, CardHeader, CardTitle, CardContent, Badge, useToast } from '../components/ui';
 import { mockScoreFit, mockAuditHardGates } from '../lib/mock-ai';
 import { RefreshCw, Sparkles, CheckCircle, ShieldAlert, FileCheck, HelpCircle, Loader2 } from 'lucide-react';
 
@@ -11,6 +11,7 @@ export default function FitAnalysisPage() {
   const updateJob = useStore((state) => state.updateJob);
   const careerJourney = useStore((state) => state.careerJourney);
   const navigate = useNavigate();
+  const toast = useToast();
 
   const [isScoring, setIsScoring] = useState(false);
   const [showClaraFormFor, setShowClaraFormFor] = useState<number | null>(null);
@@ -48,7 +49,7 @@ export default function FitAnalysisPage() {
       });
     } catch (error) {
        console.error(error);
-       alert("Failed to analyze credentials with Gemini.");
+       toast.error("Failed to analyze credentials with Gemini.");
     } finally {
       setIsScoring(false);
     }
@@ -57,7 +58,7 @@ export default function FitAnalysisPage() {
   const submitGateClarification = async (key: string) => {
     const inputVal = claraInputs[key];
     if (!inputVal || (!inputVal.explanation.trim() && !inputVal.proof.trim())) {
-      alert("Please enter both validation explanation and objective proof!");
+      toast.error("Please enter both validation explanation and objective proof!");
       return;
     }
 
@@ -71,7 +72,7 @@ export default function FitAnalysisPage() {
 
     setShowClaraFormFor(null);
     await analyze(updatedClarifications);
-    alert(`Success! Saved verification explanation and objective proof. Gemini has re-evaluated your fit!`);
+    toast.success(`Success! Saved verification explanation and objective proof. Gemini has re-evaluated your fit!`);
   };
 
   if (!job || !job.parse) return <div>Parse data required first.</div>;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Card, CardContent, Input, Label, Textarea } from '../components/ui';
+import { Button, Card, CardContent, Input, Label, Textarea, useToast } from '../components/ui';
 import { mockParseJobDescription, mockGenerateKeywordBreakdown } from '../lib/mock-ai';
 import { Loader2 } from 'lucide-react';
 
@@ -11,6 +11,7 @@ export default function Intake() {
   const updateJob = useStore((state) => state.updateJob);
   const careerJourney = useStore((state) => state.careerJourney);
   const navigate = useNavigate();
+  const toast = useToast();
 
   const [formData, setFormData] = useState({
     companyName: '',
@@ -50,7 +51,7 @@ export default function Intake() {
 
   const handleParse = async () => {
     if (formData.jdText.length < 50) {
-      alert("JD text is too short to parse reliably.");
+      toast.error("JD text is too short to parse reliably.");
       return;
     }
     
@@ -79,7 +80,7 @@ export default function Intake() {
 
     } catch (e) {
       console.error(e);
-      alert("Error parsing JD.");
+      toast.error("Error parsing JD.");
     } finally {
       setIsParsing(false);
     }

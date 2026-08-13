@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Table, TableHeader, TableRow, TableHead, TableBody, TableCell, Label, Textarea, Input } from '../components/ui';
+import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Table, TableHeader, TableRow, TableHead, TableBody, TableCell, Label, Textarea, Input, useToast } from '../components/ui';
 import { KeywordSignal, ExperienceContext, EvidenceStatus, ClarificationQuestion } from '../types';
 import { generateId } from '../lib/utils';
 import { mockGenerateKeywordBreakdown, mockGenerateClarifyingQuestions, mockScoreFit, mockAuditHardGates } from '../lib/mock-ai';
-import { FileDown, X, RefreshCw, Compass, ArrowRight, HelpCircle, CheckSquare, Sparkles, BookOpen, ShieldAlert, CheckCircle, ShieldCheck, FileCheck, Loader2 } from 'lucide-react';
+import { FileDown, X, RefreshCw, Compass, ArrowRight, HelpCircle, Sparkles, BookOpen, ShieldAlert, CheckCircle, Loader2 } from 'lucide-react';
 
 export default function Keywords() {
   const { id } = useParams();
@@ -13,15 +13,14 @@ export default function Keywords() {
   const updateJob = useStore((state) => state.updateJob);
   const careerJourney = useStore((state) => state.careerJourney);
   const navigate = useNavigate();
+  const toast = useToast();
 
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
-  const [activeView, setActiveView] = useState<'table' | 'interviewer' | 'diagnostics'>('table');
+  const [activeView, setActiveView] = useState<'table' | 'interviewer'>('table');
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [answers, setAnswers] = useState<Record<string, { text: string; roleId: string; addType: any }>>({});
-  const [showClaraFormForGate, setShowClaraFormForGate] = useState<number | null>(null);
-  const [claraInputs, setClaraInputs] = useState<Record<string, { explanation: string; proof: string }>>({});
 
 
   if (!job) {
@@ -54,25 +53,6 @@ export default function Keywords() {
     }
   };
 
-  const submitGateClarification = async (key: string) => {
-    const inputVal = claraInputs[key];
-    if (!inputVal || (!inputVal.explanation.trim() && !inputVal.proof.trim())) {
-      alert("Please enter both validation explanation and objective proof!");
-      return;
-    }
-
-    const updatedClarifications = {
-      ...(job.gateClarifications || {}),
-      [key]: {
-        explanation: inputVal.explanation.trim(),
-        proof: inputVal.proof.trim()
-      }
-    };
-
-    setShowClaraFormForGate(null);
-    await recalculateFitAndGates(job.contextEntries, updatedClarifications);
-  };
-
   const handleReanalyze = async () => {
     if (!job.parse) return;
     setIsReanalyzing(true);
@@ -82,7 +62,7 @@ export default function Keywords() {
       setSelectedKeywordId(null);
     } catch (error) {
       console.error(error);
-      alert("Failed to re-analyze keywords");
+      toast.error("Failed to re-analyze keywords");
     } finally {
       setIsReanalyzing(false);
     }
@@ -99,7 +79,7 @@ export default function Keywords() {
       updateJob(job.id, { clarificationQuestions: qns });
     } catch (e) {
       console.error(e);
-      alert("Failed to load clarifying questions from AI.");
+      toast.error("Failed to load clarifying questions from AI.");
     } finally {
       setIsGeneratingQuestions(false);
     }
@@ -136,7 +116,7 @@ export default function Keywords() {
 
   const handleAnswerQuestion = async (q: any, answerText: string, roleId: string, addType: any, outcome?: string, proof?: string) => {
     if (!answerText.trim()) {
-      alert("Please enter some experience text first.");
+      toast.error("Please enter some experience text first.");
       return;
     }
 
@@ -179,7 +159,7 @@ export default function Keywords() {
     // Background live recalculation
     recalculateFitAndGates(updatedContext);
     
-    alert(`Evidence for "${q.keywordPhrase}" has been captured and added to your Patch Staging! Live Fit scorecard is updating.`);
+    toast.success(`Evidence for "${q.keywordPhrase}" has been captured and added to your Patch Staging! Live Fit scorecard is updating.`);
   };
 
   const selectedKeyword = keywords.find(k => k.id === selectedKeywordId);
@@ -436,7 +416,7 @@ export default function Keywords() {
                       className="bg-white hover:bg-slate-50 text-slate-700 border-slate-300 shadow-sm"
                       onClick={() => navigate('/journey')}
                     >
-                      Go to Journey Cockpit
+                      Go to Career Journey
                     </Button>
                     <Button 
                       size="sm" 
@@ -449,7 +429,7 @@ export default function Keywords() {
                           ]
                         };
                         useStore.getState().setCareerJourney(sample);
-                        alert("Demo Profile Loaded! Click 'Extract Keywords' below to proceed with matching.");
+                        toast.success("Demo Profile Loaded! Click 'Extract Keywords' below to proceed with matching.");
                       }}
                     >
                       Load Demo Profile
@@ -545,20 +525,30 @@ export default function Keywords() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Button 
+                <Button
                   type="button"
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => recalculateFitAndGates()} 
-                  disabled={isRecalculating} 
+                  variant="outline"
+                  size="sm"
+                  onClick={() => recalculateFitAndGates()}
+                  disabled={isRecalculating}
                   className="h-8 border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-bold font-sans"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRecalculating ? 'animate-spin text-brand-500' : 'text-slate-500'}`} />
                   {isRecalculating ? 'CALCULATING...' : 'LIVE RE-SCORE'}
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => navigate(`/job/${job.id}/fit`)}
+                  className="h-8 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold font-sans"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 mr-1.5" />
+                  View full Fit &amp; ATS Audit
+                  <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                </Button>
               </div>
             </div>
-            
+
             {/* Auto-sync hint */}
             <div className="mt-2 text-[10px] text-slate-400 font-medium">
               ⚡ As you type context or answer interviewer questions, your match metrics automatically recalculate.
@@ -568,7 +558,7 @@ export default function Keywords() {
 
         {/* Tab Switching Menu */}
         <div className="flex border-b border-slate-200 mb-6 px-4">
-          <button 
+          <button
             type="button"
             onClick={() => setActiveView('table')}
             className={`py-3 px-6 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${activeView === 'table' ? 'border-brand-600 text-brand-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
@@ -576,7 +566,7 @@ export default function Keywords() {
             <BookOpen className="w-4 h-4" />
             <span>Keyword Evidence Table</span>
           </button>
-          <button 
+          <button
             type="button"
             onClick={() => setActiveView('interviewer')}
             className={`relative py-3 px-6 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${activeView === 'interviewer' ? 'border-brand-600 text-brand-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
@@ -585,22 +575,6 @@ export default function Keywords() {
             <span>AI Deep-Capture Interviewer</span>
             {keywords.some(k => k.evidenceStatus === 'PARTIAL' || k.evidenceStatus === 'MISSING / POSSIBLE') && (
               <Badge className="bg-amber-100 text-amber-700 border-none text-[10px] px-1.5 py-px font-bold">Recommended</Badge>
-            )}
-          </button>
-          <button 
-            type="button"
-            onClick={() => {
-              setActiveView('diagnostics');
-              if (job.parse && (!job.fitAnalysis || !job.hardGateAudit)) {
-                recalculateFitAndGates();
-              }
-            }}
-            className={`relative py-3 px-6 font-semibold text-sm border-b-2 transition-all flex items-center gap-2 ${activeView === 'diagnostics' ? 'border-brand-600 text-brand-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          >
-            <ShieldAlert className="w-4 h-4 text-rose-500" />
-            <span>Live Fit &amp; ATS Scorecard</span>
-            {job.hardGateAudit?.overallVerdict !== 'CLEAR TO APPLY' && (
-              <Badge className="bg-rose-100 text-rose-700 border-none text-[10px] px-1.5 py-px font-bold">Gaps</Badge>
             )}
           </button>
         </div>
@@ -645,7 +619,7 @@ export default function Keywords() {
               </div>
             )}
           </div>
-        ) : activeView === 'interviewer' ? (
+        ) : (
           <div className="flex-1 overflow-y-auto px-4 pb-12 space-y-6 animate-fade-in">
             <Card className="p-6 bg-gradient-to-r from-slate-50 to-brand-50/35 border-brand-100 shadow-sm">
               <div className="flex items-start gap-4">
@@ -810,253 +784,6 @@ export default function Keywords() {
                     </Card>
                   );
                 })}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto px-4 pb-12 space-y-6 animate-fade-in font-sans">
-            {!job.fitAnalysis || !job.hardGateAudit ? (
-              <div className="py-24 text-center border-2 border-dashed border-slate-200 rounded-xl">
-                <RefreshCw className="w-8 h-8 text-brand-600 animate-spin mx-auto mb-4" />
-                <h5 className="font-bold text-slate-700">Analyzing Credentials Gaps &amp; Match Level</h5>
-                <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto font-sans">Gemini is evaluating your profile against the strict parameters of this job description...</p>
-              </div>
-            ) : (
-              <div className="space-y-6 text-slate-900">
-                {/* HARD STRUCTURED FIELD GATES SECTION */}
-                <Card className={`border-2 ${job.hardGateAudit.overallVerdict === 'LIKELY AUTO-REJECT' ? 'border-red-500 bg-red-50/5' : job.hardGateAudit.overallVerdict === 'VERIFY FIRST' ? 'border-amber-400 bg-amber-50/5' : 'border-slate-100'}`}>
-                  <CardContent className="p-6">
-                    <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
-                      <div>
-                        <h4 className="font-extrabold text-slate-900 text-base flex items-center gap-1.5 font-sans">
-                          <CheckCircle className="w-5 h-5 text-brand-600" />
-                          ATS Structured-Field Audit
-                        </h4>
-                        <p className="text-xs text-slate-500 mt-0.5 py-0.5 font-sans">Objective evaluation of hard disqualifiers (degree, location, work authorization, clearance).</p>
-                      </div>
-                      <Badge variant={job.hardGateAudit.overallVerdict === 'CLEAR TO APPLY' ? 'success' : job.hardGateAudit.overallVerdict === 'VERIFY FIRST' ? 'warning' : 'destructive'} className="font-bold text-xs uppercase px-2.5 py-1">
-                        {job.hardGateAudit.overallVerdict}
-                      </Badge>
-                    </div>
-
-                    <div className="space-y-4">
-                      {job.hardGateAudit.gates.map((gate, i) => {
-                        const clarificationKey = gate.category || gate.requirement;
-                        const activeClara = (job.gateClarifications || {})[clarificationKey] || { explanation: '', proof: '' };
-                        return (
-                          <div key={i} className="p-4 border border-slate-100 hover:border-slate-200 rounded-xl bg-white space-y-3 shadow-sm transition-all font-sans">
-                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                              <div className="flex items-start gap-3 flex-1">
-                                <div className="shrink-0 mt-0.5">
-                                  <Badge variant={gate.verdict === 'CLEAR' ? 'success' : gate.verdict === 'UNCERTAIN' ? 'warning' : 'destructive'} className="text-[10px] py-0.5 px-2 font-bold uppercase">
-                                    {gate.verdict}
-                                  </Badge>
-                                </div>
-                                <div className="flex-1">
-                                  <h5 className="font-bold text-slate-800 text-sm mb-0.5">{gate.category}</h5>
-                                  <p className="text-[10px] font-semibold text-slate-500 bg-slate-100 inline-block px-1.5 py-0.5 rounded mb-2 font-mono">{gate.requirement}</p>
-                                  <p className="text-xs text-slate-600 leading-relaxed font-serif">{gate.reason}</p>
-                                  <p className="text-[10px] font-medium text-slate-400 mt-1">Recommended Action: {gate.suggestedAction}</p>
-                                </div>
-                              </div>
-
-                              {showClaraFormForGate !== i && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowClaraFormForGate(i);
-                                    setClaraInputs({
-                                      ...claraInputs,
-                                      [clarificationKey]: {
-                                        explanation: activeClara.explanation,
-                                        proof: activeClara.proof
-                                      }
-                                    });
-                                  }}
-                                  className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 bg-brand-50/70 hover:bg-brand-50 px-2.5 py-1 border border-brand-100/60 rounded-md transition-all self-end md:self-start shrink-0"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5 text-brand-500" />
-                                  <span>{activeClara.explanation ? 'Edit Clarification' : 'Bypass with Proof'}</span>
-                                </button>
-                              )}
-                            </div>
-
-                            {showClaraFormForGate === i ? (
-                              <div className="space-y-3 bg-slate-50 border border-slate-200/50 p-4 rounded-lg">
-                                <div className="flex justify-between items-center pb-1 border-b border-slate-100">
-                                  <span className="text-[10px] font-extrabold text-slate-600 uppercase tracking-widest flex items-center gap-1">
-                                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                                    Provide Verification Proof
-                                  </span>
-                                  <button 
-                                    type="button" 
-                                    onClick={() => setShowClaraFormForGate(null)} 
-                                    className="text-xs text-slate-400 hover:text-slate-600 font-medium"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase">My Explanation / Bypassing Statement</label>
-                                  <textarea
-                                    rows={2}
-                                    className="w-full text-xs p-2.5 border border-slate-200 rounded bg-white text-slate-800 font-medium focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 outline-none"
-                                    placeholder="e.g. Yes, I worked extensively with Spanner for 4 years, or yes I hold a BA degree..."
-                                    value={claraInputs[clarificationKey]?.explanation || ''}
-                                    onChange={(e) => setClaraInputs({
-                                      ...claraInputs,
-                                      [clarificationKey]: {
-                                        ...(claraInputs[clarificationKey] || { explanation: '', proof: '' }),
-                                        explanation: e.target.value
-                                      }
-                                    })}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Audit Trail Verification / Proof Location</label>
-                                  <input
-                                    type="text"
-                                    className="w-full text-xs p-2 border border-slate-200 rounded bg-white text-slate-800 font-mono focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 outline-none"
-                                    placeholder="e.g. Lead Architect role §4, AWS Solution Architect Certificate, located in Denver, CO"
-                                    value={claraInputs[clarificationKey]?.proof || ''}
-                                    onChange={(e) => setClaraInputs({
-                                      ...claraInputs,
-                                      [clarificationKey]: {
-                                        ...(claraInputs[clarificationKey] || { explanation: '', proof: '' }),
-                                        proof: e.target.value
-                                      }
-                                    })}
-                                  />
-                                </div>
-                                <div className="flex justify-end gap-2 pt-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowClaraFormForGate(null)}
-                                    className="text-xs font-bold border border-slate-200 bg-white text-slate-600 px-3 py-1 rounded hover:bg-slate-50 transition-colors"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => submitGateClarification(clarificationKey)}
-                                    disabled={isRecalculating}
-                                    className="text-xs font-bold bg-slate-900 hover:bg-black text-white px-3 py-1 rounded flex items-center gap-1 transition-colors disabled:opacity-50 font-sans"
-                                  >
-                                    {isRecalculating ? (
-                                      <>
-                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Syncing...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <FileCheck className="w-3.5 h-3.5" />
-                                        <span>Submit Verification Proof</span>
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : activeClara.explanation ? (
-                              <div className="bg-emerald-50/70 border border-emerald-100 p-3 rounded-lg text-xs font-sans">
-                                <div className="flex items-center gap-1.5 text-emerald-800 font-bold mb-1">
-                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>My Verified Verification Statement:</span>
-                                </div>
-                                <p className="text-slate-700 leading-relaxed font-serif">{activeClara.explanation}</p>
-                                {activeClara.proof && (
-                                  <p className="text-[10px] text-emerald-700 font-mono mt-1 pt-1 border-t border-emerald-100/40">
-                                    <span className="font-semibold uppercase tracking-wider">Proof Location:</span> {activeClara.proof}
-                                  </p>
-                                )}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* CAREER JOURNEY FIT CARD */}
-                <Card className="border border-slate-100 bg-white shadow-sm font-sans">
-                  <CardContent className="p-6">
-                    <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
-                      <div>
-                        <h4 className="font-extrabold text-slate-900 text-base flex items-center gap-1.5">
-                          <Compass className="w-5 h-5 text-brand-500" />
-                          Career Journey Match Dynamics
-                        </h4>
-                        <p className="text-xs text-slate-500 mt-0.5">Deep match score of experience depth, scope, seniority tier, and technology fit.</p>
-                      </div>
-                      <Badge variant={job.fitAnalysis.overallVerdict === 'PASS' ? 'success' : job.fitAnalysis.overallVerdict === 'BORDERLINE' ? 'warning' : 'destructive'} className="font-bold text-xs uppercase px-2.5 py-1">
-                        Fit Level: {job.fitAnalysis.overallVerdict}
-                      </Badge>
-                    </div>
-
-                    <p className="text-sm text-slate-700 leading-relaxed font-serif border-l-2 border-brand-200 pl-4 py-1 italic mb-6">
-                      "{job.fitAnalysis.rationale}"
-                    </p>
-
-                    <div className="grid md:grid-cols-2 gap-6">
-                      <div className="space-y-4">
-                        <h5 className="text-[11px] uppercase font-bold tracking-widest text-slate-400">Match Dimensions</h5>
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-start border-b border-slate-100 pb-2">
-                            <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Role Scope Match:</span>
-                            <div className="text-right">
-                              <Badge variant={job.fitAnalysis.roleScopeFit.rating === 'Strong' ? 'success' : job.fitAnalysis.roleScopeFit.rating === 'Moderate' ? 'warning' : 'destructive'} className="font-bold text-[10px]">
-                                {job.fitAnalysis.roleScopeFit.rating}
-                              </Badge>
-                              <p className="text-[10px] text-slate-500 mt-1 max-w-[180px] break-words">{job.fitAnalysis.roleScopeFit.rationale}</p>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-start border-b border-slate-100 pb-2 border-t-0 border-x-0">
-                            <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Industry Match:</span>
-                            <div className="text-right">
-                              <Badge variant={job.fitAnalysis.industryDomainFit.rating === 'Strong' ? 'success' : job.fitAnalysis.industryDomainFit.rating === 'Moderate' ? 'warning' : 'destructive'} className="font-bold text-[10px]">
-                                {job.fitAnalysis.industryDomainFit.rating}
-                              </Badge>
-                              <p className="text-[10px] text-slate-500 mt-1 max-w-[180px] break-words">{job.fitAnalysis.industryDomainFit.rationale}</p>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-start border-b border-slate-100 pb-2 border-t-0 border-x-0">
-                            <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Seniority Match:</span>
-                            <div className="text-right">
-                              <Badge variant={job.fitAnalysis.seniorityStageFit.rating === 'Strong' ? 'success' : job.fitAnalysis.seniorityStageFit.rating === 'Moderate' ? 'warning' : 'destructive'} className="font-bold text-[10px]">
-                                {job.fitAnalysis.seniorityStageFit.rating}
-                              </Badge>
-                              <p className="text-[10px] text-slate-500 mt-1 max-w-[180px] break-words">{job.fitAnalysis.seniorityStageFit.rationale}</p>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-start">
-                            <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">Tech &amp; AI Match:</span>
-                            <div className="text-right">
-                              <Badge variant={job.fitAnalysis.technicalAiFit.rating === 'Strong' ? 'success' : job.fitAnalysis.technicalAiFit.rating === 'Moderate' ? 'warning' : 'destructive'} className="font-bold text-[10px]">
-                                {job.fitAnalysis.technicalAiFit.rating}
-                              </Badge>
-                              <p className="text-[10px] text-slate-500 mt-1 max-w-[180px] break-words">{job.fitAnalysis.technicalAiFit.rationale}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div>
-                          <h5 className="text-[11px] uppercase font-bold tracking-widest text-emerald-600 mb-2">Lead With (Strengths)</h5>
-                          <ul className="list-disc pl-4 text-xs space-y-1.5 text-slate-700 font-serif">
-                            {job.fitAnalysis.leadWith.map((item, index) => <li key={index}>{item}</li>)}
-                          </ul>
-                        </div>
-                        <div>
-                          <h5 className="text-[11px] uppercase font-bold tracking-widest text-amber-600 mb-2">Gaps to Handle</h5>
-                          <ul className="list-disc pl-4 text-xs space-y-1.5 text-slate-700 font-serif">
-                            {job.fitAnalysis.gaps.map((item, index) => <li key={index}>{item}</li>)}
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
               </div>
             )}
           </div>

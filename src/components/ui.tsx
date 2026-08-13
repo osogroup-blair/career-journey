@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "../lib/utils"
+import { CheckCircle2, AlertCircle, Info, X } from "lucide-react"
 
 // A consolidated file of basic shadcn-like UI components to reduce file clutter
 
@@ -128,3 +129,93 @@ export const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTabl
 export const TableCell = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
   <td className={cn("px-4 py-4 align-middle", className)} {...props} />
 )
+
+// --- Toast notifications --------------------------------------------------
+// Replaces alert()/window.alert() with the app's existing inline-banner look.
+
+type ToastVariant = 'success' | 'error' | 'info';
+
+interface ToastMessage {
+  id: number;
+  message: string;
+  variant: ToastVariant;
+}
+
+interface ToastContextValue {
+  success: (message: string) => void;
+  error: (message: string) => void;
+  info: (message: string) => void;
+}
+
+const ToastContext = React.createContext<ToastContextValue | null>(null);
+
+const TOAST_ICON: Record<ToastVariant, React.ComponentType<{ className?: string }>> = {
+  success: CheckCircle2,
+  error: AlertCircle,
+  info: Info,
+};
+
+const TOAST_STYLE: Record<ToastVariant, string> = {
+  success: "bg-emerald-50 border-emerald-200 text-emerald-800",
+  error: "bg-red-50 border-red-200 text-red-800",
+  info: "bg-brand-50 border-brand-200 text-brand-800",
+};
+
+export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const [toasts, setToasts] = React.useState<ToastMessage[]>([]);
+  const nextId = React.useRef(0);
+
+  const dismiss = React.useCallback((id: number) => {
+    setToasts((current) => current.filter((t) => t.id !== id));
+  }, []);
+
+  const push = React.useCallback((message: string, variant: ToastVariant) => {
+    const id = ++nextId.current;
+    setToasts((current) => [...current, { id, message, variant }]);
+    setTimeout(() => dismiss(id), 6000);
+  }, [dismiss]);
+
+  const value = React.useMemo<ToastContextValue>(() => ({
+    success: (message: string) => push(message, 'success'),
+    error: (message: string) => push(message, 'error'),
+    info: (message: string) => push(message, 'info'),
+  }), [push]);
+
+  return (
+    <ToastContext.Provider value={value}>
+      {children}
+      <div className="fixed bottom-4 right-4 z-[100] flex w-full max-w-sm flex-col gap-2">
+        {toasts.map((t) => {
+          const Icon = TOAST_ICON[t.variant];
+          return (
+            <div
+              key={t.id}
+              className={cn(
+                "flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium shadow-lg animate-fade-in",
+                TOAST_STYLE[t.variant]
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0 mt-0.5" />
+              <span className="flex-1 whitespace-pre-line leading-snug">{t.message}</span>
+              <button
+                onClick={() => dismiss(t.id)}
+                className="shrink-0 opacity-60 hover:opacity-100"
+                aria-label="Dismiss"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </ToastContext.Provider>
+  );
+}
+
+export function useToast(): ToastContextValue {
+  const ctx = React.useContext(ToastContext);
+  if (!ctx) {
+    throw new Error("useToast must be used within a ToastProvider");
+  }
+  return ctx;
+}

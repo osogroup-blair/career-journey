@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Textarea, Input, Label } from '../components/ui';
+import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Textarea, Input, Label, useToast } from '../components/ui';
 import { scanJobMatch, fetchCompanyJobs } from '../lib/mock-ai';
 import { generateId } from '../lib/utils';
 import { JobMatch, MatchStatus, MatchSource } from '../types';
@@ -98,6 +98,7 @@ export default function Matches() {
     careerJourney, updateCareerJourneyPerson,
   } = useStore();
   const navigate = useNavigate();
+  const toast = useToast();
 
   const [bulkText, setBulkText] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -203,7 +204,7 @@ export default function Matches() {
   const handleScanAll = async () => {
     const postings = splitPostings(bulkText);
     if (postings.length === 0) {
-      alert('Paste at least one job description. Separate multiple postings with a line containing only ---');
+      toast.error('Paste at least one job description. Separate multiple postings with a line containing only ---');
       return;
     }
     setIsScanning(true);
@@ -214,7 +215,7 @@ export default function Matches() {
 
   const handleRefreshCompanies = async () => {
     if (matchPreferences.trackedCompanies.length === 0) {
-      alert('Add at least one company board token in Match Preferences first.');
+      toast.error('Add at least one company board token in Match Preferences first.');
       return;
     }
     setIsRefreshingCompanies(true);
@@ -253,7 +254,7 @@ export default function Matches() {
 
     if (newPostings.length === 0) {
       setIsRefreshingCompanies(false);
-      alert(warnings.length > 0 ? 'No new postings found, and some companies failed to look up — see the warning below Refresh.' : 'No new postings found — everything from your tracked companies is already in the list.');
+      toast.info(warnings.length > 0 ? 'No new postings found, and some companies failed to look up — see the warning below Refresh.' : 'No new postings found — everything from your tracked companies is already in the list.');
       return;
     }
 

@@ -2,10 +2,12 @@ import { Outlet, NavLink, useParams, useNavigate, useLocation } from 'react-rout
 import { useStore } from '../store';
 import { Button } from '../components/ui';
 import { cn } from '../lib/utils';
+import { Compass, ExternalLink } from 'lucide-react';
 
 export default function JobLayout() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const job = useStore((state) => state.jobs[id || '']);
 
   if (!job) {
@@ -15,23 +17,22 @@ export default function JobLayout() {
   const steps = [
     { name: 'Job Intake', path: `/job/${id}/intake` },
     { name: 'JD Parse Review', path: `/job/${id}/parse` },
-    { name: 'Keyword Breakdown', path: `/job/${id}/keywords` },
-    { name: 'Context Capture', path: `/job/${id}/context` },
-    { name: 'CJ Patch Staging', path: `/job/${id}/patch` },
+    { name: 'Keyword Mapping & Context', path: `/job/${id}/keywords` },
+    { name: 'Career Journey Update', path: `/job/${id}/patch` },
     { name: 'Fit & ATS Audit', path: `/job/${id}/fit` },
     { name: 'Resume Strategy', path: `/job/${id}/strategy` },
     { name: 'Export & Build', path: `/job/${id}/export` },
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden print:block print:h-auto print:overflow-visible print:bg-white">
+    <div className="flex h-[calc(100vh-4rem)] bg-slate-50 font-sans text-slate-900 overflow-hidden print:block print:h-auto print:overflow-visible print:bg-white">
       {/* Sidebar Navigation */}
       <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 flex-shrink-0 print:hidden">
         <div className="p-6 border-b border-slate-800">
-          <h1 className="text-white font-bold text-xl tracking-tight cursor-pointer" onClick={() => navigate('/')}>
-            TailorFlow <span className="text-brand-500 underline decoration-2 underline-offset-4">MVP</span>
+          <h1 className="text-white font-bold text-xl tracking-tight cursor-pointer" onClick={() => navigate('/applications')}>
+            Career Journey <span className="text-brand-500 underline decoration-2 underline-offset-4">Tailor</span>
           </h1>
-          <p className="text-xs mt-1 text-slate-500 uppercase tracking-widest font-semibold">Workflow Engine v1.2</p>
+          <p className="text-xs mt-1 text-slate-500 uppercase tracking-widest font-semibold">Job Tailoring Workflow</p>
         </div>
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {steps.map((step, index) => {
@@ -90,6 +91,17 @@ export default function JobLayout() {
             </p>
           </div>
           <div className="flex items-center space-x-4">
+            <a
+              href="#/journey"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open Career Journey in a new tab — this pipeline stays exactly where it is"
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-brand-600 transition-colors"
+            >
+              <Compass className="w-3.5 h-3.5" />
+              View Career Journey
+              <ExternalLink className="w-3 h-3" />
+            </a>
             <div className="flex -space-x-2">
               {job.fitAnalysis && (
                 <div className={`w-8 h-8 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-bold ${
@@ -114,7 +126,6 @@ export default function JobLayout() {
 
         {/* Dynamic Content Area */}
         {(() => {
-          const location = useLocation();
           const isPreview = location.pathname.endsWith('/preview');
           return (
             <div className={cn(

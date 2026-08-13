@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Badge, Card, Label } from '../components/ui';
+import { Button, Badge, Card, Label, useToast } from '../components/ui';
 import { mockGenerateFullResume } from '../lib/mock-ai';
 import { Download, ArrowLeft, Printer, Sparkles, Loader2, Mail } from 'lucide-react';
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../components/ResumeTemplates';
@@ -11,6 +11,7 @@ type TemplateType = 'classic' | 'modern' | 'executive';
 export default function ResumePreview() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const job = useStore((state) => state.jobs[id || '']);
   const careerJourney = useStore((state) => state.careerJourney);
   const updateJob = useStore((state) => state.updateJob);
@@ -226,7 +227,7 @@ export default function ResumePreview() {
                 <Sparkles className="w-5 h-5 text-emerald-600 animate-pulse" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 text-base">Ontology Re-Sync Engine: Push Refinements Back</h3>
+                <h3 className="font-bold text-slate-800 text-base">Push Refinements Back to Career Journey</h3>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
                   Have you edited experience bullets on this resume? Reverse-synchronize those refined bullet points right back into your master Career Journey database for future applications.
                 </p>
@@ -289,7 +290,7 @@ export default function ResumePreview() {
                                             skills: []
                                           });
                                           useStore.getState().setCareerJourney(updatedJourney);
-                                          alert(`Successfully pushed bullet as a Deliverable to ${matchingRole.organization}!`);
+                                          toast.success(`Successfully pushed bullet as a Deliverable to ${matchingRole.organization}!`);
                                         }
                                       }}
                                       className="text-[10px] font-bold bg-slate-100 border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded hover:bg-slate-200 transition-colors"
@@ -309,7 +310,7 @@ export default function ResumePreview() {
                                             skills: []
                                           });
                                           useStore.getState().setCareerJourney(updatedJourney);
-                                          alert(`Successfully pushed bullet as an Achievement to ${matchingRole.organization}!`);
+                                          toast.success(`Successfully pushed bullet as an Achievement to ${matchingRole.organization}!`);
                                         }
                                       }}
                                       className="text-[10px] font-bold bg-brand-600 border border-brand-500 text-white px-2.5 py-1.5 rounded hover:bg-brand-700 transition-colors"

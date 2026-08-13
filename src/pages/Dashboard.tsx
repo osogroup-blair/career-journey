@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, Badge, CardContent, Input } from '../components/ui';
+import JourneyGuide from '../components/JourneyGuide';
 import {
   Briefcase,
   Sparkles,
@@ -279,6 +280,8 @@ export default function Dashboard() {
 
       {/* Main Showcase Content */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 -mt-10 relative z-20">
+
+        <JourneyGuide />
 
         {/* Tab Bar */}
         <div className="flex flex-wrap items-center border-b border-slate-200 bg-white rounded-t-2xl px-6 py-2 shadow-sm gap-1 sm:gap-4">

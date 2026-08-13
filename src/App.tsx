@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { HashRouter as Router, Routes, Route } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
+import { ToastProvider } from './components/ui';
 import Dashboard from './pages/Dashboard';
 import EditJourney from './pages/EditJourney';
 import CareerJourneyBuilder from './pages/CareerJourneyBuilder';
@@ -26,6 +27,7 @@ import CoverLetter from './pages/CoverLetter';
 
 export default function App() {
   return (
+    <ToastProvider>
     <Router>
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
         <Navbar />
@@ -43,7 +45,7 @@ export default function App() {
               <Route path="intake" element={<Intake />} />
               <Route path="parse" element={<ParseReview />} />
               <Route path="keywords" element={<Keywords />} />
-              <Route path="context" element={<Keywords />} />
+              <Route path="context" element={<Navigate to="../keywords" replace />} />
               <Route path="patch" element={<PatchReview />} />
               <Route path="fit" element={<FitAnalysisPage />} />
               <Route path="strategy" element={<ResumeStrategy />} />
@@ -55,5 +57,6 @@ export default function App() {
         </div>
       </div>
     </Router>
+    </ToastProvider>
   );
 }

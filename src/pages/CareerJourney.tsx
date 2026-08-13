@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Input, Label, Textarea, Badge } from '../components/ui';
+import { Button, Card, Input, Label, Textarea, Badge, useToast } from '../components/ui';
 import { normalizeCareerJourney, validateCareerJourney } from '../lib/careerJourneyNormalize';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
 import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
@@ -16,7 +16,7 @@ const COMPREHENSIVE_SAMPLE_JOURNEY = {
   meta: {
     owner: "Blair Oso",
     version: "1.1.0",
-    framework: "TailorFlow v2 Architecture",
+    framework: "Career Journey",
     description: "Standardized 12-tier ontology single source of truth for career intelligence matching algorithms.",
     last_updated: new Date().toISOString().split('T')[0],
     version_X_Y_changes: [
@@ -278,6 +278,7 @@ const COMPREHENSIVE_SAMPLE_JOURNEY = {
 
 export default function CareerJourney() {
   const navigate = useNavigate();
+  const toast = useToast();
   const careerJourney = useStore((state) => state.careerJourney);
   const setCareerJourney = useStore((state) => state.setCareerJourney);
 
@@ -330,7 +331,7 @@ export default function CareerJourney() {
   const handleCJDownload = () => {
     try {
       if (!careerJourney) {
-        alert("No active career journey data present to export.");
+        toast.error("No active career journey data present to export.");
         return;
       }
       const validation = validateCareerJourney(careerJourney);
@@ -347,7 +348,7 @@ export default function CareerJourney() {
       downloadAnchor.remove();
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert(`Failed to export career journey file: ${err.message}`);
+      toast.error(`Failed to export career journey file: ${err.message}`);
     }
   };
 
@@ -466,7 +467,7 @@ export default function CareerJourney() {
   const vocabularies = careerJourney?.vocabularies || COMPREHENSIVE_SAMPLE_JOURNEY.vocabularies;
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
+    <div className="flex h-[calc(100vh-4rem)] bg-slate-50 font-sans text-slate-800 overflow-hidden">
       
       {/* Sidebar navigation list */}
       <aside className="w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shrink-0 select-none">
@@ -679,7 +680,7 @@ export default function CareerJourney() {
                     <Input value={metaObj.owner || ''} onChange={e => updateRootJourney('meta', { ...metaObj, owner: e.target.value })} />
                   </div>
                   <div>
-                    <Label>Ontology Version</Label>
+                    <Label>Version</Label>
                     <Input value={metaObj.version || ''} onChange={e => updateRootJourney('meta', { ...metaObj, version: e.target.value })} />
                   </div>
                   <div className="col-span-2">
@@ -2667,6 +2668,7 @@ const TimelineLinkingWidget = ({
 }: TimelineLinkingWidgetProps) => {
   const [selectedRoleId, setSelectedRoleId] = React.useState('');
   const [selectedInitId, setSelectedInitId] = React.useState('');
+  const toast = useToast();
 
   const currentMappings = React.useMemo(() => {
     const list = Array.isArray(links.timeline_mappings) ? links.timeline_mappings : [];
@@ -2694,7 +2696,7 @@ const TimelineLinkingWidget = ({
     );
 
     if (exists) {
-      alert("This timeline linkage already exists.");
+      toast.error("This timeline linkage already exists.");
       return;
     }
 
