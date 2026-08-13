@@ -1,6 +1,6 @@
 ---
-name: blair-voice-writer
-description: "Use this skill whenever writing content intended to sound like the candidate or Oso Group. This includes thought leadership, Operating Notes, LinkedIn posts, application answers, recruiter or hiring-team messages, cover letters, website copy, proposals, consulting materials, strategic memos, email, and other narrative writing. The skill preserves the candidate's reasoning patterns and voice while actively removing AI tells and sentence-level slop: slogans, unsupported abstraction, jargon-heavy indirectness, and unnecessary framing or structure. It supports the candidate's personal voice, Oso Group brand voice, and a concise Professional Short Form. In the Job Applications project it is the voice layer: JD_pipeline_SKILL.md governs application evidence and ATS logic, Blair_Cover_Letter_SKILL.md governs cover-letter strategy and quality, and this skill governs the candidate's tone, sentence construction, anti-AI editing, and anti-slop quality control."
+name: voice-writer
+description: "Use this skill whenever writing content intended to sound like the candidate or Oso Group. This includes thought leadership, Operating Notes, LinkedIn posts, application answers, recruiter or hiring-team messages, cover letters, website copy, proposals, consulting materials, strategic memos, email, and other narrative writing. The skill preserves the candidate's reasoning patterns and voice while actively removing AI tells and sentence-level slop: slogans, unsupported abstraction, jargon-heavy indirectness, and unnecessary framing or structure. It supports the candidate's personal voice, Oso Group brand voice, and a concise Professional Short Form. In the Job Applications project it is the voice layer: JD_pipeline_SKILL.md governs application evidence and ATS logic, cover_letter_skill.md governs cover-letter strategy and quality, and this skill governs the candidate's tone, sentence construction, anti-AI editing, and anti-slop quality control."
 ---
 
 # Candidate Voice Writer
@@ -700,14 +700,14 @@ Do not turn short-form writing into a list of every reason the candidate is qual
 
 # 21. Job Applications project integration
 
-When this skill is used in the Job Applications project, it works alongside `JD_pipeline_SKILL.md` and, for cover letters, `Blair_Cover_Letter_SKILL.md`.
+When this skill is used in the Job Applications project, it works alongside `JD_pipeline_SKILL.md` and, for cover letters, `cover_letter_skill.md`.
 
 Priority rules:
 
 1. The candidate's Career Journey is the factual source of truth for their career claims.
 2. The specific job description/application materials are the source of truth for the company, role, requirements, and hiring problem.
 3. `JD_pipeline_SKILL.md` governs job-fit analysis, ATS logic, application-specific evidence, gaps, resume claims, title reframing, keyword coverage, and resume generation.
-4. `Blair_Cover_Letter_SKILL.md` governs cover-letter strategy, structure, evidence density, differentiation, company research use, and the cover-letter quality threshold.
+4. `cover_letter_skill.md` governs cover-letter strategy, structure, evidence density, differentiation, company research use, and the cover-letter quality threshold.
 5. This voice skill governs sentence construction, tone, reasoning style, natural rhythm, anti-AI editing, and the AI-Suspicion Audit for all candidate-authored narrative communication, including cover letters.
 6. Never change or invent a factual claim to make the writing sound better.
 7. Do not remove a required ATS keyword merely because it sounds less like the candidate.
@@ -724,7 +724,7 @@ Assume the reviewer already has the candidate's resume. Unless the application q
 
 ### Cover letters
 
-Use `Blair_Cover_Letter_SKILL.md` as the governing source for the cover letter's argument, structure, company-specific hook, proof selection, evidence density, research use, compression, and 8.5+/10 submission threshold.
+Use `cover_letter_skill.md` as the governing source for the cover letter's argument, structure, company-specific hook, proof selection, evidence density, research use, compression, and 8.5+/10 submission threshold.
 
 This voice skill applies **after and during** that strategy work to make the letter sound like the candidate: observational, direct, mechanism-driven, specific, naturally varied, and free of common AI tells. Default to **Mode A: Default Voice**.
 

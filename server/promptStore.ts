@@ -98,7 +98,7 @@ Your instructions:
     label: "Generate Tailored Resume",
     description: "Stage 6b — generates the full structured resume from the Career Journey + Resume Strategy.",
     stage: "Tailored Application",
-    template: `You are running Stage 6 (Generate the tailored resume) of JD_pipeline_SKILL.md for the candidate. Apply ats_tactics.md's Screen 1 and Screen 2 tactics: keyword mirroring in the JD's exact vocabulary, standard section headers, full month-year dates, acronym long-form+short-form pairing on first use, and the role-identity/seniority-balance guardrail so implementation languages don't dominate a senior architecture/strategy identity. Apply the Default Voice lightly per Blair_Voice_SKILL.md rule 8 in the Job Applications integration section: remove generic executive adjectives ("seasoned," "results-driven," "proven track record"), use the verb that names the actual mechanism rather than swapping synonyms for style. Never fabricate a metric, employer, client, or credential that isn't in the Career Journey.
+    template: `You are running Stage 6 (Generate the tailored resume) of JD_pipeline_SKILL.md for the candidate. Apply ats_tactics.md's Screen 1 and Screen 2 tactics: keyword mirroring in the JD's exact vocabulary, standard section headers, full month-year dates, acronym long-form+short-form pairing on first use, and the role-identity/seniority-balance guardrail so implementation languages don't dominate a senior architecture/strategy identity. Apply the Default Voice lightly per voice_skill.md rule 8 in the Job Applications integration section: remove generic executive adjectives ("seasoned," "results-driven," "proven track record"), use the verb that names the actual mechanism rather than swapping synonyms for style. Never fabricate a metric, employer, client, or credential that isn't in the Career Journey.
 
 Combine the candidate's existing CareerJourney data with the newly generated tailored Resume Strategy, ensuring all Top Critical Skills and Keywords from the Job Parse are organically incorporated.
 
@@ -112,18 +112,18 @@ Combine the candidate's existing CareerJourney data with the newly generated tai
   },
   coverLetter: {
     label: "Cover Letter",
-    description: "Stage 9 — drafts the cover letter body, governed by the Blair Cover Letter and Voice skill files.",
+    description: "Stage 9 — drafts the cover letter body, governed by the cover-letter and voice skill files.",
     stage: "Tailored Application",
-    template: `You are running Stage 9 (Cover Letter) of JD_pipeline_SKILL.md for the candidate, governed by Blair_Cover_Letter_SKILL.md for strategy/structure/quality and Blair_Voice_SKILL.md (Default Voice) for sentence construction and anti-AI editing. Do not rerun the JD/fit analysis - reuse the parse, fit analysis, and resume strategy already supplied below.
+    template: `You are running Stage 9 (Cover Letter) of JD_pipeline_SKILL.md for the candidate, governed by cover_letter_skill.md for strategy/structure/quality and voice_skill.md (Default Voice) for sentence construction and anti-AI editing. Do not rerun the JD/fit analysis - reuse the parse, fit analysis, and resume strategy already supplied below.
 
-Before writing, silently work through Blair_Cover_Letter_SKILL.md's Opening Thesis Gate: generate at least three materially different opening directions internally, reject any that fail the opening rejection test, and only draft the full letter once one clearly passes.
+Before writing, silently work through cover_letter_skill.md's Opening Thesis Gate: generate at least three materially different opening directions internally, reject any that fail the opening rejection test, and only draft the full letter once one clearly passes.
 
 Default to four paragraphs, 325-400 words, one page. Use one primary proof story with one strong metric from the Career Journey, never a resume-in-prose. Never fabricate a client, employer, metric, or credential not present in the Career Journey.
 
 Before returning your answer, silently self-apply, in order:
-1. The Cover-letter Anti-Slop Hard Gate (Blair_Cover_Letter_SKILL.md section 10A) - reject slogans, buzzword stacks, unsupported tails on real metrics, process-as-reason phrasing, and canned conclusions.
-2. Blair_Voice_SKILL.md's sentence-level anti-slop standard and AI-Suspicion Audit - target 2/10 or lower, no em dashes, no cover-letter throat clearing, no "What interests me about..." openings.
-3. Blair_Cover_Letter_SKILL.md's 10-point rubric - only return a letter that would score 8.5/10 or higher. If your first draft would not, revise internally before responding. Do not narrate this process - return only the final passing letter.`,
+1. The Cover-letter Anti-Slop Hard Gate (cover_letter_skill.md section 10A) - reject slogans, buzzword stacks, unsupported tails on real metrics, process-as-reason phrasing, and canned conclusions.
+2. voice_skill.md's sentence-level anti-slop standard and AI-Suspicion Audit - target 2/10 or lower, no em dashes, no cover-letter throat clearing, no "What interests me about..." openings.
+3. cover_letter_skill.md's 10-point rubric - only return a letter that would score 8.5/10 or higher. If your first draft would not, revise internally before responding. Do not narrate this process - return only the final passing letter.`,
   },
   clarifyQuestions: {
     label: "Gap Interview Questions",

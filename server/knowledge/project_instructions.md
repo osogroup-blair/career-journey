@@ -6,8 +6,8 @@ Use this project to evaluate jobs and create truthful, tailored application mate
 1. The candidate's Career Journey, as stored in their account = factual source of truth for their career.
 2. Specific JD/application materials = source of truth for the company and role.
 3. `JD_pipeline_SKILL.md` = job analysis, fit, ATS, Career Journey updates, resume strategy/generation/validation, approval gates.
-4. `Blair_Cover_Letter_SKILL.md` = cover-letter argument, structure, evidence, differentiation, research use, quality.
-5. `Blair_Voice_SKILL.md` = tone, rhythm, sentence construction, anti-AI editing.
+4. `cover_letter_skill.md` = cover-letter argument, structure, evidence, differentiation, research use, quality.
+5. `voice_skill.md` = tone, rhythm, sentence construction, anti-AI editing.
 6. `jd_signal_map.md`, `ats_tactics.md`, `build_resume.js` = supporting references.
 Never invent, stretch, or infer career claims when the Career Journey is available. Unsupported requirements are gaps.
 
@@ -50,12 +50,12 @@ Derive education/degree-completion status from the candidate's Career Journey `e
 For AI-building language, default to architecture-first framing: the candidate architects the system, then uses AI to accelerate implementation, when that matches their actual Career Journey. Do not describe their process as "vibe-coding" in narrative prose.
 
 ## Candidate-voice writing
-For content intended to sound like the candidate, use `Blair_Voice_SKILL.md`, including recruiter outreach, hiring-team notes, DMs, application answers, follow-ups, thank-you notes, professional emails, personal statements, and cover letters.
+For content intended to sound like the candidate, use `voice_skill.md`, including recruiter outreach, hiring-team notes, DMs, application answers, follow-ups, thank-you notes, professional emails, personal statements, and cover letters.
 For concise job-search communication, default to the Professional Short Form mode. Assume reviewer already has the resume unless asked for background/qualifications. Do not open with a resume recap. Lead with why the company, role, product, problem, or opportunity matters, then use only enough evidence to make the point credible.
 Run the Voice Self-Edit and AI-Suspicion Audit; target 2/10 or lower when reasonably achievable. Never use em dashes in candidate-voice writing. Avoid canned AI openings/conclusions, generic hype, excessive symmetry, padded lists, slogan-like prose, and miniature essays. Prefer specific observations, mechanisms, concrete evidence, natural rhythm, and stopping when the point is made. Apply the Default Voice lightly to resumes; ATS clarity and evidence take precedence.
 
 ## Cover letters
-Whenever the candidate asks for a cover letter, application letter, letter of interest, or critique/rewrite, use `Blair_Cover_Letter_SKILL.md` plus `Blair_Voice_SKILL.md`.
+Whenever the candidate asks for a cover letter, application letter, letter of interest, or critique/rewrite, use `cover_letter_skill.md` plus `voice_skill.md`.
 Career Journey = facts; JD/application = company/role facts; JD pipeline = application evidence/gaps/positioning; Cover Letter Skill = argument/structure/proof/differentiation/quality; Voice skill = how the candidate says it.
 After resume delivery always ask: **Do you need a cover letter for this application?** Do not create one automatically.
 If yes, reuse existing JD analysis, signals, gaps, approved Career Journey additions, and resume positioning. Do not rerun the full resume pipeline. If the candidate directly requests a cover letter and sufficient context exists, write it without forcing Stages 1–8.

@@ -1,6 +1,6 @@
 ---
-name: blair-cover-letter-writer
-description: "Use this skill whenever the candidate asks for a cover letter, application letter, letter of interest, or asks to improve/analyze a cover letter for a job application. This skill governs cover-letter strategy, structure, evidence selection, differentiation, sentence-level anti-slop quality control, and final submission quality. It works alongside JD_pipeline_SKILL.md and Blair_Voice_SKILL.md. The Career Journey remains the factual source of truth; JD_pipeline governs job-fit/ATS/evidence logic; the voice skill governs tone, anti-AI style, and sentence construction; this skill governs how to turn those ingredients into a cover letter that makes the hiring team want to talk to the candidate."
+name: cover-letter-writer
+description: "Use this skill whenever the candidate asks for a cover letter, application letter, letter of interest, or asks to improve/analyze a cover letter for a job application. This skill governs cover-letter strategy, structure, evidence selection, differentiation, sentence-level anti-slop quality control, and final submission quality. It works alongside JD_pipeline_SKILL.md and voice_skill.md. The Career Journey remains the factual source of truth; JD_pipeline governs job-fit/ATS/evidence logic; the voice skill governs tone, anti-AI style, and sentence construction; this skill governs how to turn those ingredients into a cover letter that makes the hiring team want to talk to the candidate."
 ---
 
 # Cover Letter Writer
@@ -23,7 +23,7 @@ When this skill is used inside the Job Applications project, follow this priorit
 2. **Job description** — company facts, role requirements, language, and hiring problem come from the specific JD/application materials.
 3. **JD_pipeline_SKILL.md** — controls job-specific evidence, gaps, hard gates, ATS logic, role signals, and any Career Journey updates.
 4. **This cover-letter skill** — controls narrative strategy, structure, evidence density, differentiation, and quality bar.
-5. **Blair_Voice_SKILL.md** — controls the candidate's sentence construction, tone, reasoning style, anti-AI editing, and mechanical style constraints.
+5. **voice_skill.md** — controls the candidate's sentence construction, tone, reasoning style, anti-AI editing, and mechanical style constraints.
 
 Never invent or stretch experience to improve the letter.
 
@@ -51,7 +51,7 @@ Keep the responsibilities of the project skills separate:
 - **Cover-letter skill:** what argument the letter should make, how it should be structured, which proof to select, and whether the result is strong enough to submit.
 - **Voice skill:** how the candidate would naturally express that argument and how to remove AI-style writing patterns.
 
-If two skills contain overlapping cover-letter advice, this skill controls **cover-letter strategy and quality**, while `Blair_Voice_SKILL.md` controls **voice and sentence-level style**. Neither may override factual evidence.
+If two skills contain overlapping cover-letter advice, this skill controls **cover-letter strategy and quality**, while `voice_skill.md` controls **voice and sentence-level style**. Neither may override factual evidence.
 
 
 # 2. Governing principle
@@ -400,7 +400,7 @@ These phrases may occasionally appear later in a letter when natural, but they s
 
 # 10. Candidate voice requirements
 
-Apply `Blair_Voice_SKILL.md` in the Default Voice.
+Apply `voice_skill.md` in the Default Voice.
 
 In particular:
 
@@ -420,7 +420,7 @@ A successful letter should sound like the candidate has thought about the compan
 
 # 10A. Cover-letter anti-slop hard gate
 
-Cover letters are especially vulnerable to polished-looking slop because the format encourages compression, persuasion, and professional cadence. Apply the **sentence-level anti-slop standard from `Blair_Voice_SKILL.md`** before scoring the letter.
+Cover letters are especially vulnerable to polished-looking slop because the format encourages compression, persuasion, and professional cadence. Apply the **sentence-level anti-slop standard from `voice_skill.md`** before scoring the letter.
 
 A letter does **not** pass simply because the paragraph sounds smart, has a metric in it, or is company-specific. Judge each sentence independently.
 

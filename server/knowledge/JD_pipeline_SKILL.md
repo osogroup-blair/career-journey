@@ -19,7 +19,7 @@ Given a job description, this skill runs a nine-stage pipeline:
 6. **Generate the tailored resume** — `.docx` + `.pdf`, engineered to pass keyword scoring AND avoid structured-field auto-rejection
 7. **Keyword scoring gate** — score the finished resume against the JD keyword list; must hit 85%+ before files are delivered, with a gap report and automatic rebuild on any fail
 8. **Deliver** — present the resume files and summarize the tailoring choices
-9. **Offer and run the cover-letter workflow** — after resume delivery, ask the candidate whether the application needs a cover letter; if yes, invoke `Blair_Cover_Letter_SKILL.md` for strategy, evidence selection, structure, and quality control, then apply `Blair_Voice_SKILL.md` for the candidate's voice and anti-AI editing
+9. **Offer and run the cover-letter workflow** — after resume delivery, ask the candidate whether the application needs a cover letter; if yes, invoke `cover_letter_skill.md` for strategy, evidence selection, structure, and quality control, then apply `voice_skill.md` for the candidate's voice and anti-AI editing
 
 Default mode is full-pipeline with two controlled approval points: one optional approval loop for adding newly recognized experience to the Career Journey after Stage 2, and one required approval gate before resume generation between Stages 4 and 6. If the candidate asks for only one piece ("just rate it", "just tailor the resume, I already know it's a fit"), skip the unrequested stages, but still show the keyword breakdown when evaluating a JD because it is part of recognizing hidden experience and improving the Career Journey over time.
 
@@ -464,15 +464,15 @@ Then run the cover-letter workflow using the project skills in this order:
 
 1. Use the candidate's Career Journey as the factual source of truth.
 2. Reuse the exact company, exact role title, JD parse, top role signals, approved Career Journey additions, gaps, tailored-resume positioning, and the opening hypothesis already established for this application. Do not rerun Stages 1–8 just to write the cover letter.
-3. Apply `Blair_Cover_Letter_SKILL.md` as the governing source for the Opening Thesis Gate, cover-letter strategy, company-specific point of view, evidence selection, structure, compression, research use, the Cover-letter Anti-Slop Hard Gate, and the 8.5+/10 quality gate.
-4. Apply `Blair_Voice_SKILL.md` in the **Default Voice** for sentence construction, natural rhythm, anti-AI editing, professional-writing-tell removal, the sentence-level anti-slop standard, and the AI-Suspicion Audit.
+3. Apply `cover_letter_skill.md` as the governing source for the Opening Thesis Gate, cover-letter strategy, company-specific point of view, evidence selection, structure, compression, research use, the Cover-letter Anti-Slop Hard Gate, and the 8.5+/10 quality gate.
+4. Apply `voice_skill.md` in the **Default Voice** for sentence construction, natural rhythm, anti-AI editing, professional-writing-tell removal, the sentence-level anti-slop standard, and the AI-Suspicion Audit.
 5. Deliver only after all four quality checks pass: Opening Quality **1.0/1.5 or higher**, **zero unresolved anti-slop flags sentence by sentence**, total cover-letter rubric **8.5/10 or higher**, and Voice AI-Suspicion Audit **2/10 or lower when reasonably achievable**.
 
 Do not duplicate the resume in prose. The cover letter should create a reason to interview the candidate by showing that they understand the company's actual operating problem, have a useful point of view on it, and have enough specific evidence to make that point of view credible.
 
 ### Direct cover-letter requests
 
-If the candidate asks for a cover letter, application letter, letter of interest, or an analysis/rewrite of an existing cover letter **without first completing the resume workflow**, still use `Blair_Cover_Letter_SKILL.md`.
+If the candidate asks for a cover letter, application letter, letter of interest, or an analysis/rewrite of an existing cover letter **without first completing the resume workflow**, still use `cover_letter_skill.md`.
 
 - If the company, role, JD, and Career Journey evidence are already available in the conversation/project, use them directly. Do not force the full resume pipeline to restart.
 - If the request is to analyze an existing cover letter, score it with the cover-letter rubric first and identify the highest-leverage improvements.
@@ -484,7 +484,7 @@ If the candidate asks for a cover letter, application letter, letter of interest
 
 ## Edge cases
 
-**The candidate asks directly for a cover letter or cover-letter critique** — use `Blair_Cover_Letter_SKILL.md` immediately with the current application context and Career Journey. Do not require a new fit analysis or resume build when the necessary job context already exists. Apply `Blair_Voice_SKILL.md` after the cover-letter strategy is set.
+**The candidate asks directly for a cover letter or cover-letter critique** — use `cover_letter_skill.md` immediately with the current application context and Career Journey. Do not require a new fit analysis or resume build when the necessary job context already exists. Apply `voice_skill.md` after the cover-letter strategy is set.
 
 **No Career Journey found** — ask the candidate to complete their Career Journey. Don't try to write a resume from scratch.
 
@@ -506,8 +506,8 @@ If the candidate asks for a cover letter, application letter, letter of interest
 
 ## Companion skills
 
-- `Blair_Cover_Letter_SKILL.md` — Governing strategy and quality-control skill for cover letters, application letters, letters of interest, and cover-letter critique/rewrite work. Use it at Stage 9 and for direct cover-letter requests.
-- `Blair_Voice_SKILL.md` — Governing candidate-voice and anti-AI style layer for cover letters, recruiter outreach, application answers, hiring-team messages, and other narrative communication.
+- `cover_letter_skill.md` — Governing strategy and quality-control skill for cover letters, application letters, letters of interest, and cover-letter critique/rewrite work. Use it at Stage 9 and for direct cover-letter requests.
+- `voice_skill.md` — Governing candidate-voice and anti-AI style layer for cover letters, recruiter outreach, application answers, hiring-team messages, and other narrative communication.
 
 ## Reference files
 
