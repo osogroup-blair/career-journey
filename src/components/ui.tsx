@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "../lib/utils"
-import { CheckCircle2, AlertCircle, Info, X } from "lucide-react"
+import { CheckCircle2, AlertCircle, Info, X, Loader2 } from "lucide-react"
 
 // A consolidated file of basic shadcn-like UI components to reduce file clutter
 
@@ -29,6 +29,28 @@ export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
   }
 )
 Button.displayName = "Button"
+
+export const LoadingButton = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: 'default' | 'outline' | 'ghost' | 'destructive' | 'secondary';
+    size?: 'default' | 'sm' | 'lg';
+    isLoading?: boolean;
+    loadingLabel?: string;
+  }
+>(({ isLoading, loadingLabel, children, disabled, ...props }, ref) => (
+  <Button ref={ref} disabled={disabled || isLoading} {...props}>
+    {isLoading ? (
+      <>
+        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+        {loadingLabel ?? children}
+      </>
+    ) : (
+      children
+    )}
+  </Button>
+))
+LoadingButton.displayName = "LoadingButton"
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   ({ className, type, ...props }, ref) => {
@@ -149,6 +171,17 @@ interface ToastContextValue {
 
 const ToastContext = React.createContext<ToastContextValue | null>(null);
 
+/**
+ * Imperative escape hatch so non-component code (the Zustand store's background
+ * AI task runner) can surface toasts without a hook. ToastProvider wires the
+ * real implementation in on mount; until then these are safe no-ops.
+ */
+export const toastBridge: ToastContextValue = {
+  success: () => {},
+  error: () => {},
+  info: () => {},
+};
+
 const TOAST_ICON: Record<ToastVariant, React.ComponentType<{ className?: string }>> = {
   success: CheckCircle2,
   error: AlertCircle,
@@ -180,6 +213,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     error: (message: string) => push(message, 'error'),
     info: (message: string) => push(message, 'info'),
   }), [push]);
+
+  React.useEffect(() => {
+    toastBridge.success = value.success;
+    toastBridge.error = value.error;
+    toastBridge.info = value.info;
+  }, [value]);
 
   return (
     <ToastContext.Provider value={value}>

@@ -16,12 +16,12 @@ export default function JobLayout() {
 
   const steps = [
     { name: 'Job Intake', path: `/job/${id}/intake` },
-    { name: 'JD Parse Review', path: `/job/${id}/parse` },
-    { name: 'Keyword Mapping & Context', path: `/job/${id}/keywords` },
-    { name: 'Career Journey Update', path: `/job/${id}/patch` },
-    { name: 'Fit & ATS Audit', path: `/job/${id}/fit` },
-    { name: 'Resume Strategy', path: `/job/${id}/strategy` },
-    { name: 'Export & Build', path: `/job/${id}/export` },
+    { name: 'Parsed', path: `/job/${id}/parsed` },
+    { name: 'Rating', path: `/job/${id}/rating` },
+    { name: 'Tailored Application', path: `/job/${id}/tailored` },
+    { name: 'Apply', path: `/job/${id}/apply` },
+    { name: 'Interview', path: `/job/${id}/interview` },
+    { name: 'Offer', path: `/job/${id}/offer` },
   ];
 
   return (
@@ -67,7 +67,7 @@ export default function JobLayout() {
         </nav>
         <div className="p-4 border-t border-slate-800">
           <button 
-            onClick={() => navigate(`/job/${id}/export`)}
+            onClick={() => navigate(`/job/${id}/tailored`)}
             className="w-full flex items-center justify-center space-x-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded transition-colors"
           >
             <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -118,8 +118,8 @@ export default function JobLayout() {
                 </div>
               )}
             </div>
-            {(job.status === 'Fit Scored' || job.status === 'Resume Strategy Ready' || job.status === 'Resume Build Ready') && (
-              <Button onClick={() => navigate(`/job/${id}/strategy`)}>Generate Resume Strategy</Button>
+            {job.fitAnalysis && !job.resume && (
+              <Button onClick={() => navigate(`/job/${id}/tailored`)}>Build Tailored Application</Button>
             )}
           </div>
         </header>

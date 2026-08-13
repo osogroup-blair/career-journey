@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Textarea, Input, Label, useToast } from '../components/ui';
-import { scanJobMatch, fetchCompanyJobs } from '../lib/mock-ai';
+import { scanJobMatch, fetchCompanyJobs } from '../lib/aiClient';
 import { generateId } from '../lib/utils';
+import { buildArchiveLearningsSummary } from '../lib/archiveLearnings';
 import { JobMatch, MatchStatus, MatchSource } from '../types';
 import {
   Radar, Loader2, Sparkles, Trash2, ArrowUpRight, XCircle, AlertTriangle, Inbox,
@@ -96,6 +97,7 @@ export default function Matches() {
     matches, addMatch, updateMatch, deleteMatch, promoteMatch,
     matchPreferences, updateMatchPreferences,
     careerJourney, updateCareerJourneyPerson,
+    jobs,
   } = useStore();
   const navigate = useNavigate();
   const toast = useToast();
@@ -122,7 +124,8 @@ export default function Matches() {
 
   const runScan = async (matchId: string, jdText: string, known?: { company?: string; title?: string }) => {
     try {
-      const result = await scanJobMatch(jdText, careerJourney);
+      const archiveLearnings = buildArchiveLearningsSummary(jobs);
+      const result = await scanJobMatch(jdText, careerJourney, archiveLearnings);
       updateMatch(matchId, {
         companyName: known?.company || result.parse?.company || 'Unknown Company',
         roleTitle: known?.title || result.parse?.roleTitle || 'Unknown Role',
@@ -287,7 +290,7 @@ export default function Matches() {
 
   const handlePromote = (matchId: string) => {
     const jobId = promoteMatch(matchId);
-    if (jobId) navigate(`/job/${jobId}/parse`);
+    if (jobId) navigate(`/job/${jobId}/parsed`);
   };
 
   const matchList = Object.values(matches || {}).sort((a, b) => {
@@ -322,6 +325,16 @@ export default function Matches() {
             <p className="mt-2 text-sm sm:text-base text-slate-300 max-w-2xl">
               Paste in postings you've found and get a fast fit score against your Career Journey before committing to the full tailoring pipeline.
             </p>
+            {(() => {
+              const learnings = buildArchiveLearningsSummary(jobs);
+              const count = learnings ? learnings.split('\n').length : 0;
+              return count > 0 ? (
+                <p className="mt-1.5 text-xs text-brand-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Scoring is informed by {count} past application outcome{count === 1 ? '' : 's'}
+                </p>
+              ) : null;
+            })()}
           </div>
           <Button
             variant="outline"
@@ -591,7 +604,7 @@ export default function Matches() {
                     )}
                     {m.status === 'Promoted' ? (
                       <button
-                        onClick={() => navigate(`/job/${m.promotedJobId}/parse`)}
+                        onClick={() => navigate(`/job/${m.promotedJobId}/parsed`)}
                         className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 uppercase tracking-wider"
                       >
                         View Analysis <ArrowUpRight className="w-3.5 h-3.5" />

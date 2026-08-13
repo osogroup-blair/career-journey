@@ -114,7 +114,7 @@ export default function Navbar() {
       id: generateId('JOB'),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      status: 'Draft' as const,
+      stage: 'Intake' as const,
       companyName: 'Target Company',
       roleTitle: 'Target Role',
       jdText: ''
@@ -196,6 +196,14 @@ export default function Navbar() {
                   >
                     <Award className="h-4 w-4 text-slate-400" />
                     Advanced Editor
+                  </Link>
+
+                  <Link
+                    to="/admin/prompts"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Sparkles className="h-4 w-4 text-slate-400" />
+                    Admin — AI Prompts
                   </Link>
 
                   <div className="my-1.5 border-t border-slate-100" />

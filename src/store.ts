@@ -4,7 +4,9 @@ import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
 import { dataStore } from './data';
 import { generateId } from './lib/utils';
 import { normalizeCareerJourney } from './lib/careerJourneyNormalize';
-import { advanceStage, deriveStageFloor } from './lib/jobPipeline';
+import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
+import { toastBridge } from './components/ui';
+import * as aiClient from './lib/aiClient';
 
 const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
   excludedKeywords: [],
@@ -12,15 +14,47 @@ const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
   trackedCompanies: [],
 };
 
+export interface AiTask {
+  id: string;
+  jobId: string;
+  kind: string;
+  label: string;
+  startedAt: string;
+  status: 'running' | 'error';
+  error?: string;
+}
+
 interface AppState {
   jobs: Record<string, JobAnalysis>;
   matches: Record<string, JobMatch>;
   matchPreferences: MatchPreferences;
   careerJourney: any;
+  activeAiTasks: Record<string, AiTask>;
   hydrate: () => Promise<void>;
   addJob: (job: JobAnalysis) => void;
   updateJob: (id: string, updates: Partial<JobAnalysis>) => void;
   deleteJob: (id: string) => void;
+  archiveJob: (id: string, reason: JobAnalysis['archiveReason'], notes?: string) => void;
+  /**
+   * The one path every AI-triggering action goes through. Fire-and-forget from
+   * the caller's perspective — the promise chain lives here in the store, not in
+   * any component, so it keeps running (and writes its result to global state)
+   * regardless of which screen is mounted when it resolves.
+   */
+  runAiTask: (jobId: string, kind: string, label: string, run: () => Promise<Partial<JobAnalysis>>) => void;
+  dismissAiTask: (taskId: string) => void;
+  runParseJob: (jobId: string, jdText: string) => void;
+  runFitAndGateAudit: (jobId: string) => void;
+  runKeywordExtraction: (jobId: string) => void;
+  runClarifyQuestions: (jobId: string) => void;
+  runPatchJourney: (jobId: string) => void;
+  runGenerateTailoredApplication: (jobId: string) => void;
+  runGenerateCoverLetter: (jobId: string) => void;
+  runApplicationAssistantMessage: (jobId: string, message: string) => void;
+  runGenerateFormAnswers: (jobId: string) => void;
+  runInterviewPrep: (jobId: string, roundId: string) => void;
+  runInterviewPrepChatMessage: (jobId: string, roundId: string, message: string) => void;
+  runOfferGuidance: (jobId: string) => void;
   addMatch: (match: JobMatch) => void;
   updateMatch: (id: string, updates: Partial<JobMatch>) => void;
   deleteMatch: (id: string) => void;
@@ -71,6 +105,7 @@ export const useStore = create<AppState>((set, get) => {
     matches: {},
     matchPreferences: DEFAULT_MATCH_PREFERENCES,
     careerJourney: normalizeCareerJourney(DEFAULT_CAREER_JOURNEY),
+    activeAiTasks: {},
 
     hydrate: async () => {
       const [careerJourney, jobs, matches, matchPreferences] = await Promise.all([
@@ -80,10 +115,7 @@ export const useStore = create<AppState>((set, get) => {
         dataStore.getMatchPreferences(),
       ]);
       const normalizedJobs = Object.fromEntries(
-        Object.entries(jobs ?? {}).map(([id, job]) => [
-          id,
-          job.pipelineStage ? job : { ...job, pipelineStage: advanceStage('Saved', deriveStageFloor(job)) },
-        ])
+        Object.entries(jobs ?? {}).map(([id, job]) => [id, migrateLegacyJob(job)])
       );
       set({
         careerJourney: normalizeCareerJourney(careerJourney ?? DEFAULT_CAREER_JOURNEY),
@@ -94,7 +126,7 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     addJob: (job) => {
-      set((state) => ({ jobs: { ...state.jobs, [job.id]: { pipelineStage: 'Saved', ...job } } }));
+      set((state) => ({ jobs: { ...state.jobs, [job.id]: { stage: 'Intake', ...job } } }));
       persistJob(get().jobs[job.id]);
     },
     updateJob: (id, updates) => {
@@ -102,9 +134,6 @@ export const useStore = create<AppState>((set, get) => {
         const existing = state.jobs[id];
         if (!existing) return state;
         const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-        if (('fitAnalysis' in updates && updates.fitAnalysis) || ('resume' in updates && updates.resume)) {
-          merged.pipelineStage = advanceStage(merged.pipelineStage, deriveStageFloor(merged));
-        }
         return { jobs: { ...state.jobs, [id]: merged } };
       });
       const updated = get().jobs[id];
@@ -118,6 +147,191 @@ export const useStore = create<AppState>((set, get) => {
       });
       persistJobDelete(id);
     },
+    archiveJob: (id, reason, notes) => {
+      const existing = get().jobs[id];
+      if (!existing) return;
+      get().updateJob(id, {
+        stage: 'Archive',
+        archivedFromStage: existing.stage,
+        archivedAt: new Date().toISOString(),
+        archiveReason: reason ?? 'Rejected',
+        archiveNotes: notes ?? existing.archiveNotes,
+      });
+    },
+
+    runAiTask: (jobId, kind, label, run) => {
+      const taskId = generateId('TASK');
+      set((state) => ({
+        activeAiTasks: {
+          ...state.activeAiTasks,
+          [taskId]: { id: taskId, jobId, kind, label, startedAt: new Date().toISOString(), status: 'running' },
+        },
+      }));
+
+      run()
+        .then((partial) => {
+          const job = get().jobs[jobId];
+          if (!job) return;
+          const merged = { ...job, ...partial };
+          const nextStage = advanceStageIfEligible(merged);
+          get().updateJob(jobId, { ...partial, stage: nextStage });
+          set((state) => {
+            const tasks = { ...state.activeAiTasks };
+            delete tasks[taskId];
+            return { activeAiTasks: tasks };
+          });
+          toastBridge.success(
+            nextStage !== job.stage
+              ? `${job.companyName || 'Job'} — ${label} complete, moved to ${nextStage}.`
+              : `${job.companyName || 'Job'} — ${label} complete.`
+          );
+        })
+        .catch((err) => {
+          console.error(`AI task "${kind}" failed`, err);
+          set((state) => ({
+            activeAiTasks: {
+              ...state.activeAiTasks,
+              [taskId]: { ...state.activeAiTasks[taskId], status: 'error', error: err?.message || String(err) },
+            },
+          }));
+          toastBridge.error(`${label} failed: ${err?.message || err}`);
+        });
+    },
+
+    dismissAiTask: (taskId) => {
+      set((state) => {
+        const tasks = { ...state.activeAiTasks };
+        delete tasks[taskId];
+        return { activeAiTasks: tasks };
+      });
+    },
+
+    runParseJob: (jobId, jdText) => {
+      const job = get().jobs[jobId];
+      if (!job) return;
+      get().runAiTask(jobId, 'parse', 'Parsing job description', async () => {
+        const parse = await aiClient.parseJobDescription(jdText, job.companyName, job.roleTitle);
+        const { jdSegments, ...jdParse } = parse as any;
+        return { jdText, parse: jdParse, jdSegments };
+      });
+    },
+
+    runFitAndGateAudit: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse) return;
+      get().runAiTask(jobId, 'fitAudit', 'Auditing fit & gates', async () => {
+        const careerJourney = get().careerJourney;
+        const [fitAnalysis, hardGateAudit] = await Promise.all([
+          aiClient.scoreFit(job.parse!, careerJourney, job.contextEntries || {}, job.gateClarifications, job.jdSegments),
+          aiClient.auditHardGates(job.parse!, careerJourney, job.gateClarifications, job.jdSegments),
+        ]);
+        return { fitAnalysis, hardGateAudit };
+      });
+    },
+
+    runKeywordExtraction: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse) return;
+      get().runAiTask(jobId, 'keywords', 'Extracting keywords', async () => {
+        const keywords = await aiClient.generateKeywordBreakdown(job.parse!, get().careerJourney, job.jdSegments);
+        return { keywords };
+      });
+    },
+
+    runClarifyQuestions: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.keywords) return;
+      get().runAiTask(jobId, 'clarifyQuestions', 'Generating clarifying questions', async () => {
+        const clarificationQuestions = await aiClient.generateClarifyingQuestions(job.parse!, get().careerJourney, job.keywords!);
+        return { clarificationQuestions };
+      });
+    },
+
+    runPatchJourney: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.contextEntries) return;
+      get().runAiTask(jobId, 'patchJourney', 'Staging Career Journey patch', async () => {
+        const { summary, updatedCareerJourney } = await aiClient.stageCareerJourneyPatch(get().careerJourney, job.contextEntries!);
+        // Staged only — never applied until the user explicitly approves (see PatchTab.handleApprove).
+        return { careerJourneyPatch: summary, pendingCareerJourneyUpdate: updatedCareerJourney };
+      });
+    },
+
+    runGenerateTailoredApplication: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.ratingFinalizedAt) return;
+      get().runAiTask(jobId, 'generateTailoredApplication', 'Building tailored resume', async () => {
+        const careerJourney = get().careerJourney;
+        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {});
+        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!);
+        return { resumeStrategy, resume };
+      });
+    },
+
+    runGenerateCoverLetter: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse) return;
+      get().runAiTask(jobId, 'coverLetter', 'Drafting cover letter', async () => {
+        const coverLetter = await aiClient.generateCoverLetter(job.parse!, get().careerJourney, job.fitAnalysis, job.resumeStrategy);
+        return { coverLetter };
+      });
+    },
+
+    runApplicationAssistantMessage: (jobId, message) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse) return;
+      const transcript = [...(job.applicationAssistantTranscript || []), { role: 'user' as const, content: message }];
+      get().updateJob(jobId, { applicationAssistantTranscript: transcript });
+      get().runAiTask(jobId, 'applicationAssistant', 'Application Assistant is thinking', async () => {
+        const { reply } = await aiClient.sendApplicationAssistantMessage(transcript, job.parse!, get().careerJourney, job.resume, job.fitAnalysis);
+        return { applicationAssistantTranscript: [...transcript, { role: 'assistant', content: reply }] };
+      });
+    },
+
+    runGenerateFormAnswers: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.applicationFormFields?.length) return;
+      get().runAiTask(jobId, 'generateFormAnswers', 'Drafting form answers', async () => {
+        const { answers } = await aiClient.generateFormAnswers(job.applicationFormFields!, job.parse!, get().careerJourney, job.resume);
+        return { applicationFormAnswers: { ...(job.applicationFormAnswers || {}), ...answers } };
+      });
+    },
+
+    runInterviewPrep: (jobId, roundId) => {
+      const job = get().jobs[jobId];
+      const round = job?.interviews?.find((r) => r.id === roundId);
+      if (!job || !job.parse || !round) return;
+      get().runAiTask(jobId, 'interviewPrep', `Prepping for ${round.roundName}`, async () => {
+        const prep = await aiClient.generateInterviewPrep(round, job.parse!, job.fitAnalysis, get().careerJourney);
+        const interviews = (job.interviews || []).map((r) => (r.id === roundId ? { ...r, prep } : r));
+        return { interviews };
+      });
+    },
+
+    runInterviewPrepChatMessage: (jobId, roundId, message) => {
+      const job = get().jobs[jobId];
+      const round = job?.interviews?.find((r) => r.id === roundId);
+      if (!job || !job.parse || !round?.prep) return;
+      const transcript = [...(round.prep.rehearsalTranscript || []), { role: 'user' as const, content: message }];
+      const interviewsWithUserMsg = (job.interviews || []).map((r) => (r.id === roundId ? { ...r, prep: { ...r.prep!, rehearsalTranscript: transcript } } : r));
+      get().updateJob(jobId, { interviews: interviewsWithUserMsg });
+      get().runAiTask(jobId, 'interviewPrepChat', 'Coach is thinking', async () => {
+        const { reply } = await aiClient.sendInterviewPrepChatMessage(transcript, round, job.parse!, get().careerJourney);
+        const finalTranscript = [...transcript, { role: 'assistant' as const, content: reply }];
+        const interviews = (get().jobs[jobId]?.interviews || []).map((r) => (r.id === roundId ? { ...r, prep: { ...r.prep!, rehearsalTranscript: finalTranscript } } : r));
+        return { interviews };
+      });
+    },
+
+    runOfferGuidance: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.offer) return;
+      get().runAiTask(jobId, 'offerGuidance', 'Getting negotiation guidance', async () => {
+        const guidance = await aiClient.getOfferGuidance(job.offer, job.parse!, get().careerJourney);
+        return { offer: { ...job.offer!, guidance } };
+      });
+    },
+
     addMatch: (match) => {
       set((state) => ({ matches: { ...state.matches, [match.id]: match } }));
       persistMatch(get().matches[match.id]);
@@ -152,8 +366,7 @@ export const useStore = create<AppState>((set, get) => {
         id: jobId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        status: match.parse ? 'JD Parsed' : 'Draft',
-        pipelineStage: 'Saved',
+        stage: match.parse ? 'Parsed' : 'Intake',
         companyName: match.companyName,
         roleTitle: match.roleTitle,
         jdText: match.jdText,

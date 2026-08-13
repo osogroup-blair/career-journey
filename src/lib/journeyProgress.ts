@@ -75,7 +75,7 @@ export function computeJourneyProgress(
   }
 
   const jobList = Object.values(jobs);
-  const activeJobs = jobList.filter((j) => j.status !== 'Resume Build Ready');
+  const activeJobs = jobList.filter((j) => !j.resume);
   if (jobList.length === 0) {
     return {
       stage: 'applications',

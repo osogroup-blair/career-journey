@@ -115,8 +115,9 @@ export async function buildResumeDocx(resume: GeneratedResume, strategy?: Resume
         children: [bodyText(exp.title, { italics: true }), new TextRun({ text: "\t" }), bodyText(exp.location || "", { italics: true, color: "6B7280" })],
       })
     );
-    (exp.bullets || []).forEach((bullet) => {
-      children.push(new Paragraph({ bullet: { level: 0 }, spacing: { after: 60 }, children: [bodyText(bullet)] }));
+    (exp.bullets || []).forEach((bullet: any) => {
+      const text = typeof bullet === 'string' ? bullet : bullet.text;
+      children.push(new Paragraph({ bullet: { level: 0 }, spacing: { after: 60 }, children: [bodyText(text)] }));
     });
   });
 

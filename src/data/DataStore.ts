@@ -1,4 +1,5 @@
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
+import { PromptConfig, PromptChangeLogEntry } from '../types/promptConfig';
 
 /**
  * Persistence boundary for the app's data domains (Career Journey, Jobs, Matches).
@@ -21,4 +22,8 @@ export interface DataStore {
 
   getMatchPreferences(): Promise<MatchPreferences | null>;
   saveMatchPreferences(prefs: MatchPreferences): Promise<void>;
+
+  getPromptConfigs(): Promise<Record<string, PromptConfig>>;
+  savePromptConfig(config: PromptConfig): Promise<void>;
+  getPromptChangeLog(promptId: string): Promise<PromptChangeLogEntry[]>;
 }

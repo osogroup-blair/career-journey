@@ -1,4 +1,5 @@
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
+import { PromptConfig, PromptChangeLogEntry } from '../types/promptConfig';
 import { DataStore } from './DataStore';
 
 const OLD_COMBINED_KEY = 'job-fit-storage';
@@ -6,6 +7,8 @@ const CAREER_JOURNEY_KEY = 'career-journey:careerJourney';
 const JOBS_KEY = 'career-journey:jobs';
 const MATCHES_KEY = 'career-journey:matches';
 const MATCH_PREFERENCES_KEY = 'career-journey:matchPreferences';
+const PROMPT_CONFIGS_KEY = 'career-journey:promptConfigs';
+const PROMPT_CHANGELOG_KEY = 'career-journey:promptChangeLog';
 
 /**
  * One-time migration from the old zustand `persist` envelope
@@ -96,5 +99,37 @@ export class LocalStorageDataStore implements DataStore {
 
   async saveMatchPreferences(prefs: MatchPreferences): Promise<void> {
     localStorage.setItem(MATCH_PREFERENCES_KEY, JSON.stringify(prefs));
+  }
+
+  async getPromptConfigs(): Promise<Record<string, PromptConfig>> {
+    const raw = localStorage.getItem(PROMPT_CONFIGS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }
+
+  async savePromptConfig(config: PromptConfig): Promise<void> {
+    const configs = await this.getPromptConfigs();
+    const previous = configs[config.id];
+    configs[config.id] = config;
+    localStorage.setItem(PROMPT_CONFIGS_KEY, JSON.stringify(configs));
+
+    if (previous) {
+      const entry: PromptChangeLogEntry = {
+        id: `LOG-${Date.now()}`,
+        promptId: config.id,
+        version: previous.version,
+        changedAt: new Date().toISOString(),
+        previousTemplate: previous.template,
+      };
+      const allLogsRaw = localStorage.getItem(PROMPT_CHANGELOG_KEY);
+      const allLogs: Record<string, PromptChangeLogEntry[]> = allLogsRaw ? JSON.parse(allLogsRaw) : {};
+      allLogs[config.id] = [entry, ...(allLogs[config.id] || [])].slice(0, 20);
+      localStorage.setItem(PROMPT_CHANGELOG_KEY, JSON.stringify(allLogs));
+    }
+  }
+
+  async getPromptChangeLog(promptId: string): Promise<PromptChangeLogEntry[]> {
+    const raw = localStorage.getItem(PROMPT_CHANGELOG_KEY);
+    const allLogs: Record<string, PromptChangeLogEntry[]> = raw ? JSON.parse(raw) : {};
+    return allLogs[promptId] || [];
   }
 }

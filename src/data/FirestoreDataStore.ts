@@ -1,5 +1,6 @@
-import { Firestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
+import { Firestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
+import { PromptConfig, PromptChangeLogEntry } from '../types/promptConfig';
 import { DataStore } from './DataStore';
 
 // Firestore rejects `undefined` field values outright; our types use them freely
@@ -33,6 +34,15 @@ export class FirestoreDataStore implements DataStore {
   }
   private matchPreferencesRef() {
     return doc(this.db, 'users', this.uid, 'matchPreferences', 'current');
+  }
+  private promptConfigsCollectionRef() {
+    return collection(this.db, 'users', this.uid, 'promptConfigs');
+  }
+  private promptConfigRef(id: string) {
+    return doc(this.db, 'users', this.uid, 'promptConfigs', id);
+  }
+  private promptChangeLogCollectionRef(promptId: string) {
+    return collection(this.db, 'users', this.uid, 'promptConfigs', promptId, 'changeLog');
   }
 
   async getCareerJourney(): Promise<any | null> {
@@ -81,5 +91,34 @@ export class FirestoreDataStore implements DataStore {
 
   async saveMatchPreferences(prefs: MatchPreferences): Promise<void> {
     await setDoc(this.matchPreferencesRef(), stripUndefined(prefs));
+  }
+
+  async getPromptConfigs(): Promise<Record<string, PromptConfig>> {
+    const snap = await getDocs(this.promptConfigsCollectionRef());
+    const configs: Record<string, PromptConfig> = {};
+    snap.forEach((d) => { configs[d.id] = d.data() as PromptConfig; });
+    return configs;
+  }
+
+  async savePromptConfig(config: PromptConfig): Promise<void> {
+    const existing = await getDoc(this.promptConfigRef(config.id));
+    if (existing.exists()) {
+      const previous = existing.data() as PromptConfig;
+      const entry: PromptChangeLogEntry = {
+        id: `LOG-${Date.now()}`,
+        promptId: config.id,
+        version: previous.version,
+        changedAt: new Date().toISOString(),
+        previousTemplate: previous.template,
+      };
+      await setDoc(doc(this.promptChangeLogCollectionRef(config.id), entry.id), stripUndefined(entry));
+    }
+    await setDoc(this.promptConfigRef(config.id), stripUndefined(config));
+  }
+
+  async getPromptChangeLog(promptId: string): Promise<PromptChangeLogEntry[]> {
+    const q = query(this.promptChangeLogCollectionRef(promptId), orderBy('changedAt', 'desc'), limit(20));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => d.data() as PromptChangeLogEntry);
   }
 }

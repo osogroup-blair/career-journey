@@ -1,14 +1,49 @@
 import React from 'react';
 import { GeneratedResume } from '../types';
 import { EditableText } from './EditableText';
+import EvidenceTrace from './EvidenceTrace';
 
 interface TemplateProps {
   resume: GeneratedResume;
   tagline?: string;
   onUpdate: (newResume: GeneratedResume) => void;
+  careerJourney?: any;
 }
 
-export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate }) => {
+/** A bullet generated before evidenceRefs existed is still a bare string in older persisted resumes — normalize on read so old data doesn't render "undefined". */
+function normalizeBullet(b: string | { text: string; evidenceRefs?: any[] }): { text: string; evidenceRefs?: any[] } {
+  return typeof b === 'string' ? { text: b } : b;
+}
+
+/** Shared bullet renderer for all three templates — editable text plus an EvidenceTrace chip when the bullet cites real Career Journey evidence. Kept in one place so the three templates don't drift. */
+function BulletList({ bullets, onChange, className, careerJourney }: {
+  bullets: (string | { text: string; evidenceRefs?: any[] })[];
+  onChange: (index: number, text: string) => void;
+  className?: string;
+  careerJourney?: any;
+}) {
+  return (
+    <>
+      {bullets.map((raw, bi) => {
+        const b = normalizeBullet(raw);
+        return (
+          <li key={bi} className={className}>
+            <span className="inline-flex items-start gap-1.5 w-full">
+              <span className="flex-1">
+                <EditableText multiline value={b.text} onChange={(v) => onChange(bi, v)} />
+              </span>
+              {b.evidenceRefs && b.evidenceRefs.length > 0 && (
+                <EvidenceTrace evidenceRefs={b.evidenceRefs} careerJourney={careerJourney} />
+              )}
+            </span>
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
+export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney }) => {
   return (
     <div className="text-black font-sans leading-relaxed">
       {/* Header */}
@@ -78,19 +113,17 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
                 </div>
               </div>
               <ul className="list-disc pl-5 mt-1.5 space-y-1 text-[13px] text-slate-800">
-                {exp.bullets.map((b, bi) => (
-                  <li key={bi} className="leading-snug">
-                    <EditableText
-                      multiline
-                      value={b}
-                      onChange={(v) => {
-                        const newExp = [...resume.experience];
-                        newExp[i].bullets[bi] = v;
-                        onUpdate({ ...resume, experience: newExp });
-                      }}
-                    />
-                  </li>
-                ))}
+                <BulletList
+                  bullets={exp.bullets}
+                  className="leading-snug"
+                  careerJourney={careerJourney}
+                  onChange={(bi, v) => {
+                    const newExp = [...resume.experience];
+                    newExp[i].bullets = [...newExp[i].bullets];
+                    newExp[i].bullets[bi] = { ...normalizeBullet(newExp[i].bullets[bi]), text: v };
+                    onUpdate({ ...resume, experience: newExp });
+                  }}
+                />
               </ul>
             </div>
           ))}
@@ -115,7 +148,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
   );
 };
 
-export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate }) => {
+export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney }) => {
   return (
     <div className="text-zinc-800 font-sans leading-relaxed">
       {/* Header */}
@@ -188,19 +221,17 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
                 </div>
               </div>
               <ul className="list-disc pl-4 space-y-1.5 text-[13px] text-zinc-700">
-                {exp.bullets.map((b, bi) => (
-                  <li key={bi} className="leading-relaxed">
-                    <EditableText
-                      multiline
-                      value={b}
-                      onChange={(v) => {
-                        const newExp = [...resume.experience];
-                        newExp[i].bullets[bi] = v;
-                        onUpdate({ ...resume, experience: newExp });
-                      }}
-                    />
-                  </li>
-                ))}
+                <BulletList
+                  bullets={exp.bullets}
+                  className="leading-relaxed"
+                  careerJourney={careerJourney}
+                  onChange={(bi, v) => {
+                    const newExp = [...resume.experience];
+                    newExp[i].bullets = [...newExp[i].bullets];
+                    newExp[i].bullets[bi] = { ...normalizeBullet(newExp[i].bullets[bi]), text: v };
+                    onUpdate({ ...resume, experience: newExp });
+                  }}
+                />
               </ul>
             </div>
           ))}
@@ -226,7 +257,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
   );
 };
 
-export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate }) => {
+export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney }) => {
   return (
     <div className="text-gray-900 font-serif leading-relaxed">
       {/* Header */}
@@ -299,19 +330,17 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
                 </div>
               </div>
               <ul className="list-disc pl-5 space-y-1 text-[13px] text-gray-800">
-                {exp.bullets.map((b, bi) => (
-                  <li key={bi} className="leading-normal">
-                    <EditableText
-                      multiline
-                      value={b}
-                      onChange={(v) => {
-                        const newExp = [...resume.experience];
-                        newExp[i].bullets[bi] = v;
-                        onUpdate({ ...resume, experience: newExp });
-                      }}
-                    />
-                  </li>
-                ))}
+                <BulletList
+                  bullets={exp.bullets}
+                  className="leading-normal"
+                  careerJourney={careerJourney}
+                  onChange={(bi, v) => {
+                    const newExp = [...resume.experience];
+                    newExp[i].bullets = [...newExp[i].bullets];
+                    newExp[i].bullets[bi] = { ...normalizeBullet(newExp[i].bullets[bi]), text: v };
+                    onUpdate({ ...resume, experience: newExp });
+                  }}
+                />
               </ul>
             </div>
           ))}

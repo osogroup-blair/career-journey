@@ -1,13 +1,12 @@
-export type JobStatus =
-  | 'Draft'
-  | 'JD Parsed'
-  | 'Keywords Reviewed'
-  | 'Context Captured'
-  | 'Career Journey Patch Staged'
-  | 'Fit Scored'
-  | 'Resume Strategy Ready'
-  | 'Resume Build Ready'
-  | 'Cover Letter Ready';
+export type JobStage =
+  | 'Intake'
+  | 'Parsed'
+  | 'Rating'
+  | 'Tailored Application'
+  | 'Apply'
+  | 'Interview'
+  | 'Offer'
+  | 'Archive';
 
 export interface CoverLetter {
   content: string;
@@ -27,7 +26,7 @@ export interface GeneratedResume {
     title: string;
     dates: string;
     location: string;
-    bullets: string[];
+    bullets: { text: string; evidenceRefs?: EvidenceRef[] }[];
   }[];
   education: {
     institution: string;
@@ -36,23 +35,34 @@ export interface GeneratedResume {
   }[];
 }
 
-export type PipelineStage = 'Saved' | 'Rated' | 'Resume Created' | 'Applied' | 'Interview' | 'Archive';
+export interface InterviewPrep {
+  likelyQuestions: { question: string; why: string }[];
+  meetingGoal: string;
+  talkingPoints: string[];
+  generatedAt: string;
+  rehearsalTranscript?: { role: 'user' | 'assistant'; content: string }[];
+}
 
 export interface InterviewRound {
   id: string;
   roundName: string;
+  interviewerName?: string;
+  interviewerTitle?: string;
+  format?: 'Phone' | 'Video' | 'Onsite' | 'Take-home';
   scheduledAt?: string;
   notes?: string;
   outcome: 'Scheduled' | 'Completed' | 'Passed' | 'Rejected';
+  prep?: InterviewPrep;
 }
 
-export type ArchiveReason = 'Rejected' | 'No Response' | 'Withdrawn' | 'Position Filled' | 'Other';
+export type ArchiveReason = 'Rejected' | 'No Response' | 'Withdrawn' | 'Position Filled' | 'Other' | 'Accepted Offer';
 
 export interface JobAnalysis {
   id: string;
   createdAt: string;
   updatedAt: string;
-  status: JobStatus;
+  /** Single source of truth for both the Kanban column and per-job screen routing. */
+  stage: JobStage;
   companyName: string;
   roleTitle: string;
   jobLink?: string;
@@ -60,13 +70,17 @@ export interface JobAnalysis {
   locationNotes?: string;
   jdText: string;
   recruiterNotes?: string;
+  /** Deterministic paragraph/bullet segmentation of jdText, assigned at parse time — used for traceability (EvidenceTrace). */
+  jdSegments?: { id: string; text: string }[];
+  /** Stamped when the user finalizes the Rating stage; gates entry into Tailored Application. */
+  ratingFinalizedAt?: string;
 
-  /** Kanban column for the real-world application funnel — separate from `status` (the tailoring workflow step). */
-  pipelineStage?: PipelineStage;
   appliedAt?: string;
   applicationMethod?: string;
   interviews?: InterviewRound[];
   archivedAt?: string;
+  /** The stage the job was in immediately before being archived — lets the Archived tab show where it fell off. */
+  archivedFromStage?: JobStage;
   archiveReason?: ArchiveReason;
   archiveNotes?: string;
 
@@ -75,6 +89,8 @@ export interface JobAnalysis {
   contextEntries?: Record<string, ExperienceContext>;
   clarificationQuestions?: ClarificationQuestion[];
   careerJourneyPatch?: CareerJourneyPatch;
+  /** The AI's full modified Career Journey, held here until the patch is explicitly approved — never applied automatically. */
+  pendingCareerJourneyUpdate?: any;
   fitAnalysis?: FitAnalysis;
   hardGateAudit?: HardGateAudit;
   gateClarifications?: Record<string, { explanation: string; proof: string }>;
@@ -82,6 +98,39 @@ export interface JobAnalysis {
   keywordCoverage?: KeywordCoverage;
   resume?: GeneratedResume;
   coverLetter?: CoverLetter;
+
+  applicationAssistantTranscript?: { role: 'user' | 'assistant'; content: string }[];
+  applicationFormFields?: ApplicationFormField[];
+  applicationFormAnswers?: Record<string, string>;
+
+  offer?: OfferDetails;
+}
+
+export interface ApplicationFormField {
+  id: string;
+  label: string;
+  fieldType: 'text' | 'textarea' | 'select' | 'checkbox';
+  options?: string[];
+}
+
+export interface OfferGuidance {
+  askAbout: string[];
+  avoidAsking: string[];
+  negotiationAngles: string[];
+  redFlags: string[];
+}
+
+export interface OfferDetails {
+  baseSalary?: string;
+  bonusTarget?: string;
+  variableComp?: string;
+  equity?: { type: string; amount: string; vestingSchedule: string; strikePrice?: string };
+  benefitsNotes?: string;
+  otherTerms?: string;
+  startDate?: string;
+  decisionDeadline?: string;
+  receivedAt: string;
+  guidance?: OfferGuidance;
 }
 
 export interface JDParse {
@@ -103,13 +152,27 @@ export interface JDParse {
 
 export type EvidenceStatus = 'EVIDENCED' | 'PARTIAL' | 'MISSING / POSSIBLE' | 'NOT SUPPORTED' | 'HARD GATE';
 
+/** Points at a real Career Journey item by id — the traceability anchor EvidenceTrace resolves. */
+export interface EvidenceRef {
+  type: 'deliverable' | 'achievement' | 'skill' | 'role' | 'education';
+  id: string;
+}
+
+/** Points at a JobAnalysis.jdSegments entry by id — the JD-side traceability anchor. */
+export interface JdRef {
+  segmentId: string;
+}
+
 export interface KeywordSignal {
   id: string;
   phrase: string;
   category: 'Critical skill' | 'Required keyword' | 'Secondary keyword' | 'Hard gate' | 'Domain signal' | 'Tool / platform';
   jdImportance: 'High' | 'Medium' | 'Low';
   evidenceStatus: EvidenceStatus;
-  currentAnchor: string;
+  /** Real Career Journey ids the model matched this keyword to — replaces the old free-text currentAnchor. */
+  evidenceRefs: EvidenceRef[];
+  /** JD segments this keyword's requirement was found in. */
+  jdRefs: JdRef[];
   whatCouldCount: string;
   recognitionPrompt: string;
   resumePriority: string;
@@ -158,8 +221,8 @@ export interface FitAnalysis {
   technicalAiFit: { rating: 'Strong' | 'Moderate' | 'Weak'; rationale: string };
   overallVerdict: 'PASS' | 'BORDERLINE' | 'SKIP';
   rationale: string;
-  leadWith: string[];
-  gaps: string[];
+  leadWith: { text: string; evidenceRefs?: EvidenceRef[]; jdRefs?: JdRef[] }[];
+  gaps: { text: string; evidenceRefs?: EvidenceRef[]; jdRefs?: JdRef[] }[];
 }
 
 export interface HardGateAudit {
@@ -170,6 +233,8 @@ export interface HardGateAudit {
     verdict: 'CLEAR' | 'FAIL' | 'UNCERTAIN';
     reason: string;
     suggestedAction: string;
+    evidenceRefs?: EvidenceRef[];
+    jdRefs?: JdRef[];
   }[];
 }
 

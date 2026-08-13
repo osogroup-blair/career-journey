@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { Button, Card, CardHeader, CardTitle, CardContent, Textarea } from '../components/ui';
 import { computeJourneyGaps, computeJourneyCompleteness, JourneyGap } from '../lib/careerJourneyGaps';
-import { refineFromInterviewAnswer } from '../lib/mock-ai';
+import { refineFromInterviewAnswer } from '../lib/aiClient';
 import { TrendingUp, Loader2, ArrowRight, CheckCircle2, SkipForward, PartyPopper } from 'lucide-react';
 
 type ProposedUpdate = {

@@ -6,6 +6,7 @@
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import { ToastProvider } from './components/ui';
+import AiActivityIndicator from './components/AiActivityIndicator';
 import Dashboard from './pages/Dashboard';
 import EditJourney from './pages/EditJourney';
 import CareerJourneyBuilder from './pages/CareerJourneyBuilder';
@@ -14,16 +15,16 @@ import JobTracker from './pages/JobTracker';
 import Matches from './pages/Matches';
 import Migrate from './pages/Migrate';
 import JobLayout from './layouts/JobLayout';
-import Intake from './pages/Intake';
-import ParseReview from './pages/ParseReview';
-import Keywords from './pages/Keywords';
-import PatchReview from './pages/PatchReview';
-import FitAnalysisPage from './pages/FitAnalysisPage';
-import ResumeStrategy from './pages/ResumeStrategy';
-import ExportReady from './pages/Export';
+import IntakeStage from './pages/IntakeStage';
+import ParsedStage from './pages/ParsedStage';
+import RatingStage from './pages/RatingStage';
+import TailoredApplicationStage from './pages/TailoredApplicationStage';
+import ApplyStage from './pages/ApplyStage';
+import InterviewStage from './pages/InterviewStage';
+import OfferStage from './pages/OfferStage';
+import CompareOffers from './pages/CompareOffers';
+import AdminPrompts from './pages/AdminPrompts';
 import CareerJourney from './pages/CareerJourney';
-import ResumePreview from './pages/ResumePreview';
-import CoverLetter from './pages/CoverLetter';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
     <Router>
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
         <Navbar />
+        <AiActivityIndicator />
         <div className="flex-1">
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -41,17 +43,24 @@ export default function App() {
             <Route path="/matches" element={<Matches />} />
             <Route path="/migrate" element={<Migrate />} />
             <Route path="/applications" element={<JobTracker />} />
+            <Route path="/compare-offers" element={<CompareOffers />} />
+            <Route path="/admin/prompts" element={<AdminPrompts />} />
             <Route path="/job/:id" element={<JobLayout />}>
-              <Route path="intake" element={<Intake />} />
-              <Route path="parse" element={<ParseReview />} />
-              <Route path="keywords" element={<Keywords />} />
-              <Route path="context" element={<Navigate to="../keywords" replace />} />
-              <Route path="patch" element={<PatchReview />} />
-              <Route path="fit" element={<FitAnalysisPage />} />
-              <Route path="strategy" element={<ResumeStrategy />} />
-              <Route path="export" element={<ExportReady />} />
-              <Route path="preview" element={<ResumePreview />} />
-              <Route path="cover-letter" element={<CoverLetter />} />
+              <Route path="intake" element={<IntakeStage />} />
+              <Route path="parsed" element={<ParsedStage />} />
+              <Route path="rating" element={<RatingStage />} />
+              <Route path="keywords" element={<Navigate to="../rating" replace />} />
+              <Route path="context" element={<Navigate to="../rating" replace />} />
+              <Route path="patch" element={<Navigate to="../rating" replace />} />
+              <Route path="fit" element={<Navigate to="../rating" replace />} />
+              <Route path="tailored" element={<TailoredApplicationStage />} />
+              <Route path="strategy" element={<Navigate to="../tailored" replace />} />
+              <Route path="export" element={<Navigate to="../tailored" replace />} />
+              <Route path="preview" element={<Navigate to="../tailored" replace />} />
+              <Route path="cover-letter" element={<Navigate to="../tailored" replace />} />
+              <Route path="apply" element={<ApplyStage />} />
+              <Route path="interview" element={<InterviewStage />} />
+              <Route path="offer" element={<OfferStage />} />
             </Route>
           </Routes>
         </div>

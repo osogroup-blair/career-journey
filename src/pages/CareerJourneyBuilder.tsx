@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Button, Card, CardHeader, CardTitle, CardContent, Textarea, Input, Badge } from '../components/ui';
-import { buildJourneyFromResume, buildJourneyChat } from '../lib/mock-ai';
+import { buildJourneyFromResume, buildJourneyChat } from '../lib/aiClient';
 import { normalizeCareerJourney } from '../lib/careerJourneyNormalize';
 import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
 import { FileText, MessageCircle, Sparkles, Loader2, ChevronLeft, CheckCircle2, AlertTriangle, Send, Download } from 'lucide-react';
