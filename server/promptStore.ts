@@ -12,17 +12,17 @@ export const DEFAULT_PROMPTS: Record<string, { label: string; description: strin
     label: "Parse Job Description",
     description: "Stage 1 — extracts structured company/role/requirements data from raw JD text.",
     stage: "Intake",
-    template: `You are running Stage 1 (Parse the JD) of JD_pipeline_SKILL.md for Blair Boylan. Extract structured information from the following Job Description.
+    template: `You are running Stage 1 (Parse the JD) of JD_pipeline_SKILL.md for the candidate. Extract structured information from the following Job Description.
 
 Follow Stage 1 exactly: extract company & exact role title (establish the canonical "[Company] — [Exact Job Title]" name), reporting line & team scope, must-haves, nice-to-haves, strategic signals, industry/domain, stage signals, and the top 4-6 critical skills.
 
-For hardGates, audit against the Stage 1 / jd_signal_map.md hard-gate checklist specifically (work authorization, location/time zone, required degree, required license/cert/clearance, minimum years, shift/travel/relocation, language) and evaluate each against Blair's actual default position from the reference material above (US-authorized; remote-first from Telluride CO, Mountain Time, willing to travel 10-20%; Mechanical Engineering coursework at MSOE, not completed; no clearance/PMP held). Only include a hard gate here if the JD actually states or implies that requirement - do not invent gates the JD doesn't mention.`,
+For hardGates, audit against the Stage 1 / jd_signal_map.md hard-gate checklist specifically (work authorization, location/time zone, required degree, required license/cert/clearance, minimum years, shift/travel/relocation, language) and evaluate each against the candidate's actual position as stated in their Career Journey below (person.location, person.work_preference, education entries, certifications) — if a fact isn't stated there, treat that gate as UNCERTAIN rather than assuming an answer. Only include a hard gate here if the JD actually states or implies that requirement - do not invent gates the JD doesn't mention.`,
   },
   keywords: {
     label: "Keyword Breakdown & Evidence Matching",
     description: "Stage 2 — exhaustively extracts ATS keywords and evaluates evidence against the Career Journey.",
     stage: "Rating",
-    template: `You are running Stage 2 (Keyword breakdown & experience recognition) of JD_pipeline_SKILL.md for Blair Boylan.
+    template: `You are running Stage 2 (Keyword breakdown & experience recognition) of JD_pipeline_SKILL.md for the candidate.
 
 Use jd_signal_map.md's JD-signal-to-anchor-story table wherever a JD phrase matches or closely resembles one of its rows: base "whatCouldCount" on that table's anchor story and bullet framing rather than inventing generic phrasing. Use the role-family positioning guardrail table (jd_signal_map.md) to judge whether a keyword should be a dominant top-third signal or a supporting one for this JD's target role family.
 
@@ -62,12 +62,12 @@ Instructions:
     label: "Fit Analysis",
     description: "Stage 3 — scores 4 dimensions of role fit and produces the overall PASS/BORDERLINE/SKIP verdict.",
     stage: "Rating",
-    template: `You are running Stage 3 (Score the fit) of JD_pipeline_SKILL.md for Blair Boylan. Score these four dimensions exactly as Stage 3 defines them, not generically:
+    template: `You are running Stage 3 (Score the fit) of JD_pipeline_SKILL.md for the candidate. Score these four dimensions exactly as Stage 3 defines them, not generically:
 
-1. Role scope fit - does the JD's actual scope match Blair's executive scope at Nymbl + Oso Group (post-sales leadership, services scaling, AI-enabled delivery, operating-system design)?
-2. Industry & domain fit - is the vertical one Blair has shipped in (healthcare, fintech, logistics, SaaS-adjacent enterprise software) or credibly adjacent?
-3. Seniority & stage fit - is the level (VP / Director / Head of / Principal) appropriate given Blair's CSO + Founder background, and is the company stage one where his "$1.5M to $9.2M" scaling story would be a compelling proof point?
-4. Technical & AI fit - does the role reward AI orchestration, solutions architecture, technical depth, or operating-system thinking - Blair's differentiators?
+1. Role scope fit - does the JD's actual scope match the scope the candidate has demonstrably held per their Career Journey (level of ownership, team/org size, functions led)?
+2. Industry & domain fit - is the vertical one the candidate has shipped in per their Career Journey, or credibly adjacent?
+3. Seniority & stage fit - is the level (IC / Manager / Director / VP / C-suite, etc.) appropriate given the candidate's actual title and scope history, and is the company stage one where their strongest quantified outcome in the Career Journey would be a compelling proof point?
+4. Technical & AI fit - does the role reward the specific technical depth, AI/tooling orchestration, or architecture-level thinking the candidate's Career Journey actually evidences?
 
 End with one of PASS / BORDERLINE / SKIP per Stage 3's definitions (PASS = strong alignment, clear resume path; BORDERLINE = real gaps but a sharp resume could break through, name the gaps; SKIP = fundamental mismatch, say so plainly).`,
   },
@@ -75,7 +75,7 @@ End with one of PASS / BORDERLINE / SKIP per Stage 3's definitions (PASS = stron
     label: "Hard Gate Audit",
     description: "Stage 4 — ATS structured-field audit (work auth, location, degree, clearance, years).",
     stage: "Rating",
-    template: `You are running Stage 4 (ATS structured-field audit) of JD_pipeline_SKILL.md for Blair Boylan. Use his actual default position on each gate type from the reference material above (work authorization: US-authorized; location: remote-first, Telluride CO, Mountain Time; degree: Mechanical Engineering coursework at MSOE, not completed - usually a soft gate for senior roles unless the JD is emphatic; license/cert/clearance: none held; travel/relocation: willing to travel 10-20%, no relocation) rather than inferring it solely from role-location fields in the Career Journey, which may be incomplete for older roles.
+    template: `You are running Stage 4 (ATS structured-field audit) of JD_pipeline_SKILL.md for the candidate. Determine the candidate's actual position on each gate type (work authorization, location/remote preference, degree, license/cert/clearance, travel/relocation) from their Career Journey's person and education fields first; only fall back to inferring it from role-location history if those fields are silent, and mark the gate UNCERTAIN rather than assuming a specific answer when nothing in the Career Journey addresses it.
 
 You are an expert technical recruiter and ATS compliance system evaluating a candidate's credentials against a list of "Hard Gates" (such as location, work authorization, clearances, or minimum years of experience).
 
@@ -92,20 +92,20 @@ Your instructions:
     label: "Resume Strategy",
     description: "Stage 6a — the positioning plan (tagline, summary, title reframes, keyword placement) that drives resume generation.",
     stage: "Tailored Application",
-    template: `You are running Stage 6's resume positioning integrity gate (JD_pipeline_SKILL.md) for Blair Boylan. Before drafting the strategy, define the candidate identity the top third must communicate per the role-family positioning guardrail in jd_signal_map.md. Apply the title-reframing tactic from ats_tactics.md (hybrid title: "Real Title | Head of [JD's preferred phrase]") to roleStrategies.titleReframe. Preserve the canonical resume_company_descriptor values from the Career Journey exactly - never rewrite them to mirror the JD. Use exact JD terminology in keywordPlacement where truthful. headerTagline should mirror the JD's framing of the role.`,
+    template: `You are running Stage 6's resume positioning integrity gate (JD_pipeline_SKILL.md) for the candidate. Before drafting the strategy, define the candidate identity the top third must communicate per the role-family positioning guardrail in jd_signal_map.md. Apply the title-reframing tactic from ats_tactics.md (hybrid title: "Real Title | Head of [JD's preferred phrase]") to roleStrategies.titleReframe. Preserve the canonical resume_company_descriptor values from the Career Journey exactly - never rewrite them to mirror the JD. Use exact JD terminology in keywordPlacement where truthful. headerTagline should mirror the JD's framing of the role.`,
   },
   generateResume: {
     label: "Generate Tailored Resume",
     description: "Stage 6b — generates the full structured resume from the Career Journey + Resume Strategy.",
     stage: "Tailored Application",
-    template: `You are running Stage 6 (Generate the tailored resume) of JD_pipeline_SKILL.md for Blair Boylan. Apply ats_tactics.md's Screen 1 and Screen 2 tactics: keyword mirroring in the JD's exact vocabulary, standard section headers, full month-year dates, acronym long-form+short-form pairing on first use, and the role-identity/seniority-balance guardrail so implementation languages don't dominate a senior architecture/strategy identity. Apply Blair Voice lightly per Blair_Voice_SKILL.md rule 8 in the Job Applications integration section: remove generic executive adjectives ("seasoned," "results-driven," "proven track record"), use the verb that names the actual mechanism rather than swapping synonyms for style. Never fabricate a metric, employer, client, or credential that isn't in the Career Journey.
+    template: `You are running Stage 6 (Generate the tailored resume) of JD_pipeline_SKILL.md for the candidate. Apply ats_tactics.md's Screen 1 and Screen 2 tactics: keyword mirroring in the JD's exact vocabulary, standard section headers, full month-year dates, acronym long-form+short-form pairing on first use, and the role-identity/seniority-balance guardrail so implementation languages don't dominate a senior architecture/strategy identity. Apply the Default Voice lightly per Blair_Voice_SKILL.md rule 8 in the Job Applications integration section: remove generic executive adjectives ("seasoned," "results-driven," "proven track record"), use the verb that names the actual mechanism rather than swapping synonyms for style. Never fabricate a metric, employer, client, or credential that isn't in the Career Journey.
 
 Combine the candidate's existing CareerJourney data with the newly generated tailored Resume Strategy, ensuring all Top Critical Skills and Keywords from the Job Parse are organically incorporated.
 
 1. Ensure the resume fits within a 2-page constraint (be concise with bullet points, max 4-5 per role, impact focused).
 2. Use the strategy's exact wording for the Summary and core skills.
 3. Organize experience chronologically.
-4. Use Blair's canonical contact details from the reference material above (phone, email, and blairboylan.com as the final contact item; no LinkedIn unless the request says otherwise). If contact info truly isn't derivable, use placeholders like "[Name]" or "user@example.com".
+4. Use the candidate's own contact details from their Career Journey "person" object (phone, email, and website as the final contact item; no LinkedIn unless the request says otherwise). If contact info truly isn't derivable, use placeholders like "[Name]" or "user@example.com".
 5. For each experience entry, if the matching Career Journey role has resume_company_descriptor and/or resume_company_url, populate companyDescriptor and companyUrl on that entry exactly as given - never rewrite the descriptor.
 6. Each bullet is an object with "text" and "evidenceRefs" fields, not a bare string. Populate "evidenceRefs" with the real Career Journey item id(s) (deliverable.id or achievement.id) that bullet is based on — never invent an id, only cite ids that literally appear in the Career Journey below. If a bullet is a truthful synthesis of the role's general scope rather than one specific deliverable/achievement, leave evidenceRefs empty rather than guessing an id.
 7. Return a strict JSON object of the GeneratedResume.`,
@@ -114,7 +114,7 @@ Combine the candidate's existing CareerJourney data with the newly generated tai
     label: "Cover Letter",
     description: "Stage 9 — drafts the cover letter body, governed by the Blair Cover Letter and Voice skill files.",
     stage: "Tailored Application",
-    template: `You are running Stage 9 (Cover Letter) of JD_pipeline_SKILL.md for Blair Boylan, governed by Blair_Cover_Letter_SKILL.md for strategy/structure/quality and Blair_Voice_SKILL.md (Mode A: Blair Personal Voice) for sentence construction and anti-AI editing. Do not rerun the JD/fit analysis - reuse the parse, fit analysis, and resume strategy already supplied below.
+    template: `You are running Stage 9 (Cover Letter) of JD_pipeline_SKILL.md for the candidate, governed by Blair_Cover_Letter_SKILL.md for strategy/structure/quality and Blair_Voice_SKILL.md (Default Voice) for sentence construction and anti-AI editing. Do not rerun the JD/fit analysis - reuse the parse, fit analysis, and resume strategy already supplied below.
 
 Before writing, silently work through Blair_Cover_Letter_SKILL.md's Opening Thesis Gate: generate at least three materially different opening directions internally, reject any that fail the opening rejection test, and only draft the full letter once one clearly passes.
 
@@ -129,7 +129,7 @@ Before returning your answer, silently self-apply, in order:
     label: "Gap Interview Questions",
     description: "Generates one clarifying question per PARTIAL/MISSING keyword so the candidate can supply missing evidence.",
     stage: "Rating",
-    template: `You are running the Stage 2 recognition-prompt step of JD_pipeline_SKILL.md for Blair Boylan (the "what counts as experience" pattern - be specific to Blair using jd_signal_map.md's anchor stories when a gap keyword matches one of its rows, e.g. prompt him with the Google Workspace to SharePoint migration for "change management", or the Nymbl PADRE motion for "revenue operations").
+    template: `You are running the Stage 2 recognition-prompt step of JD_pipeline_SKILL.md for the candidate (the "what counts as experience" pattern - be specific to the candidate's own background: ground each question in a real project, team, or deliverable already present in their Career Journey rather than asking generically).
 
 We are analyzing a candidate's master Career Journey against a job description. We found several gap areas where the candidate's journey has PARTIAL or MISSING evidence for keywords required by the job.
 
@@ -147,11 +147,11 @@ Return a structured JSON array matching the schema.`,
     label: "Match Triage Scan",
     description: "Fast combined Stage 1+3+4 scan used to rank a batch of job postings on the Matches page before committing to the full pipeline.",
     stage: "Matches",
-    template: `You are running a fast Match Triage Scan for Blair Boylan — a single-call condensed version of JD_pipeline_SKILL.md Stages 1, 3, and 4, used to rank a batch of job postings before he commits to the full pipeline on any one of them. Be decisive, not exhaustive: this is a triage signal, not the final audit.
+    template: `You are running a fast Match Triage Scan for the candidate — a single-call condensed version of JD_pipeline_SKILL.md Stages 1, 3, and 4, used to rank a batch of job postings before they commit to the full pipeline on any one of them. Be decisive, not exhaustive: this is a triage signal, not the final audit.
 
 In one pass:
-1. Parse the JD exactly as Stage 1 does: company & exact role title, reporting line, team scope, must-haves, nice-to-haves, strategic signals, industry/domain, stage signals, top 4-6 critical skills, and hard gates (evaluated against Blair's actual default position: US-authorized; remote-first from Telluride CO, Mountain Time, willing to travel 10-20%; Mechanical Engineering coursework at MSOE, not completed; no clearance/PMP held). Only include a hard gate if the JD actually states or implies it.
-2. Score fit using Stage 3's four dimensions (role scope, industry/domain, seniority/stage, technical & AI fit) against Blair's Career Journey below, and land on one verdict: PASS / BORDERLINE / SKIP.
+1. Parse the JD exactly as Stage 1 does: company & exact role title, reporting line, team scope, must-haves, nice-to-haves, strategic signals, industry/domain, stage signals, top 4-6 critical skills, and hard gates (evaluated against the candidate's actual position as stated in their Career Journey's person and education fields below — treat anything not stated there as UNCERTAIN rather than assumed). Only include a hard gate if the JD actually states or implies it.
+2. Score fit using Stage 3's four dimensions (role scope, industry/domain, seniority/stage, technical & AI fit) against the candidate's Career Journey below, and land on one verdict: PASS / BORDERLINE / SKIP.
 3. Judge hard-gate risk the way Stage 4 does, and land on one of: "CLEAR TO APPLY" / "VERIFY FIRST" / "LIKELY AUTO-REJECT".
 4. Give a 0-100 matchScore reflecting overall pursue-worthiness (weight the fit verdict and hard-gate risk together, not just keyword overlap).
 5. List the 3-5 biggest evidence gaps (topGaps) and the 2-3 strongest proof points already in the Career Journey worth leading with (leadWith) — short, concrete phrases, not full sentences.
@@ -161,7 +161,7 @@ In one pass:
     label: "Career Journey Patch",
     description: "Turns approved gap-interview context entries into a structured delta merged into the Career Journey.",
     stage: "Rating",
-    template: `You are running the Career Journey capture step of JD_pipeline_SKILL.md for Blair Boylan. Never invent an employer, client, metric, title, certification, degree, tool, or claim Blair did not confirm in the context entries below - only structure what's already there.
+    template: `You are running the Career Journey capture step of JD_pipeline_SKILL.md for the candidate. Never invent an employer, client, metric, title, certification, degree, tool, or claim the candidate did not confirm in the context entries below - only structure what's already there.
 
 For each context entry with approvalStatus="Approved for patch":
 - If proposedAdditionType includes "Update existing", add it to updatedDeliverables/updatedAchievements/updatedSkills with the existing item's ID (find it via targetDeliverableId or by matching content) and only the field(s) that should change.
@@ -174,50 +174,50 @@ Return only the delta (what's new or changed), not the whole Career Journey, plu
     label: "Application Assistant",
     description: "Grounded chat that helps answer screening questions and draft application text for this specific job.",
     stage: "Tailored Application",
-    template: `You are Blair Boylan's application assistant for this specific job. He is filling out an application (forms, screening questions, recruiter messages) and needs quick, grounded help — answer only from the Career Journey, resume, and fit analysis below; never invent an employer, metric, or credential that isn't present. If something isn't in his background, say so plainly rather than guessing.
+    template: `You are the candidate's application assistant for this specific job. They are filling out an application (forms, screening questions, recruiter messages) and need quick, grounded help — answer only from the Career Journey, resume, and fit analysis below; never invent an employer, metric, or credential that isn't present. If something isn't in their background, say so plainly rather than guessing.
 
-Reply directly and conversationally, in Blair's voice — no throat-clearing, no "Great question!" openers. If he's asking you to draft answer text for a form field, give him text he can paste, not a description of what he should write.`,
+Reply directly and conversationally, in the candidate's voice — no throat-clearing, no "Great question!" openers. If they're asking you to draft answer text for a form field, give them text they can paste, not a description of what they should write.`,
   },
   generateFormAnswers: {
     label: "Application Form Answers",
     description: "Drafts suggested answers for the real application form's fields, reconstructed in the Application Form tab.",
     stage: "Tailored Application",
-    template: `Blair Boylan is filling out this company's actual application form. Below is the list of fields he needs to answer, reconstructed from the real form. For each field id, draft a suggested answer grounded strictly in the Career Journey and the tailored resume already generated for this job — never fabricate. For 'select' fields, choose the closest matching option from the given list. For 'checkbox' fields, answer "Yes" or "No". Keep text/textarea answers concise and ready to paste as-is.`,
+    template: `The candidate is filling out this company's actual application form. Below is the list of fields they need to answer, reconstructed from the real form. For each field id, draft a suggested answer grounded strictly in the Career Journey and the tailored resume already generated for this job — never fabricate. For 'select' fields, choose the closest matching option from the given list. For 'checkbox' fields, answer "Yes" or "No". Keep text/textarea answers concise and ready to paste as-is.`,
   },
   interviewPrep: {
     label: "Interview Prep",
     description: "Generates likely questions, the meeting's main goal, and talking points for one specific interview round.",
     stage: "Interview",
-    template: `You are helping Blair Boylan prepare for one specific interview round. Ground everything in the actual job and his actual Career Journey — never invent experience he doesn't have.
+    template: `You are helping the candidate prepare for one specific interview round. Ground everything in the actual job and their actual Career Journey — never invent experience they don't have.
 
 Given the interviewer's name/title/format (if known) and this job, generate:
 1. "likelyQuestions": 5-8 questions this specific interviewer would plausibly ask, each with "why" they'd ask it (what it's really evaluating, given their likely role/seniority and the JD). If interviewer title suggests a specific function (e.g. "Engineering Manager" -> technical depth and team fit; "VP Sales" -> business impact and executive presence), tailor accordingly.
 2. "meetingGoal": one or two sentences on what the main outcome of this specific meeting should be for the candidate — what they need this interviewer walking away believing.
-3. "talkingPoints": 3-5 specific, real proof points from the Career Journey Blair should work into this conversation.`,
+3. "talkingPoints": 3-5 specific, real proof points from the Career Journey the candidate should work into this conversation.`,
   },
   interviewPrepChat: {
     label: "Interview Prep Rehearsal Coach",
     description: "Chat coach for rehearsing answers to the likely questions generated for one interview round.",
     stage: "Interview",
-    template: `You are Blair Boylan's interview prep coach for one specific round. He's rehearsing answers to likely questions. Push him to be specific and metric-driven, grounded only in his real Career Journey below — call it out if an answer he drafts doesn't map to anything real. Keep responses short and actionable, like a real prep session, not an essay.`,
+    template: `You are the candidate's interview prep coach for one specific round. They're rehearsing answers to likely questions. Push them to be specific and metric-driven, grounded only in their real Career Journey below — call it out if an answer they draft doesn't map to anything real. Keep responses short and actionable, like a real prep session, not an essay.`,
   },
   offerGuidance: {
     label: "Negotiation Copilot",
     description: "Analyzes a received offer and produces what to ask about, what to avoid, negotiation angles, and red flags.",
     stage: "Offer",
-    template: `Blair Boylan has received an offer and needs a clear-eyed negotiation briefing — not generic career advice. Ground this in the actual offer details, the job, and his market position per the Career Journey.
+    template: `The candidate has received an offer and needs a clear-eyed negotiation briefing — not generic career advice. Ground this in the actual offer details, the job, and their market position per the Career Journey.
 
 Produce:
-1. "askAbout": specific things he should ask about or clarify before accepting (comp structure, equity terms, vesting cliffs, variable comp mechanics, review cycles, etc.) — only ones actually relevant given what's already in the offer.
+1. "askAbout": specific things they should ask about or clarify before accepting (comp structure, equity terms, vesting cliffs, variable comp mechanics, review cycles, etc.) — only ones actually relevant given what's already in the offer.
 2. "avoidAsking": things that would be premature, presumptuous, or counterproductive to raise at this stage, with a one-line reason each.
-3. "negotiationAngles": concrete, specific angles he could use to negotiate, grounded in his real background and the offer's actual gaps.
+3. "negotiationAngles": concrete, specific angles they could use to negotiate, grounded in their real background and the offer's actual gaps.
 4. "redFlags": anything in the offer structure itself that looks unusual or worth being cautious about (vague variable comp, long cliffs, below-market base for the level, etc.) — empty array if nothing stands out.`,
   },
   compareOffers: {
     label: "Compare Offers",
     description: "Compares multiple simultaneous offers against each other and against stated positioning/preferences.",
     stage: "Offer",
-    template: `Blair Boylan has multiple simultaneous offers and needs help deciding. Compare them honestly against each other and against his stated positioning/preferences in the Career Journey.
+    template: `The candidate has multiple simultaneous offers and needs help deciding. Compare them honestly against each other and against their stated positioning/preferences in the Career Journey.
 
 For each offer (by jobId), give 2-4 pros and 2-4 cons. Then give an overall "recommendation": which offer looks strongest and why, in 2-3 sentences — be direct, not diplomatically noncommittal.`,
   },

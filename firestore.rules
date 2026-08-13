@@ -1,9 +1,9 @@
 rules_version = '2';
 
 // Every document this app writes lives under users/{uid}/... (see src/data/FirestoreDataStore.ts).
-// This app is single-user by design — there is no sign-up flow, and exactly one account
-// exists, created once via the Firebase Console. This rule still keys off request.auth.uid
-// rather than a hardcoded uid so the schema stays multi-tenant-ready without changes here.
+// Accounts are created via self-service sign-up (see src/components/AuthGate.tsx) — this rule
+// keys off request.auth.uid so every authenticated account gets its own isolated data with no
+// per-account rule changes needed.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId}/{document=**} {

@@ -3,7 +3,7 @@
 The SKILL.md has the short version of these tactics. Read this file when:
 - The role is highly competitive (Director+ at well-known SaaS companies)
 - The JD has heavy domain-specific jargon you're not sure how to handle
-- Blair asks "is this going to actually pass the ATS?"
+- The candidate asks "is this going to actually pass the ATS?"
 - You're tempted to use a non-standard layout decision
 
 ## How modern ATS screening actually works
@@ -64,7 +64,7 @@ Use this to produce the ATS score in the structured-field audit and to reason ab
 | Missing dates across core work history | 0–60% |
 | Missing most of the top required skills | 0–40% |
 
-This is a transparent *estimate*, not a reverse-engineered copy of any vendor's private weights. Exact weights are configurable per employer, role, and stage, and human reviewers can override scores. Treat it as a disciplined way to reason about risk, and always note that the model is an approximation if Blair asks for precision.
+This is a transparent *estimate*, not a reverse-engineered copy of any vendor's private weights. Exact weights are configurable per employer, role, and stage, and human reviewers can override scores. Treat it as a disciplined way to reason about risk, and always note that the model is an approximation if the candidate asks for precision.
 
 ### What this means for tailoring priorities
 
@@ -123,7 +123,7 @@ Tactics:
 
 ### Role-identity balance — prevent the wrong candidate classification
 
-Keyword coverage can be technically high while the extracted profile still tells the wrong story. This matters especially for Blair because his technical depth can cause a generic parser or recruiter scan to over-index on React.js, Node.js, TypeScript, and engineering even when the target is enterprise architecture, strategy, or executive advisory.
+Keyword coverage can be technically high while the extracted profile still tells the wrong story. This matters especially for candidates whose technical depth can cause a generic parser or recruiter scan to over-index on implementation languages and engineering tools even when the target is enterprise architecture, strategy, or executive advisory.
 
 For each tailored resume, define the intended identity before writing:
 
@@ -133,7 +133,7 @@ For each tailored resume, define the intended identity before writing:
 
 Implementation technologies still belong when relevant, but they should support the identity rather than replace it. In the final text extraction, inspect the first 8–12 skills/phrases a recruiter would notice. If a senior architecture/strategy resume reads like a software-engineer profile, reorder and compress the technical inventory.
 
-### Title reframing — the most important tactic for Blair
+### Title reframing — an important tactic for candidates with broad scope
 
 ATS systems do seniority and scope inference based on title strings. "Chief Strategy Officer" might not match a query for "VP Professional Services" even though the scope is comparable.
 
@@ -174,9 +174,9 @@ If any of those four answers takes more than 2 seconds to find, the top third ne
 
 - **Tagline under the name** that uses the JD's role framing. This is one of the highest-leverage lines on the resume because it tells both the parser and the human what role family to use when interpreting the rest of the document.
 - **Lead the summary with the most JD-aligned scope phrase.** Not "10+ years of experience" — that's filler. Start with the noun phrase that *is* the role, then show executive/C-suite scope and one or two signature outcomes.
-- **Use quantified proof early when it is real.** The $1.5M → $9.2M story does heavy lifting for roles where scale, GTM, professional services, or operating transformation matter. Do not force it into an unrelated role, and never invent a percentage for a role that lacks a metric.
+- **Use quantified proof early when it is real.** A strong scale/growth story from the candidate's own Career Journey does heavy lifting for roles where scale, GTM, professional services, or operating transformation matter. Do not force it into an unrelated role, and never invent a percentage for a role that lacks a metric.
 - **Selected Outcomes are optional leverage, not a mandatory block.** Use 4–5 concise, JD-aligned outcomes before Experience when they improve the 10-second scan. Keep them short and distinct from the role bullets. If they create a fragmented page or repeat the same proof twice, cut or reduce the section.
-- **Achievement density should be consistent across substantive roles.** Recent/high-value roles should not be a strong summary followed by thin task descriptions. Give each substantive role enough result evidence to show what changed because of Blair's work. Observable impact is acceptable when a hard metric is unavailable.
+- **Achievement density should be consistent across substantive roles.** Recent/high-value roles should not be a strong summary followed by thin task descriptions. Give each substantive role enough result evidence to show what changed because of the candidate's work. Observable impact is acceptable when a hard metric is unavailable.
 - **Skills must reflect seniority.** For senior architecture/strategy roles, lead with enterprise architecture, operating model, roadmapping, integration/ERP, executive advisory, AI/automation architecture, and governance. Put languages/frameworks in a supporting technical row unless the job is explicitly hands-on.
 - **Bold lead-labels on bullets** only when they improve scanning. Not all bullets — that defeats the purpose. The 3–5 bullets that demonstrate the JD's top signals can use bold leads; the rest should read naturally.
 - **Date alignment matters.** Right-aligned dates via tab stops let the eye scan the role progression vertically. Don't bury dates inline.
@@ -202,8 +202,8 @@ If any of those four answers takes more than 2 seconds to find, the top third ne
 ## When to break the rules
 
 - **For a creative or design role**, layout sophistication is itself a signal. Different tactics apply; this file's guidance is for senior operating / technical / strategy roles.
-- **For a "stealth" application** (Blair already knows the hiring manager, or it's coming through a warm intro), the ATS pass matters less and the human-narrative pass matters more. Tilt the resume toward narrative.
-- **For a clear-stretch application** (Blair is reaching above his current level), don't try to disguise the gap with title gymnastics — be honest about scope, lean hard on the AI/transformation differentiators that aren't level-bound.
+- **For a "stealth" application** (the candidate already knows the hiring manager, or it's coming through a warm intro), the ATS pass matters less and the human-narrative pass matters more. Tilt the resume toward narrative.
+- **For a clear-stretch application** (the candidate is reaching above their current level), don't try to disguise the gap with title gymnastics — be honest about scope, lean hard on differentiators that aren't level-bound.
 
 
 ## AI-authenticity note

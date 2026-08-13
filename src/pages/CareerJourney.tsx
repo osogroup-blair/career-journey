@@ -14,7 +14,7 @@ import {
 // Robust 12-Tier Core Ontology Professional Sample
 const COMPREHENSIVE_SAMPLE_JOURNEY = {
   meta: {
-    owner: "Blair Oso",
+    owner: "Jane Doe",
     version: "1.1.0",
     framework: "Career Journey",
     description: "Standardized 12-tier ontology single source of truth for career intelligence matching algorithms.",

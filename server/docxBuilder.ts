@@ -12,8 +12,6 @@ import {
 } from "docx";
 import { GeneratedResume, ResumeStrategy, CoverLetter } from "../src/types";
 
-// Canonical contact details per project_instructions.md - never left to the model to invent.
-const CONTACT_LINE = "Telluride, CO (Remote)  •  616.540.1669  •  blairboylan@gmail.com  •  blairboylan.com";
 const FONT = "Calibri";
 const BODY_SIZE = 22; // 11pt in half-points
 const NAME_SIZE = 32; // 16pt
@@ -48,7 +46,7 @@ export async function buildResumeDocx(resume: GeneratedResume, strategy?: Resume
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [new TextRun({ text: (resume.name || "Blair Boylan").toUpperCase(), bold: true, font: FONT, size: NAME_SIZE })],
+      children: [new TextRun({ text: (resume.name || "").toUpperCase(), bold: true, font: FONT, size: NAME_SIZE })],
     })
   );
   if (strategy?.headerTagline) {
@@ -64,7 +62,7 @@ export async function buildResumeDocx(resume: GeneratedResume, strategy?: Resume
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 200 },
-      children: [bodyText(resume.contactInfo || CONTACT_LINE, { size: 20, color: "4B5563" })],
+      children: [bodyText(resume.contactInfo || "", { size: 20, color: "4B5563" })],
     })
   );
 
@@ -154,19 +152,19 @@ export async function buildResumeDocx(resume: GeneratedResume, strategy?: Resume
   return Packer.toBuffer(doc);
 }
 
-export async function buildCoverLetterDocx(coverLetter: CoverLetter): Promise<Buffer> {
+export async function buildCoverLetterDocx(coverLetter: CoverLetter, candidate?: { name?: string; contactInfo?: string }): Promise<Buffer> {
   const paragraphs = (coverLetter?.content || "").split(/\n{2,}/).filter((p) => p.trim().length > 0);
 
   const children: Paragraph[] = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [new TextRun({ text: "BLAIR BOYLAN", bold: true, font: FONT, size: NAME_SIZE })],
+      children: [new TextRun({ text: (candidate?.name || "").toUpperCase(), bold: true, font: FONT, size: NAME_SIZE })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 300 },
-      children: [bodyText(CONTACT_LINE, { size: 20, color: "4B5563" })],
+      children: [bodyText(candidate?.contactInfo || "", { size: 20, color: "4B5563" })],
     }),
     new Paragraph({
       spacing: { after: 200 },

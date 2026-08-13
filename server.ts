@@ -8,11 +8,12 @@ import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
 import { requireFirebaseAuth } from "./server/firebaseAdmin";
+import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
 
 dotenv.config();
 
-const KNOWLEDGE_PREAMBLE = `Reference material below is Blair Boylan's actual job-application pipeline: his project instructions plus five skill files (JD pipeline, cover letter, voice, ATS tactics, JD signal map). Follow these rules exactly wherever they apply to the task requested after the reference material. Do not summarize or explain the reference material back; use it silently to inform your output.
+const KNOWLEDGE_PREAMBLE = `Reference material below is the candidate's job-application pipeline: project instructions plus five skill files (JD pipeline, cover letter, voice, ATS tactics, JD signal map). Follow these rules exactly wherever they apply to the task requested after the reference material. Do not summarize or explain the reference material back; use it silently to inform your output.
 
 ${FULL_KNOWLEDGE}
 
@@ -38,7 +39,7 @@ function segmentJdText(jdText: string): { id: string; text: string }[] {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = 47293;
 
   app.use(express.json({ limit: '10mb' }));
 
@@ -49,8 +50,10 @@ async function startServer() {
   // No-op until FIREBASE_SERVICE_ACCOUNT_JSON is set (see server/firebaseAdmin.ts) —
   // guards the AI/sourcing endpoints once the app is deployed publicly.
   app.use("/api/ai", requireFirebaseAuth);
+  app.use("/api/ai", requireWithinAiQuota);
   app.use("/api/sources", requireFirebaseAuth);
   app.use("/api/admin", requireFirebaseAuth);
+  app.use("/api/export", requireFirebaseAuth);
 
   app.get("/api/admin/prompts", (req, res) => {
     res.json(getAllPromptConfigs());
@@ -1178,7 +1181,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
         transcript: { role: "user" | "assistant"; content: string }[];
         round: any; parse: any; careerJourney: any;
       };
-      const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Blair" : "Coach"}: ${t.content}`).join("\n");
+      const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Coach"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
@@ -1195,7 +1198,7 @@ ${JSON.stringify(careerJourney, null, 2)}
 Conversation so far:
 ${history}
 
-Blair's latest message: "${latest}"`,
+Candidate's latest message: "${latest}"`,
       });
       res.json({ reply: response.text });
     } catch (e: any) {
@@ -1508,8 +1511,9 @@ User's answer: ${answer}`,
       const buffer = await buildResumeDocx(resume, strategy);
       const roleSlug = String(roleTitle || "Role").replace(/[^a-zA-Z0-9]+/g, "");
       const companySlug = String(companyName || "Company").replace(/[^a-zA-Z0-9]+/g, "");
+      const nameSlug = String(resume?.name || "Resume").replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]+/g, "");
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      res.setHeader("Content-Disposition", `attachment; filename="Blair_Boylan_Resume_${companySlug}_${roleSlug}.docx"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${nameSlug}_Resume_${companySlug}_${roleSlug}.docx"`);
       res.send(buffer);
     } catch (e: any) {
       console.error(e);
@@ -1519,12 +1523,13 @@ User's answer: ${answer}`,
 
   app.post("/api/export/coverLetter.docx", async (req, res) => {
     try {
-      const { coverLetter, companyName, roleTitle } = req.body;
-      const buffer = await buildCoverLetterDocx(coverLetter);
+      const { coverLetter, companyName, roleTitle, candidateName, candidateContactInfo } = req.body;
+      const buffer = await buildCoverLetterDocx(coverLetter, { name: candidateName, contactInfo: candidateContactInfo });
       const roleSlug = String(roleTitle || "Role").replace(/[^a-zA-Z0-9]+/g, "");
       const companySlug = String(companyName || "Company").replace(/[^a-zA-Z0-9]+/g, "");
+      const nameSlug = String(candidateName || "CoverLetter").replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]+/g, "");
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      res.setHeader("Content-Disposition", `attachment; filename="Blair_Boylan_CoverLetter_${companySlug}_${roleSlug}.docx"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${nameSlug}_CoverLetter_${companySlug}_${roleSlug}.docx"`);
       res.send(buffer);
     } catch (e: any) {
       console.error(e);

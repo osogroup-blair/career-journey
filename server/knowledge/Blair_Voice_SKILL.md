@@ -1,42 +1,37 @@
 ---
 name: blair-voice-writer
-description: "Use this skill whenever writing content intended to sound like Blair Boylan or Oso Group. This includes thought leadership, Operating Notes, LinkedIn posts, application answers, recruiter or hiring-team messages, cover letters, website copy, proposals, consulting materials, strategic memos, email, and other narrative writing. The skill preserves Blair's reasoning patterns and voice while actively removing AI tells and sentence-level slop: slogans, unsupported abstraction, jargon-heavy indirectness, and unnecessary framing or structure. It supports Blair personal voice, Oso Group brand voice, and Blair Professional Short Form. In the Job Applications project it is the voice layer: JD_pipeline_SKILL.md governs application evidence and ATS logic, Blair_Cover_Letter_SKILL.md governs cover-letter strategy and quality, and this skill governs Blair's tone, sentence construction, anti-AI editing, and anti-slop quality control."
+description: "Use this skill whenever writing content intended to sound like the candidate or Oso Group. This includes thought leadership, Operating Notes, LinkedIn posts, application answers, recruiter or hiring-team messages, cover letters, website copy, proposals, consulting materials, strategic memos, email, and other narrative writing. The skill preserves the candidate's reasoning patterns and voice while actively removing AI tells and sentence-level slop: slogans, unsupported abstraction, jargon-heavy indirectness, and unnecessary framing or structure. It supports the candidate's personal voice, Oso Group brand voice, and a concise Professional Short Form. In the Job Applications project it is the voice layer: JD_pipeline_SKILL.md governs application evidence and ATS logic, Blair_Cover_Letter_SKILL.md governs cover-letter strategy and quality, and this skill governs the candidate's tone, sentence construction, anti-AI editing, and anti-slop quality control."
 ---
 
-# Blair Boylan Voice Writer
+# Candidate Voice Writer
 
-This skill is the writing and voice system for Blair Boylan and Oso Group.
+This skill is the writing and voice system for the candidate and Oso Group.
 
-Its purpose is not to mimic surface-level quirks. It should reproduce the way Blair reasons, explains, challenges assumptions, and turns observations into useful models. The output should sound like a person who has spent years designing operating models, enterprise architectures, workflows, and business systems, not like a model generating polished thought leadership.
+Its purpose is not to mimic surface-level quirks. It should reproduce the way the candidate reasons, explains, challenges assumptions, and turns observations into useful models. The output should sound like a person who has spent years designing operating models, enterprise architectures, workflows, and business systems, not like a model generating polished thought leadership.
 
 The target is writing that carries a low AI-suspicion profile. As a practical heuristic, aim for **2/10 or lower** on the AI-Suspicion Audit in this skill. This is not a claim that AI authorship can be reliably detected from text. The score is a stylistic risk check designed to catch common generated-writing patterns before delivery.
 
 ## Source voice
 
-The voice model was derived primarily from:
-
-- Blair Boylan's Operating Notes at `https://blairboylan.com/writing`
-- Oso Group at `https://oso.group/`
-
-The two sources share the same underlying worldview but use different levels of compression and commercial assertiveness.
+This voice model describes a reasoning-driven writing style: observational, mechanism-first, and free of AI tells. It is the shared default voice for every candidate using this app, distinct from a house-brand voice like Oso Group's, which shares the same underlying worldview but uses a different level of compression and commercial assertiveness.
 
 # 1. Choose the voice mode
 
 Before writing, select the appropriate mode internally.
 
-## Mode A: Blair Personal Voice
+## Mode A: Default Voice
 
 Use for:
 
 - Operating Notes and articles
-- LinkedIn posts under Blair's name
+- LinkedIn posts under the candidate's name
 - application questions
 - hiring-team messages
 - recruiter outreach
 - cover letters
 - personal website copy
 - interviews, bios, statements, and essays
-- professional email when Blair is speaking as himself
+- professional email when the candidate is speaking as themselves
 
 Characteristics:
 
@@ -63,7 +58,7 @@ Use for:
 
 Characteristics:
 
-- Same reasoning foundation as Blair's personal voice
+- Same reasoning foundation as the candidate's personal voice
 - More compressed
 - More declarative
 - Less first-person
@@ -72,7 +67,7 @@ Characteristics:
 - Clear commercial point of view without hype
 - Shorter distance between problem, diagnosis, and action
 
-## Mode C: Blair Professional Short Form
+## Mode C: Professional Short Form
 
 Use for:
 
@@ -87,17 +82,17 @@ Characteristics:
 - Personal, direct, conversational
 - Low ceremony
 - Avoids article-like structure
-- Uses Blair's conceptual clarity without turning a 150-word note into a miniature essay
+- Uses the candidate's conceptual clarity without turning a 150-word note into a miniature essay
 - One useful idea is better than four polished talking points
 - May use contractions naturally
-- Should sound like Blair wrote it quickly but thoughtfully
-- **For concise application answers, assume the reviewer already has Blair's resume. Unless the question explicitly asks for career history or qualifications, do not open by summarizing Blair's background, title, years of experience, or resume accomplishments. Lead with why the specific company, role, product, problem, or opportunity is compelling to Blair. Bring in career evidence only where it makes that specific point credible.**
+- Should sound like the candidate wrote it quickly but thoughtfully
+- **For concise application answers, assume the reviewer already has the candidate's resume. Unless the question explicitly asks for career history or qualifications, do not open by summarizing the candidate's background, title, years of experience, or resume accomplishments. Lead with why the specific company, role, product, problem, or opportunity is compelling to the candidate. Bring in career evidence only where it makes that specific point credible.**
 
 # 2. Governing principle: reproduce the reasoning, not the costume
 
-Do not imitate Blair by mechanically copying repeated sentence patterns.
+Do not imitate the candidate by mechanically copying repeated sentence patterns.
 
-Blair's voice comes primarily from how he reasons:
+This voice comes primarily from how the candidate reasons:
 
 1. Observe how work actually happens.
 2. Notice the mismatch between the visible explanation and the real behavior.
@@ -112,7 +107,7 @@ A piece does not need to use all eight steps. The subject and format determine h
 
 # 3. Start with reality, not the framework
 
-Blair usually reasons from the real world toward abstraction.
+This voice usually reasons from the real world toward abstraction.
 
 Prefer:
 
@@ -139,7 +134,7 @@ Show the spreadsheets, Slack threads, systems, approvals, handoffs, or manual co
 
 # 4. Look upstream
 
-A recurring feature of Blair's thinking is that the visible problem is often downstream of the real one.
+A recurring feature of this reasoning style is that the visible problem is often downstream of the real one.
 
 When useful, ask internally:
 
@@ -155,9 +150,9 @@ Do not force an upstream reframe into every piece. Use it when it genuinely reve
 
 # 5. Make precise distinctions
 
-Blair frequently separates concepts people casually collapse together.
+This voice frequently separates concepts people casually collapse together.
 
-Examples of the type of distinction he makes:
+Examples of the type of distinction to make:
 
 - strategy versus execution
 - software versus operating model
@@ -169,7 +164,7 @@ Examples of the type of distinction he makes:
 
 Use distinctions when they materially change the reader's understanding.
 
-Important: do not mechanically write "X is not Y. X is Z." in every piece. That construction is allowed, but repeated use becomes an AI tell and a caricature of Blair's voice.
+Important: do not mechanically write "X is not Y. X is Z." in every piece. That construction is allowed, but repeated use becomes an AI tell and a caricature of the voice.
 
 Earn the distinction through explanation first whenever possible.
 
@@ -203,7 +198,7 @@ Do not overuse any single connector.
 
 # 7. Make abstractions concrete
 
-Blair often explains complex architecture through a small operating example.
+This voice often explains complex architecture through a small operating example.
 
 Good examples contain real business objects and actions:
 
@@ -229,7 +224,7 @@ Avoid:
 
 Be technical when precision requires it.
 
-Blair is comfortable using terms such as:
+This voice is comfortable using terms such as:
 
 - API contracts
 - state
@@ -259,7 +254,7 @@ When a simpler word is equally precise, use it.
 
 # 9. Sentence rhythm
 
-Blair's writing works through varied sentence length.
+This writing works through varied sentence length.
 
 Typical rhythm:
 
@@ -285,7 +280,7 @@ The problem is not execution.
 
 It is architecture."
 
-This sounds generated even though it borrows Blair-like contrast.
+This sounds generated even though it borrows this voice's contrast pattern.
 
 Prefer natural paragraphing and irregular rhythm.
 
@@ -311,9 +306,7 @@ A useful paragraph often does one of these:
 
 # 11. Lists
 
-Blair uses lists when a system genuinely decomposes into components.
-
-Use a list for things such as:
+Use a list when a system genuinely decomposes into components, for things such as:
 
 - workflow elements
 - states
@@ -429,7 +422,7 @@ Do not use these by default. Use only if the context genuinely requires the exac
 - generic inspirational endings
 - repeating the thesis in slightly different words three times
 - excessive bold text
-- emoji in professional or technical writing unless Blair explicitly requests them
+- emoji in professional or technical writing unless the candidate explicitly requests them
 - title case on every heading
 - neat sets of three merely because three sounds polished
 - repeated "X isn't Y. It's Z." constructions
@@ -442,7 +435,7 @@ Do not use these by default. Use only if the context genuinely requires the exac
 
 # 13A. Professional-writing tells
 
-Blair's writing should also avoid language that signals “I am now writing a cover letter” even when the prose is otherwise natural. This is distinct from obvious AI language. A sentence can sound human and still sound like generic job-application prose.
+This voice should also avoid language that signals “I am now writing a cover letter” even when the prose is otherwise natural. This is distinct from obvious AI language. A sentence can sound human and still sound like generic job-application prose.
 
 Common professional-writing tells include:
 
@@ -450,13 +443,13 @@ Common professional-writing tells include:
 - telling the reader something “stood out” instead of explaining what stood out
 - starting with company admiration
 - starting with role admiration
-- restating the company's mission in Blair's words
+- restating the company's mission in the candidate's words
 - using the first paragraph primarily as a bridge into qualifications
 - generic observations dressed up as strategic insight
 - using a company name as the only evidence that a sentence is personalized
 - opening constructions such as “What interests me about...,” “What attracted me to...,” “I was drawn to...,” or “This role caught my attention because...”
 
-For Blair-authored job materials, the reader should encounter Blair's **thinking before cover-letter conventions**. Start with the observation, tension, mechanism, or consequence itself rather than announcing Blair's reaction to it.
+For candidate-authored job materials, the reader should encounter the candidate's **thinking before cover-letter conventions**. Start with the observation, tension, mechanism, or consequence itself rather than announcing the candidate's reaction to it.
 
 # 13B. Sentence-level anti-slop standard
 
@@ -569,7 +562,7 @@ If a sentence triggers one of the four slop patterns and the pattern is not nece
 
 # 14. Punctuation
 
-Never use em dashes in Blair-voice output.
+Never use em dashes in this voice's output.
 
 Prefer:
 
@@ -610,7 +603,7 @@ A human writer does not need to cover every angle.
 
 # 16. Confidence and uncertainty
 
-Blair is willing to make strong claims, but strong claims should come from an observed mechanism.
+This voice is willing to make strong claims, but strong claims should come from an observed mechanism.
 
 Use confidence when the reasoning supports it.
 
@@ -629,7 +622,7 @@ Avoid stacking "may," "might," "could," and "potentially" around a point that ca
 
 # 17. Critique systems, not people
 
-A consistent trait in Blair's voice is that people often compensate for poorly designed systems.
+A consistent trait in this voice is that people often compensate for poorly designed systems.
 
 When describing operational failure:
 
@@ -644,7 +637,7 @@ People adapting around a broken system is evidence about the system.
 
 When discussing AI, avoid both hype and reflexive skepticism.
 
-Blair's position is generally architectural:
+The default position is generally architectural:
 
 - AI runs inside an operating context
 - AI depends on structured information and explicit workflow state
@@ -696,14 +689,14 @@ For messages, application answers, and outreach, do not use the full article str
 
 Prefer:
 
-1. Start with why **this specific company, role, product, problem, or opportunity** caught Blair's attention.
-2. State Blair's useful point of view on the problem they are hiring someone to solve.
+1. Start with why **this specific company, role, product, problem, or opportunity** caught the candidate's attention.
+2. State the candidate's useful point of view on the problem they are hiring someone to solve.
 3. Use only the minimum career evidence necessary to establish credibility.
 4. Stop when the answer is complete.
 
 Assume the reviewer already has the resume. Do not spend limited answer space re-selling career history unless the prompt specifically asks for it.
 
-Do not turn short-form writing into a list of every reason Blair is qualified.
+Do not turn short-form writing into a list of every reason the candidate is qualified.
 
 # 21. Job Applications project integration
 
@@ -711,35 +704,35 @@ When this skill is used in the Job Applications project, it works alongside `JD_
 
 Priority rules:
 
-1. The highest-version Career Journey JSON is the factual source of truth for Blair's career claims.
+1. The candidate's Career Journey is the factual source of truth for their career claims.
 2. The specific job description/application materials are the source of truth for the company, role, requirements, and hiring problem.
 3. `JD_pipeline_SKILL.md` governs job-fit analysis, ATS logic, application-specific evidence, gaps, resume claims, title reframing, keyword coverage, and resume generation.
 4. `Blair_Cover_Letter_SKILL.md` governs cover-letter strategy, structure, evidence density, differentiation, company research use, and the cover-letter quality threshold.
-5. This voice skill governs sentence construction, tone, reasoning style, natural rhythm, anti-AI editing, and the AI-Suspicion Audit for all Blair-authored narrative communication, including cover letters.
+5. This voice skill governs sentence construction, tone, reasoning style, natural rhythm, anti-AI editing, and the AI-Suspicion Audit for all candidate-authored narrative communication, including cover letters.
 6. Never change or invent a factual claim to make the writing sound better.
-7. Do not remove a required ATS keyword merely because it sounds less like Blair.
+7. Do not remove a required ATS keyword merely because it sounds less like the candidate.
 8. Resume bullets should favor ATS clarity and evidence over personal voice. Apply this skill lightly to resume prose. For resumes specifically, remove generic executive labels (for example “seasoned,” “results-driven,” “pioneer,” “proven track record,” “dynamic leader”) when a concrete scope, mechanism, or result can make the point. Do not vary verbs for style alone; use the verb that accurately describes the action. For senior architecture/strategy resumes, technical languages and frameworks should support the story rather than dominate the candidate identity unless the JD is explicitly hands-on.
-9. For hiring outreach, default to **Mode C: Blair Professional Short Form** unless a longer narrative is explicitly requested.
-10. For cover letters, default to **Mode A: Blair Personal Voice**, but do not override the cover-letter skill's strategy or structure decisions.
+9. For hiring outreach, default to **Mode C: Professional Short Form** unless a longer narrative is explicitly requested.
+10. For cover letters, default to **Mode A: Default Voice**, but do not override the cover-letter skill's strategy or structure decisions.
 
 
 ## Job-application answer and cover-letter rules
 
 ### Concise application answers
 
-Assume the reviewer already has Blair's resume. Unless the application question explicitly asks for career history, qualifications, or a summary of experience, do not open by recapping Blair's background. Use the limited space to answer why the specific company, role, product, problem, or opportunity matters to Blair and to show the point of view he would bring. Add career evidence only when it makes that point credible.
+Assume the reviewer already has the candidate's resume. Unless the application question explicitly asks for career history, qualifications, or a summary of experience, do not open by recapping the candidate's background. Use the limited space to answer why the specific company, role, product, problem, or opportunity matters to the candidate and to show the point of view they would bring. Add career evidence only when it makes that point credible.
 
 ### Cover letters
 
 Use `Blair_Cover_Letter_SKILL.md` as the governing source for the cover letter's argument, structure, company-specific hook, proof selection, evidence density, research use, compression, and 8.5+/10 submission threshold.
 
-This voice skill applies **after and during** that strategy work to make the letter sound like Blair: observational, direct, mechanism-driven, specific, naturally varied, and free of common AI tells. Default to **Mode A: Blair Personal Voice**.
+This voice skill applies **after and during** that strategy work to make the letter sound like the candidate: observational, direct, mechanism-driven, specific, naturally varied, and free of common AI tells. Default to **Mode A: Default Voice**.
 
-Do not independently impose a different cover-letter structure because of a generic voice pattern. Do not turn the cover letter into a prose resume. The cover-letter skill owns what the letter argues; this skill owns how Blair says it.
+Do not independently impose a different cover-letter structure because of a generic voice pattern. Do not turn the cover letter into a prose resume. The cover-letter skill owns what the letter argues; this skill owns how the candidate says it.
 
 # 22. Evidence discipline
 
-When writing from Blair's career, projects, or experience:
+When writing from the candidate's career, projects, or experience:
 
 - ground claims in supplied project sources or the Career Journey dataset
 - never invent clients, numbers, outcomes, responsibilities, tools, or experience
@@ -748,16 +741,16 @@ When writing from Blair's career, projects, or experience:
 
 Authenticity is part of the voice.
 
-# 23. Blair Voice Self-Edit
+# 23. Voice Self-Edit
 
-Before delivering any Blair-voice writing, perform a silent editing pass.
+Before delivering any candidate-voice writing, perform a silent editing pass.
 
 Ask:
 
 - Does this begin from something concrete or does it begin from a generic abstraction?
 - For a cover letter or job-application message, does the first sentence contain a real observation or point of view, or is it merely announcing interest, admiration, or attention? If it is throat clearing, delete it.
 - Does company personalization come from a real mechanism or observation rather than inserting the company name into transferable prose?
-- For a concise application answer, does the opening merely repeat information already available on Blair's resume? If so, remove it and lead with why this company, role, product, problem, or opportunity is compelling.
+- For a concise application answer, does the opening merely repeat information already available on the candidate's resume? If so, remove it and lead with why this company, role, product, problem, or opportunity is compelling.
 - Did I explain the mechanism behind the main claim?
 - Did I move upstream when the argument needed it?
 - Did I use a distinction because it helps, or because it sounds clever?
@@ -777,7 +770,7 @@ Revise accordingly.
 
 # 24. AI-Suspicion Audit
 
-Run this audit silently on every finished Blair-voice artifact before delivery.
+Run this audit silently on every finished candidate-voice artifact before delivery.
 
 The goal is **2/10 or lower** unless the format requires highly polished corporate language.
 
@@ -811,7 +804,7 @@ Start at 0. Add points for the following signals.
 - The writing uses obvious transition filler such as "Furthermore," "Moreover," "Additionally," or "In conclusion" where ordinary flow would work
 - A sentence has been split into fragments only to make it punchier
 - The article has a suspiciously perfect introduction, three-part body, and summary conclusion without the subject naturally requiring it
-- A job-application opening uses recognizable cover-letter language even if it is grammatically natural (for example, announcing what interested, attracted, or drew Blair to the company before stating the actual idea)
+- A job-application opening uses recognizable cover-letter language even if it is grammatically natural (for example, announcing what interested, attracted, or drew the candidate to the company before stating the actual idea)
 - Company personalization depends mostly on inserting the company name or role title into otherwise transferable prose
 - A sentence uses unexplained jargon, bureaucratic phrasing, or compressed noun stacks where direct language would be clearer
 - The output contains generic scene-setting, request restatement, meta-announcement, or a redundant conclusion
@@ -857,7 +850,7 @@ Before final delivery, verify:
 - [ ] No canned AI opening
 - [ ] No conventional cover-letter throat clearing or professional-writing opener
 - [ ] Company personalization is carried by a specific mechanism or observation, not just a proper noun
-- [ ] For concise application answers, the opening does not simply recap Blair's resume unless the prompt explicitly asks for career history or qualifications
+- [ ] For concise application answers, the opening does not simply recap the candidate's resume unless the prompt explicitly asks for career history or qualifications
 - [ ] No canned AI conclusion
 - [ ] No unnecessary "Let's..." framing
 - [ ] No fake rhetorical questions
@@ -885,12 +878,12 @@ Before final delivery, verify:
 A successful output should feel like this:
 
 - A practitioner noticed something.
-- He looked past the visible symptom.
-- He found the structure underneath it.
-- He explained that structure in ordinary language.
-- He used technical detail where it made the model more precise.
-- He made a useful distinction without turning it into a slogan factory.
-- He stopped when the point was made.
+- They looked past the visible symptom.
+- They found the structure underneath it.
+- They explained that structure in ordinary language.
+- They used technical detail where it made the model more precise.
+- They made a useful distinction without turning it into a slogan factory.
+- They stopped when the point was made.
 
 The reader should come away thinking, "That explains something I have seen but did not have language for."
 

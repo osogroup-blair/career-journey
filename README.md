@@ -164,7 +164,7 @@ src/
 
 ### Running Locally
 
-Start the dev server (Express + Vite middleware on `http://localhost:3000`):
+Start the dev server (Express + Vite middleware on `http://localhost:47293`):
 ```bash
 npm run dev
 ```

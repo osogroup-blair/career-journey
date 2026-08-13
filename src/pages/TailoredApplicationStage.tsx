@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge, useToast } from '../components/ui';
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../components/ResumeTemplates';
 import { ApplicationFormField } from '../types';
-import { generateId } from '../lib/utils';
+import { generateId, formatContactLine, nameSlug } from '../lib/utils';
 import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles } from 'lucide-react';
 
 type Tab = 'resume' | 'cover-letter' | 'assistant' | 'form';
@@ -99,7 +99,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Blair_Boylan_Resume_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
+      a.download = `${nameSlug(job.resume?.name, 'Resume')}_Resume_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -148,6 +148,7 @@ function countWords(text: string): number {
 }
 
 function CoverLetterTab({ job, updateJob }: any) {
+  const careerJourney = useStore((s) => s.careerJourney);
   const runGenerateCoverLetter = useStore((s) => s.runGenerateCoverLetter);
   const isBusy = useStore((s) => Object.values(s.activeAiTasks).some((t) => t.jobId === job.id && t.kind === 'coverLetter'));
   const [content, setContent] = useState(job.coverLetter?.content || '');
@@ -168,17 +169,24 @@ function CoverLetterTab({ job, updateJob }: any) {
     if (!job.coverLetter) return;
     setIsDownloading(true);
     try {
+      const candidateName = careerJourney?.person?.name || '';
       const res = await fetch('/api/export/coverLetter.docx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ coverLetter: { ...job.coverLetter, content }, companyName: job.companyName, roleTitle: job.roleTitle }),
+        body: JSON.stringify({
+          coverLetter: { ...job.coverLetter, content },
+          companyName: job.companyName,
+          roleTitle: job.roleTitle,
+          candidateName,
+          candidateContactInfo: formatContactLine(careerJourney?.person),
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Blair_Boylan_CoverLetter_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
+      a.download = `${nameSlug(candidateName, 'CoverLetter')}_CoverLetter_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {

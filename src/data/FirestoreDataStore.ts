@@ -50,8 +50,22 @@ export class FirestoreDataStore implements DataStore {
     return snap.exists() ? snap.data() : null;
   }
 
+  // Firestore caps a single doc at 1MB. This doc holds the whole career journey
+  // (roles/achievements/skills/education) as one blob, so warn well before that
+  // ceiling rather than fail silently at write time. If this ever fires for real,
+  // the fix is to split roles/achievements/skills_index/education into their own
+  // subcollections under users/{uid}/..., mirroring the jobs/matches pattern above.
+  private static readonly CAREER_JOURNEY_WARN_BYTES = 500_000;
+
   async saveCareerJourney(journey: any): Promise<void> {
-    await setDoc(this.careerJourneyRef(), stripUndefined(journey));
+    const clean = stripUndefined(journey);
+    const size = new Blob([JSON.stringify(clean)]).size;
+    if (size > FirestoreDataStore.CAREER_JOURNEY_WARN_BYTES) {
+      console.warn(
+        `careerJourney doc for uid ${this.uid} is ${(size / 1000).toFixed(0)}KB — approaching Firestore's 1MB doc limit.`
+      );
+    }
+    await setDoc(this.careerJourneyRef(), clean);
   }
 
   async listJobs(): Promise<Record<string, JobAnalysis>> {
