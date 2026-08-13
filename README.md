@@ -194,7 +194,21 @@ The app runs entirely on browser local storage by default — no Firebase projec
 3. Copy the web app config (Project Settings → General → Your apps) into `.env` as the `VITE_FIREBASE_*` vars — see `.env.example`.
 4. Generate a service account key (Project Settings → Service Accounts → Generate new private key) and paste the JSON into `.env` as `FIREBASE_SERVICE_ACCOUNT_JSON`.
 5. Restart the app, sign in, then visit `/migrate` once to copy any existing local data into Firestore.
-6. Deploy security rules: `firebase deploy --only firestore:rules` (after `firebase use --add` to link this repo to your project).
+6. Deploy security rules: `firebase deploy --only firestore:rules` (after `firebase use --add` to link this repo to your project), or paste the contents of `firestore.rules` into Firestore Database → Rules in the console and publish.
+
+### Demo Data
+
+For testing or demoing the app without touching your own account/resume, `npm run seed:demo` provisions a separate Firebase Auth account and fills it with a full set of fictional data — a made-up career journey ("Jordan Rivera"), one job in every pipeline stage (Intake through Archive), and a handful of matches across New/Promoted/Dismissed.
+
+```bash
+npm run seed:demo
+```
+
+- Requires `FIREBASE_SERVICE_ACCOUNT_JSON` to be set (see step 4 above) and Firestore rules to be deployed/published (step 6).
+- Default login: `demo@career-journey.app` / `DemoPass123!` — override with `DEMO_EMAIL` / `DEMO_PASSWORD` in `.env` (see `.env.example`).
+- Idempotent and safe to re-run any time — it wipes and rewrites the demo account's jobs/matches/career journey back to the seeded state, so it doubles as a reset.
+- Source fixtures live in `src/lib/demo/`; the script itself is `server/scripts/seedDemo.ts`.
+- Fresh/empty accounts (including a newly created real one) fall back to a blank Career Journey template, never real or demo data — see `src/lib/defaultData.ts`.
 
 Hosting/API deployment (Firebase Hosting + Cloud Run for the Express server) is scaffolded in `firebase.json` but not yet deployed — that's the one remaining manual step once you're ready to put this on the public internet.
 
