@@ -28,7 +28,7 @@ const JOURNEY_GROUPS: NavItem[][] = [
   ],
   [
     { to: '/matches', label: 'Matches', icon: Radar },
-    { to: '/applications', label: 'Applications', icon: Briefcase },
+    { to: '/applications', label: 'Job Tracker', icon: Briefcase },
   ],
 ];
 

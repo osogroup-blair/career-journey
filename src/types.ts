@@ -36,6 +36,18 @@ export interface GeneratedResume {
   }[];
 }
 
+export type PipelineStage = 'Saved' | 'Rated' | 'Resume Created' | 'Applied' | 'Interview' | 'Archive';
+
+export interface InterviewRound {
+  id: string;
+  roundName: string;
+  scheduledAt?: string;
+  notes?: string;
+  outcome: 'Scheduled' | 'Completed' | 'Passed' | 'Rejected';
+}
+
+export type ArchiveReason = 'Rejected' | 'No Response' | 'Withdrawn' | 'Position Filled' | 'Other';
+
 export interface JobAnalysis {
   id: string;
   createdAt: string;
@@ -48,6 +60,15 @@ export interface JobAnalysis {
   locationNotes?: string;
   jdText: string;
   recruiterNotes?: string;
+
+  /** Kanban column for the real-world application funnel — separate from `status` (the tailoring workflow step). */
+  pipelineStage?: PipelineStage;
+  appliedAt?: string;
+  applicationMethod?: string;
+  interviews?: InterviewRound[];
+  archivedAt?: string;
+  archiveReason?: ArchiveReason;
+  archiveNotes?: string;
 
   parse?: JDParse;
   keywords?: KeywordSignal[];

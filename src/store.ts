@@ -4,6 +4,7 @@ import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
 import { dataStore } from './data';
 import { generateId } from './lib/utils';
 import { normalizeCareerJourney } from './lib/careerJourneyNormalize';
+import { advanceStage, deriveStageFloor } from './lib/jobPipeline';
 
 const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
   excludedKeywords: [],
@@ -78,25 +79,34 @@ export const useStore = create<AppState>((set, get) => {
         dataStore.listMatches(),
         dataStore.getMatchPreferences(),
       ]);
+      const normalizedJobs = Object.fromEntries(
+        Object.entries(jobs ?? {}).map(([id, job]) => [
+          id,
+          job.pipelineStage ? job : { ...job, pipelineStage: advanceStage('Saved', deriveStageFloor(job)) },
+        ])
+      );
       set({
         careerJourney: normalizeCareerJourney(careerJourney ?? DEFAULT_CAREER_JOURNEY),
-        jobs: jobs ?? {},
+        jobs: normalizedJobs,
         matches: matches ?? {},
         matchPreferences: { ...DEFAULT_MATCH_PREFERENCES, ...(matchPreferences ?? {}) },
       });
     },
 
     addJob: (job) => {
-      set((state) => ({ jobs: { ...state.jobs, [job.id]: job } }));
+      set((state) => ({ jobs: { ...state.jobs, [job.id]: { pipelineStage: 'Saved', ...job } } }));
       persistJob(get().jobs[job.id]);
     },
     updateJob: (id, updates) => {
-      set((state) => ({
-        jobs: {
-          ...state.jobs,
-          [id]: { ...state.jobs[id], ...updates, updatedAt: new Date().toISOString() }
+      set((state) => {
+        const existing = state.jobs[id];
+        if (!existing) return state;
+        const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+        if (('fitAnalysis' in updates && updates.fitAnalysis) || ('resume' in updates && updates.resume)) {
+          merged.pipelineStage = advanceStage(merged.pipelineStage, deriveStageFloor(merged));
         }
-      }));
+        return { jobs: { ...state.jobs, [id]: merged } };
+      });
       const updated = get().jobs[id];
       if (updated) persistJob(updated);
     },
@@ -143,6 +153,7 @@ export const useStore = create<AppState>((set, get) => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         status: match.parse ? 'JD Parsed' : 'Draft',
+        pipelineStage: 'Saved',
         companyName: match.companyName,
         roleTitle: match.roleTitle,
         jdText: match.jdText,

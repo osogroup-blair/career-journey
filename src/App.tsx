@@ -10,7 +10,7 @@ import Dashboard from './pages/Dashboard';
 import EditJourney from './pages/EditJourney';
 import CareerJourneyBuilder from './pages/CareerJourneyBuilder';
 import StrengthenJourney from './pages/StrengthenJourney';
-import Applications from './pages/Applications';
+import JobTracker from './pages/JobTracker';
 import Matches from './pages/Matches';
 import Migrate from './pages/Migrate';
 import JobLayout from './layouts/JobLayout';
@@ -40,7 +40,7 @@ export default function App() {
             <Route path="/journey" element={<CareerJourney />} />
             <Route path="/matches" element={<Matches />} />
             <Route path="/migrate" element={<Migrate />} />
-            <Route path="/applications" element={<Applications />} />
+            <Route path="/applications" element={<JobTracker />} />
             <Route path="/job/:id" element={<JobLayout />}>
               <Route path="intake" element={<Intake />} />
               <Route path="parse" element={<ParseReview />} />
