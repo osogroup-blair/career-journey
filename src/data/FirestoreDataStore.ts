@@ -1,6 +1,8 @@
 import { Firestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
 import { PromptConfig, PromptChangeLogEntry } from '../types/promptConfig';
+import { BillingState, defaultBillingState } from '../types/billing';
+import { AllowedModelsConfig } from '../types/aiModels';
 import { DataStore } from './DataStore';
 
 // Firestore rejects `undefined` field values outright; our types use them freely
@@ -44,10 +46,31 @@ export class FirestoreDataStore implements DataStore {
   private promptChangeLogCollectionRef(promptId: string) {
     return collection(this.db, 'users', this.uid, 'promptConfigs', promptId, 'changeLog');
   }
+  private billingRef() {
+    return doc(this.db, 'users', this.uid, 'meta', 'billing');
+  }
+  private allowedModelsRef() {
+    return doc(this.db, 'config', 'allowedModels');
+  }
 
   async getCareerJourney(): Promise<any | null> {
     const snap = await getDoc(this.careerJourneyRef());
     return snap.exists() ? snap.data() : null;
+  }
+
+  async getAllowedModels(): Promise<AllowedModelsConfig | null> {
+    const snap = await getDoc(this.allowedModelsRef());
+    return snap.exists() ? (snap.data() as AllowedModelsConfig) : null;
+  }
+
+  // Read-only by design — see the DataStore interface. server/billing.ts creates
+  // this doc lazily on a user's first AI call, so a brand-new account has none
+  // yet — fall back to the same free-plan default the server would create,
+  // rather than null (null means "billing doesn't apply", which isn't true for
+  // a real signed-in account that just hasn't made an AI call yet).
+  async getBilling(): Promise<BillingState | null> {
+    const snap = await getDoc(this.billingRef());
+    return snap.exists() ? (snap.data() as BillingState) : defaultBillingState();
   }
 
   // Firestore caps a single doc at 1MB. This doc holds the whole career journey

@@ -59,7 +59,15 @@ async function main() {
   await Promise.all(DEMO_JOBS.map((job) => userRoot.collection('jobs').doc(job.id).set(job as any)));
   await Promise.all(DEMO_MATCHES.map((match) => userRoot.collection('matches').doc(match.id).set(match as any)));
 
-  console.log(`Seeded demo data for uid ${uid}: 1 career journey, ${DEMO_JOBS.length} jobs, ${DEMO_MATCHES.length} matches, 1 match-preferences doc.`);
+  // Pre-comped (payment-system-plan.md Phase 5) — "Try the demo" is a sales
+  // surface, so it should always show the full Pro experience (Matches
+  // included) rather than hitting the same paywall a real free user would.
+  await userRoot.collection('meta').doc('billing').set(
+    { plan: 'pro_monthly', comped: true },
+    { merge: true }
+  );
+
+  console.log(`Seeded demo data for uid ${uid}: 1 career journey, ${DEMO_JOBS.length} jobs, ${DEMO_MATCHES.length} matches, 1 match-preferences doc, comped billing.`);
   console.log(`Log in at the app with: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
 }
 

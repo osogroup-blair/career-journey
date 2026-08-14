@@ -2,14 +2,34 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { z } from "zod";
 import dotenv from "dotenv";
 import { FULL_KNOWLEDGE, CAREER_JOURNEY_BUILDER_KNOWLEDGE } from "./server/knowledge";
 import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/careerJourneyVersioning";
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
-import { requireFirebaseAuth } from "./server/firebaseAdmin";
+import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebaseAdmin";
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
+import { getBillingState, setBillingFields, requireAnyPaidPlan } from "./server/billing";
+import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
+import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
+import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
+import { isByomPlan, AIProviderId } from "./src/types/billing";
+import { getFeatureFlags, setFeatureFlags } from "./server/featureFlags";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
+import type { AllowedModelsConfig } from "./src/types/aiModels";
+
+/** Distinguishes "your BYOM key is missing/invalid" (actionable, 400) from an actual server error (500). */
+function handleAiRouteError(e: any, res: express.Response) {
+  console.error(e);
+  if (e instanceof MissingByomKeyError) {
+    res.status(400).json({ error: e.message });
+    return;
+  }
+  res.status(500).json({ error: e.message });
+}
 
 dotenv.config();
 
@@ -41,6 +61,20 @@ async function startServer() {
   const app = express();
   const PORT = 47293;
 
+  // Registered BEFORE the global express.json() below, with its own raw-body
+  // parser — Stripe's signature verification needs the exact raw request
+  // bytes, not re-serialized JSON. Being the first matching route for this
+  // exact path means express.json() (further down the stack) never touches
+  // it. See payment-system-plan.md Phase 1 for why this ordering matters.
+  app.post("/api/billing/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    await handleStripeWebhook(adminApp, req, res);
+  });
+
   app.use(express.json({ limit: '10mb' }));
 
   app.get("/api/health", (req, res) => {
@@ -52,8 +86,209 @@ async function startServer() {
   app.use("/api/ai", requireFirebaseAuth);
   app.use("/api/ai", requireWithinAiQuota);
   app.use("/api/sources", requireFirebaseAuth);
+  // Job Analysis (Matches/discovery) is hard-gated behind any paid plan —
+  // unlike the rest of /api/ai (journey-building, per-job pipeline), which
+  // stays free-with-quota via requireWithinAiQuota above. Both /api/sources
+  // routes (fetchCompanyJobs, fetchJobFromUrl) are Matches-only, so the whole
+  // path group is gated; liteScan needs its own route-level middleware since
+  // /api/ai has many non-gated siblings.
+  app.use("/api/sources", requireAnyPaidPlan);
   app.use("/api/admin", requireFirebaseAuth);
+  app.use("/api/admin", requireAdmin);
   app.use("/api/export", requireFirebaseAuth);
+  app.use("/api/billing", requireFirebaseAuth);
+
+  app.post("/api/billing/createCheckoutSession", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { plan, email } = req.body as { plan: "pro_monthly" | "byom_monthly" | "byom_yearly"; email: string };
+      const billing = await getBillingState(adminApp, uid);
+      const appUrl = process.env.APP_URL || "http://localhost:47293";
+      const url = await createCheckoutSession({
+        uid,
+        email,
+        plan,
+        existingStripeCustomerId: billing.stripeCustomerId,
+        successUrl: `${appUrl}/#/upgrade?checkout=success`,
+        cancelUrl: `${appUrl}/#/upgrade?checkout=cancelled`,
+      });
+      res.json({ url });
+    } catch (e: any) {
+      console.error("createCheckoutSession failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/billing/createPortalSession", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const billing = await getBillingState(adminApp, uid);
+      if (!billing.stripeCustomerId) {
+        res.status(400).json({ error: "No billing account yet — subscribe first." });
+        return;
+      }
+      const appUrl = process.env.APP_URL || "http://localhost:47293";
+      const url = await createPortalSession({
+        stripeCustomerId: billing.stripeCustomerId,
+        returnUrl: `${appUrl}/#/upgrade`,
+      });
+      res.json({ url });
+    } catch (e: any) {
+      console.error("createPortalSession failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Saves provider + model *choice* only — never the API key itself (see
+  // payment-system-plan.md's Phase 4 key-handling decision: the key lives in
+  // the browser's localStorage and rides per-request headers, not here).
+  app.post("/api/billing/byomSettings", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { provider, model } = req.body as { provider: AIProviderId; model: string };
+      const billing = await getBillingState(adminApp, uid);
+      if (!isByomPlan(billing.plan)) {
+        res.status(403).json({ error: "BYOM settings require a BYOM plan." });
+        return;
+      }
+      await setBillingFields(adminApp, uid, { byomProvider: provider, byomModel: model });
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("byomSettings save failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Tests a BYOM key with a real, minimal call through the same abstraction
+  // the app actually uses (server/ai/*) — the most trustworthy check
+  // available, since it exercises the exact code path a real request would.
+  // Never stores the key regardless of outcome.
+  app.post("/api/billing/validateByomKey", async (req, res) => {
+    try {
+      const { provider, apiKey, model } = req.body as { provider: AIProviderId; apiKey: string; model?: string };
+      if (!provider || !apiKey) {
+        res.status(400).json({ valid: false, error: "provider and apiKey are required" });
+        return;
+      }
+      const client = buildProviderClient(provider, apiKey, model);
+      await client.generateStructured({
+        systemPrompt: "Respond with exactly the requested JSON shape and nothing else.",
+        prompt: 'Respond with { "ok": true }.',
+        schema: z.object({ ok: z.boolean() }),
+      });
+      res.json({ valid: true });
+    } catch (e: any) {
+      // 200, not 500 — an invalid key is an expected validation outcome, not
+      // a server error. Each provider SDK's error message is usually already
+      // actionable ("invalid API key", "insufficient quota", etc).
+      res.json({ valid: false, error: e.message || "Key validation failed" });
+    }
+  });
+
+  app.get("/api/admin/featureFlags", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    res.json(await getFeatureFlags(adminApp));
+  });
+
+  app.post("/api/admin/featureFlags", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const updated = await setFeatureFlags(adminApp, req.body);
+      res.json(updated);
+    } catch (e: any) {
+      console.error("setFeatureFlags failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/allowedModels", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const config = req.body as AllowedModelsConfig;
+      await getFirestore(adminApp).collection("config").doc("allowedModels").set(config);
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("save allowedModels failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Cross-references Firebase Auth accounts with their Firestore billing docs.
+  // Fine at this app's scale (small user base) — would need pagination/an
+  // index before this scales to thousands of accounts.
+  app.get("/api/admin/users", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { users } = await getAuth(adminApp).listUsers(1000);
+      const rows = await Promise.all(
+        users.map(async (u) => {
+          const billing = await getBillingState(adminApp, u.uid);
+          return {
+            uid: u.uid,
+            email: u.email,
+            createdAt: u.metadata.creationTime,
+            plan: billing.plan,
+            comped: billing.comped || false,
+            subscriptionStatus: billing.subscriptionStatus,
+            freeAiActionsUsed: billing.freeAiActionsUsed,
+            proMonthlyAiActionsUsed: billing.proMonthlyAiActionsUsed,
+            byomProvider: billing.byomProvider,
+          };
+        })
+      );
+      res.json(rows);
+    } catch (e: any) {
+      console.error("list admin users failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:uid/comp", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { comped } = req.body as { comped: boolean };
+      await setBillingFields(adminApp, req.params.uid, { comped });
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("comp user failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   app.get("/api/admin/prompts", (req, res) => {
     res.json(getAllPromptConfigs());
@@ -159,15 +394,14 @@ ${jdText}`,
     }
   });
 
+  // Phase 3 pilot migration onto the provider-agnostic abstraction
+  // (server/ai/*) — the "simple/flat" pilot. See payment-system-plan.md.
   app.post("/api/ai/keywords", async (req, res) => {
     try {
       const { parse, careerJourney, jdSegments } = req.body;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${KNOWLEDGE_PREAMBLE}
-${getActivePrompt('keywords')}
-
-Job Parse:
+      const keywords = await (await getAIClientForRequest(req)).generateStructured({
+        systemPrompt: `${KNOWLEDGE_PREAMBLE}${getActivePrompt('keywords')}`,
+        prompt: `Job Parse:
 ${JSON.stringify(parse, null, 2)}
 
 JD Segments (cite these ids in jdRefs):
@@ -176,52 +410,11 @@ ${JSON.stringify(jdSegments || [], null, 2)}
 Candidate Career Journey Context (cite real ids from here in evidenceRefs):
 ${JSON.stringify(careerJourney || {}, null, 2)}
 `,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                phrase: { type: Type.STRING },
-                category: { type: Type.STRING, description: "Exactly one of: 'Critical skill' | 'Required keyword' | 'Secondary keyword' | 'Hard gate' | 'Domain signal' | 'Tool / platform'" },
-                jdImportance: { type: Type.STRING, description: "'High' | 'Medium' | 'Low'" },
-                evidenceStatus: { type: Type.STRING, description: "'EVIDENCED' | 'PARTIAL' | 'MISSING / POSSIBLE' | 'NOT SUPPORTED' | 'HARD GATE'" },
-                evidenceRefs: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING, description: "'deliverable' | 'achievement' | 'skill' | 'role'" },
-                      id: { type: Type.STRING }
-                    },
-                    required: ["type", "id"]
-                  }
-                },
-                jdRefs: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: { segmentId: { type: Type.STRING } },
-                    required: ["segmentId"]
-                  }
-                },
-                whatCouldCount: { type: Type.STRING },
-                recognitionPrompt: { type: Type.STRING },
-                resumePriority: { type: Type.STRING },
-                isTopCritical: { type: Type.BOOLEAN },
-                userContextStatus: { type: Type.STRING }
-              },
-              required: ["id", "phrase", "category", "jdImportance", "evidenceStatus", "evidenceRefs", "jdRefs", "whatCouldCount", "recognitionPrompt", "resumePriority", "isTopCritical", "userContextStatus"]
-            }
-          }
-        }
+        schema: KeywordsResponseSchema,
       });
-      res.json(JSON.parse(response.text!));
+      res.json(keywords);
     } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: e.message });
+      handleAiRouteError(e, res);
     }
   });
 
@@ -275,16 +468,14 @@ ${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organ
     }
   });
 
+  // Phase 3 pilot migration onto the provider-agnostic abstraction — the
+  // "nested/complex" pilot, paired with keywords' "simple" case above.
   app.post("/api/ai/fitScore", async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, gateClarifications, jdSegments } = req.body;
-      // Provide a simpler schema since Gemini struggles with nested enums sometimes
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${KNOWLEDGE_PREAMBLE}
-${getActivePrompt('fitScore')}
-
-Job Parse:
+      const fitAnalysis = await (await getAIClientForRequest(req)).generateStructured({
+        systemPrompt: `${KNOWLEDGE_PREAMBLE}${getActivePrompt('fitScore')}`,
+        prompt: `Job Parse:
 ${JSON.stringify(parse)}
 JD Segments (cite ids from here in jdRefs when a gap or lead-with point traces to specific JD text):
 ${JSON.stringify(jdSegments || [])}
@@ -296,50 +487,11 @@ Candidate Custom Gate & Fit Clarifications (if any, where they explain and prove
 ${JSON.stringify(gateClarifications || {})}
 
 Generate an objective fit analysis. If the candidate has provided convincing explanations and objective proofs, factor them into upgrading the relevant dimension ratings ('Strong' | 'Moderate') and adjust the rationale and overallVerdict accordingly. For each leadWith/gaps entry, cite real evidenceRefs/jdRefs ids where applicable — leave them empty rather than inventing an id.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              roleScopeFit: { type: Type.OBJECT, properties: { rating: { type: Type.STRING }, rationale: { type: Type.STRING } }, required: ["rating", "rationale"] },
-              industryDomainFit: { type: Type.OBJECT, properties: { rating: { type: Type.STRING }, rationale: { type: Type.STRING } }, required: ["rating", "rationale"] },
-              seniorityStageFit: { type: Type.OBJECT, properties: { rating: { type: Type.STRING }, rationale: { type: Type.STRING } }, required: ["rating", "rationale"] },
-              technicalAiFit: { type: Type.OBJECT, properties: { rating: { type: Type.STRING }, rationale: { type: Type.STRING } }, required: ["rating", "rationale"] },
-              overallVerdict: { type: Type.STRING, description: "'PASS' | 'BORDERLINE' | 'SKIP'" },
-              rationale: { type: Type.STRING },
-              leadWith: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    text: { type: Type.STRING },
-                    evidenceRefs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { type: { type: Type.STRING }, id: { type: Type.STRING } }, required: ["type", "id"] } },
-                    jdRefs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { segmentId: { type: Type.STRING } }, required: ["segmentId"] } }
-                  },
-                  required: ["text"]
-                }
-              },
-              gaps: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    text: { type: Type.STRING },
-                    evidenceRefs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { type: { type: Type.STRING }, id: { type: Type.STRING } }, required: ["type", "id"] } },
-                    jdRefs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { segmentId: { type: Type.STRING } }, required: ["segmentId"] } }
-                  },
-                  required: ["text"]
-                }
-              }
-            },
-            required: ["roleScopeFit", "industryDomainFit", "seniorityStageFit", "technicalAiFit", "overallVerdict", "rationale", "leadWith", "gaps"]
-          }
-        }
+        schema: FitAnalysisSchema,
       });
-      res.json(JSON.parse(response.text!));
+      res.json(fitAnalysis);
     } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: e.message });
+      handleAiRouteError(e, res);
     }
   });
 
@@ -530,7 +682,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
     }
   });
 
-  app.post("/api/ai/liteScan", async (req, res) => {
+  app.post("/api/ai/liteScan", requireAnyPaidPlan, async (req, res) => {
     try {
       const { jdText, careerJourney, archiveLearnings } = req.body;
       const response = await ai.models.generateContent({

@@ -6,7 +6,8 @@ import { generateId } from '../lib/utils';
 import { auth, isFirebaseConfigured } from '../lib/firebase';
 import {
   Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar,
-  LogOut, Sparkles, TrendingUp, Menu, X, MoreHorizontal, ChevronDown
+  LogOut, Sparkles, TrendingUp, Menu, X, MoreHorizontal, ChevronDown, CreditCard,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { Button, useToast } from './ui';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
@@ -35,7 +36,7 @@ const JOURNEY_GROUPS: NavItem[][] = [
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { careerJourney, addJob, setCareerJourney } = useStore();
+  const { careerJourney, addJob, setCareerJourney, billing, isAdmin } = useStore();
   const toast = useToast();
 
   const [moreOpen, setMoreOpen] = useState(false);
@@ -198,13 +199,48 @@ export default function Navbar() {
                     Advanced Editor
                   </Link>
 
-                  <Link
-                    to="/admin/prompts"
-                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Sparkles className="h-4 w-4 text-slate-400" />
-                    Admin — AI Prompts
-                  </Link>
+                  {isAdmin && (
+                    <>
+                      <Link
+                        to="/admin/prompts"
+                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Sparkles className="h-4 w-4 text-slate-400" />
+                        Admin — AI Prompts
+                      </Link>
+                      <Link
+                        to="/admin/users"
+                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Sparkles className="h-4 w-4 text-slate-400" />
+                        Admin — Users
+                      </Link>
+                      <Link
+                        to="/admin/flags"
+                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Sparkles className="h-4 w-4 text-slate-400" />
+                        Admin — Feature Flags
+                      </Link>
+                      <Link
+                        to="/admin/models"
+                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <Sparkles className="h-4 w-4 text-slate-400" />
+                        Admin — Models
+                      </Link>
+                    </>
+                  )}
+
+                  {billing && (
+                    <Link
+                      to="/settings"
+                      className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <SettingsIcon className="h-4 w-4 text-slate-400" />
+                      Settings
+                    </Link>
+                  )}
 
                   <div className="my-1.5 border-t border-slate-100" />
 
@@ -246,6 +282,17 @@ export default function Navbar() {
           <Button onClick={createNewJob} size="sm" className="sm:hidden bg-brand-600 hover:bg-brand-700 text-white shadow-xs px-2.5">
             <Plus className="h-4 w-4" />
           </Button>
+
+          {billing && (
+            <Link
+              to="/upgrade"
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+              title={billing.plan === 'free' ? 'Upgrade' : 'Manage billing'}
+            >
+              <CreditCard className="h-3.5 w-3.5" />
+              {billing.plan === 'free' ? `${billing.freeAiActionsUsed}/20 free` : 'Billing'}
+            </Link>
+          )}
 
           {isFirebaseConfigured && auth && (
             <button
@@ -308,6 +355,13 @@ export default function Navbar() {
             <FileDown className="h-4 w-4" />
             Blank Template
           </button>
+
+          {billing && (
+            <Link to="/upgrade" className={linkClass('/upgrade') + ' w-full'}>
+              <CreditCard className="h-4 w-4" />
+              {billing.plan === 'free' ? `Upgrade (${billing.freeAiActionsUsed}/20 free)` : 'Billing'}
+            </Link>
+          )}
 
           {isFirebaseConfigured && auth && (
             <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 text-left">

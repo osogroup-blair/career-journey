@@ -1,5 +1,7 @@
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
 import { PromptConfig, PromptChangeLogEntry } from '../types/promptConfig';
+import { BillingState } from '../types/billing';
+import { AllowedModelsConfig } from '../types/aiModels';
 import { DataStore } from './DataStore';
 
 const OLD_COMBINED_KEY = 'job-fit-storage';
@@ -55,6 +57,20 @@ export class LocalStorageDataStore implements DataStore {
 
   async saveCareerJourney(journey: any): Promise<void> {
     localStorage.setItem(CAREER_JOURNEY_KEY, JSON.stringify(journey));
+  }
+
+  // Local-only mode has no server/no auth, so there's nothing to bill and no
+  // uid to key a quota on — null signals "not applicable" rather than faking
+  // a plan. Phase 2's gating UI should treat null the same as unauthenticated
+  // local mode already is today: fully open, no paywall.
+  async getBilling(): Promise<BillingState | null> {
+    return null;
+  }
+
+  // No admin console / no config docs in local-only mode — the BYOM picker
+  // simply has nothing to show, same as billing being fully open.
+  async getAllowedModels(): Promise<AllowedModelsConfig | null> {
+    return null;
   }
 
   async listJobs(): Promise<Record<string, JobAnalysis>> {

@@ -9,9 +9,13 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "seed:demo": "tsx server/scripts/seedDemo.ts"
+    "seed:demo": "tsx server/scripts/seedDemo.ts",
+    "set:admin": "tsx server/scripts/setAdmin.ts",
+    "verify:ai": "tsx server/scripts/verifyAiProviders.ts",
+    "seed:allowedModels": "tsx server/scripts/seedAllowedModels.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@google/genai": "^1.29.0",
     "@hookform/resolvers": "^5.4.0",
     "@tailwindcss/vite": "^4.1.14",
@@ -26,10 +30,12 @@
     "firebase-admin": "^14.2.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "openai": "^7.4.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-hook-form": "^7.76.0",
     "react-router-dom": "^7.15.1",
+    "stripe": "^22.5.0",
     "tailwind-merge": "^3.6.0",
     "uuid": "^14.0.0",
     "vite": "^6.2.3",

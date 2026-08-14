@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { JobAnalysis, JobMatch, MatchPreferences } from './types';
+import { BillingState } from './types/billing';
 import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
 import { dataStore } from './data';
+import { auth } from './lib/firebase';
 import { generateId } from './lib/utils';
 import { normalizeCareerJourney } from './lib/careerJourneyNormalize';
 import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
@@ -30,7 +32,17 @@ interface AppState {
   matchPreferences: MatchPreferences;
   careerJourney: any;
   activeAiTasks: Record<string, AiTask>;
+  /**
+   * Null in local-only mode (no Firebase, no billing concept — see
+   * LocalStorageDataStore.getBilling) or before the first successful fetch.
+   * Read-only, mirroring DataStore.getBilling: nothing in this store writes it.
+   */
+  billing: BillingState | null;
+  /** From the `admin` custom claim on the signed-in user's ID token — see server/scripts/setAdmin.ts. False in local-only mode. */
+  isAdmin: boolean;
   hydrate: () => Promise<void>;
+  /** Re-fetches billing state on demand — call after returning from Stripe Checkout/Portal, since webhooks land async and the store won't otherwise know a plan changed. */
+  refreshBilling: () => Promise<void>;
   addJob: (job: JobAnalysis) => void;
   updateJob: (id: string, updates: Partial<JobAnalysis>) => void;
   deleteJob: (id: string) => void;
@@ -106,13 +118,17 @@ export const useStore = create<AppState>((set, get) => {
     matchPreferences: DEFAULT_MATCH_PREFERENCES,
     careerJourney: normalizeCareerJourney(DEFAULT_CAREER_JOURNEY),
     activeAiTasks: {},
+    billing: null,
+    isAdmin: false,
 
     hydrate: async () => {
-      const [careerJourney, jobs, matches, matchPreferences] = await Promise.all([
+      const [careerJourney, jobs, matches, matchPreferences, billing, idTokenResult] = await Promise.all([
         dataStore.getCareerJourney(),
         dataStore.listJobs(),
         dataStore.listMatches(),
         dataStore.getMatchPreferences(),
+        dataStore.getBilling(),
+        auth?.currentUser?.getIdTokenResult() ?? Promise.resolve(null),
       ]);
       const normalizedJobs = Object.fromEntries(
         Object.entries(jobs ?? {}).map(([id, job]) => [id, migrateLegacyJob(job)])
@@ -122,7 +138,14 @@ export const useStore = create<AppState>((set, get) => {
         jobs: normalizedJobs,
         matches: matches ?? {},
         matchPreferences: { ...DEFAULT_MATCH_PREFERENCES, ...(matchPreferences ?? {}) },
+        billing,
+        isAdmin: idTokenResult?.claims?.admin === true,
       });
+    },
+
+    refreshBilling: async () => {
+      const billing = await dataStore.getBilling();
+      set({ billing });
     },
 
     addJob: (job) => {

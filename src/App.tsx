@@ -25,6 +25,15 @@ import OfferStage from './pages/OfferStage';
 import CompareOffers from './pages/CompareOffers';
 import AdminPrompts from './pages/AdminPrompts';
 import CareerJourney from './pages/CareerJourney';
+import Upgrade from './pages/Upgrade';
+import Settings from './pages/Settings';
+import AdminFlags from './pages/AdminFlags';
+import AdminModels from './pages/AdminModels';
+import AdminUsers from './pages/AdminUsers';
+import Terms from './pages/legal/Terms';
+import Privacy from './pages/legal/Privacy';
+import Refunds from './pages/legal/Refunds';
+import Footer from './components/Footer';
 
 export default function App() {
   return (
@@ -45,6 +54,14 @@ export default function App() {
             <Route path="/applications" element={<JobTracker />} />
             <Route path="/compare-offers" element={<CompareOffers />} />
             <Route path="/admin/prompts" element={<AdminPrompts />} />
+            <Route path="/upgrade" element={<Upgrade />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/admin/flags" element={<AdminFlags />} />
+            <Route path="/admin/models" element={<AdminModels />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/refunds" element={<Refunds />} />
             <Route path="/job/:id" element={<JobLayout />}>
               <Route path="intake" element={<IntakeStage />} />
               <Route path="parsed" element={<ParsedStage />} />
@@ -64,6 +81,7 @@ export default function App() {
             </Route>
           </Routes>
         </div>
+        <Footer />
       </div>
     </Router>
     </ToastProvider>

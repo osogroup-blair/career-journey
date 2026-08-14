@@ -97,7 +97,7 @@ export default function Matches() {
     matches, addMatch, updateMatch, deleteMatch, promoteMatch,
     matchPreferences, updateMatchPreferences,
     careerJourney, updateCareerJourneyPerson,
-    jobs,
+    jobs, billing,
   } = useStore();
   const navigate = useNavigate();
   const toast = useToast();
@@ -311,6 +311,25 @@ export default function Matches() {
     acc[m.status] = (acc[m.status] || 0) + 1;
     return acc;
   }, {});
+
+  // Hard gate: Job Analysis (Matches) requires a paid plan — billing is null
+  // in local-only mode (no Firebase, no billing concept), which stays fully
+  // open, same as today. See payment-system-plan.md Phase 2.
+  if (billing && billing.plan === 'free') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-md text-center space-y-4">
+          <Radar className="w-10 h-10 text-brand-500 mx-auto" />
+          <h1 className="text-xl font-bold text-slate-900">Job Analysis is a paid feature</h1>
+          <p className="text-sm text-slate-500">
+            Matches automatically triages job postings against your Career Journey — scoring fit, flagging gaps, and
+            surfacing which ones are worth a full application. Upgrade to unlock it.
+          </p>
+          <Button onClick={() => navigate('/upgrade')}>See plans</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900/5 font-sans text-slate-900 pb-20">

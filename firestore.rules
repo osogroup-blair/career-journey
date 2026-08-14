@@ -1,13 +1,59 @@
 rules_version = '2';
 
 // Every document this app writes lives under users/{uid}/... (see src/data/FirestoreDataStore.ts).
-// Accounts are created via self-service sign-up (see src/components/AuthGate.tsx) — this rule
-// keys off request.auth.uid so every authenticated account gets its own isolated data with no
-// per-account rule changes needed.
+// Accounts are created via self-service sign-up (see src/components/AuthGate.tsx).
+//
+// IMPORTANT: Firestore rules are additive/permissive across ALL matching blocks for a
+// path — there is no "more specific rule wins" or deny-override behavior. A broad
+// recursive match (`{document=**}`) covering the billing doc would make a stricter
+// rule declared elsewhere for that same path meaningless, since the broad grant already
+// allows it. That's why the app-data collections below are enumerated explicitly instead
+// of one blanket users/{userId}/{document=**} rule — it's the only way to actually carve
+// out users/{userId}/meta/billing as read-only. Remember to add a new match block here
+// when a new client-writable subcollection is introduced.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/{document=**} {
+    match /users/{userId}/careerJourney/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/jobs/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/matches/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/matchPreferences/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/promptConfigs/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Billing/entitlement state (payment-system-plan.md Phase 0). The server, via the
+    // Admin SDK (which bypasses these rules entirely), is the only writer — the AI
+    // quota transaction in server/billing.ts and, from Phase 1 on, the Stripe webhook
+    // handler. The owner can read their own plan/usage to render UI like
+    // "14/20 free actions used", but can never grant themselves a plan from devtools.
+    match /users/{userId}/meta/billing {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Admin-managed app config: feature flags (quota overrides, kill switches) and the
+    // BYOM allowed-models list (Phase 4/5). Every signed-in user can read it — needed
+    // to render quota/model-picker UI — only the server (via the admin console, Admin
+    // SDK) writes it.
+    match /config/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Stripe webhook idempotency ledger (Phase 1) — purely internal bookkeeping,
+    // never read or written by any client. Undeclared paths already default-deny in
+    // Firestore, so this block is redundant with that default; it's here anyway to
+    // make the "never client-accessible" intent explicit rather than implicit.
+    match /stripeEvents/{eventId} {
+      allow read, write: if false;
     }
   }
 }

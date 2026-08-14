@@ -182,6 +182,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               {mode === 'signup' ? 'Create Account' : 'Sign In'}
             </Button>
           </form>
+          {mode === 'signup' && (
+            <p className="text-[10px] text-slate-400 text-center">
+              By creating an account you agree to our{' '}
+              <a href="#/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">Terms</a>
+              {' '}and{' '}
+              <a href="#/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">Privacy Policy</a>.
+            </p>
+          )}
           <button
             type="button"
             className="text-xs text-brand-600 hover:underline w-full text-center"
