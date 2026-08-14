@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { listMyTickets, getMyTicket, addMyTicketMessage } from '../lib/supportClient';
 import { Ticket, TicketMessage, TicketStatus } from '../types/support';
 import { Badge, Button, Textarea, useToast } from '../components/ui';
-import { Bug, Lightbulb, HelpCircle, MoreHorizontal, MessageSquare, Loader2, ArrowLeft } from 'lucide-react';
+import { Bug, Lightbulb, HelpCircle, MoreHorizontal, MessageSquare, Loader2, ArrowLeft, Camera } from 'lucide-react';
 
 const TYPE_ICON: Record<Ticket['type'], React.ComponentType<{ className?: string }>> = {
   bug: Bug,
@@ -17,6 +17,7 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
   triaged: 'Triaged',
   backlogged: 'Backlogged',
   in_progress: 'In progress',
+  in_review: 'In review',
   resolved: 'Resolved',
   closed: 'Closed',
   wontfix: "Won't fix",
@@ -27,6 +28,7 @@ const STATUS_VARIANT: Record<TicketStatus, 'default' | 'success' | 'warning' | '
   triaged: 'default',
   backlogged: 'default',
   in_progress: 'warning',
+  in_review: 'warning',
   resolved: 'success',
   closed: 'outline',
   wontfix: 'destructive',
@@ -38,6 +40,22 @@ function TicketThread({ ticketId, onBack }: { ticketId: string; onBack: () => vo
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [reply, setReply] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [loadingScreenshot, setLoadingScreenshot] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+
+  const loadScreenshot = async () => {
+    setLoadingScreenshot(true);
+    try {
+      const { getMyTicketScreenshotUrl } = await import('../lib/supportClient');
+      const url = await getMyTicketScreenshotUrl(ticketId);
+      if (url) setScreenshotUrl(url);
+      else toast.error('No screenshot found');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setLoadingScreenshot(false);
+    }
+  };
 
   const load = () =>
     getMyTicket(ticketId)
@@ -85,6 +103,22 @@ function TicketThread({ ticketId, onBack }: { ticketId: string; onBack: () => vo
           <Badge variant={STATUS_VARIANT[ticket.status]}>{STATUS_LABEL[ticket.status]}</Badge>
         </div>
         <p className="text-sm text-slate-600 whitespace-pre-wrap">{ticket.description}</p>
+        {screenshotUrl ? (
+          <div className="mt-4 border border-slate-200 rounded-lg p-2 bg-slate-50">
+            <img src={screenshotUrl} alt="Attached screenshot" className="rounded max-h-96 w-auto" />
+          </div>
+        ) : (
+          ticket.screenshotPath && (
+            <button
+              onClick={loadScreenshot}
+              disabled={loadingScreenshot}
+              className="mt-4 flex items-center gap-2 text-xs font-medium text-brand-600 hover:underline"
+            >
+              {loadingScreenshot ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+              {loadingScreenshot ? 'Loading screenshot…' : 'View attached screenshot'}
+            </button>
+          )
+        )}
         <p className="text-[10px] text-slate-400">
           Filed {new Date(ticket.createdAt).toLocaleString()} · {ticket.context.route}
         </p>

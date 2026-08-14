@@ -1,5 +1,7 @@
 import { authHeaders } from './aiClient';
 import { Ticket, TicketMessage, TicketType, TicketContext } from '../types/support';
+import { ref, uploadBytes } from 'firebase/storage';
+import { storage, auth } from './firebase';
 
 async function errorMessage(res: Response): Promise<string> {
   const text = await res.text();
@@ -51,12 +53,24 @@ export function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+export async function uploadTicketScreenshot(blob: Blob): Promise<string> {
+  if (!storage || !auth || !auth.currentUser) {
+    throw new Error('Firebase Auth/Storage not configured or user not logged in');
+  }
+  const uid = auth.currentUser.uid;
+  const randomId = Math.random().toString(36).slice(2);
+  const path = `ticketScreenshots/${uid}/${randomId}.png`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, blob);
+  return path;
+}
+
 export const createTicket = (input: {
   type: TicketType;
   title: string;
   description: string;
   context: Omit<TicketContext, 'timestamp'>;
-  screenshotBase64?: string;
+  screenshotPath?: string;
 }): Promise<Ticket> => supportPost('/api/support/tickets', input);
 
 export const listMyTickets = (): Promise<Ticket[]> => supportGet('/api/support/tickets');
@@ -66,3 +80,13 @@ export const getMyTicket = (id: string): Promise<{ ticket: Ticket; messages: Tic
 
 export const addMyTicketMessage = (id: string, body: string): Promise<TicketMessage> =>
   supportPost(`/api/support/tickets/${id}/messages`, { body });
+
+export const getMyTicketScreenshotUrl = async (id: string): Promise<string | null> => {
+  try {
+    const res = await supportGet(`/api/support/tickets/${id}/screenshot`);
+    return res.url;
+  } catch (e: any) {
+    if (e.message.includes("No screenshot")) return null;
+    throw e;
+  }
+};

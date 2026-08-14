@@ -11,7 +11,7 @@ export type TicketType = 'bug' | 'idea' | 'question' | 'other';
 /** Admin-set during triage (server/support.ts's updateTicket) — this is what actually drives the backlog export. */
 export type TicketTriageType = 'bug' | 'enhancement' | 'question' | 'not_actionable';
 
-export type TicketStatus = 'new' | 'triaged' | 'backlogged' | 'in_progress' | 'resolved' | 'closed' | 'wontfix';
+export type TicketStatus = 'new' | 'triaged' | 'backlogged' | 'in_progress' | 'in_review' | 'resolved' | 'closed' | 'wontfix';
 
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
 

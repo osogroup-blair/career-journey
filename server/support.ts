@@ -61,28 +61,30 @@ function messagesCollection(app: App, ticketId: string) {
   return ticketsCollection(app).doc(ticketId).collection("messages");
 }
 
-/**
- * In-memory per-uid daily cap on ticket creation — same spirit as
- * rateLimiter.ts's fallbackUsage counter, but scoped to this module since
- * tickets aren't part of the AI-quota abstraction those counters serve.
- * Resets on server restart; that's fine for an abuse guard against a runaway
- * client loop, not a monetization control.
- */
-const ticketCreationCounts = new Map<string, { count: number; resetAt: number }>();
+function supportUsageDoc(app: App, uid: string) {
+  return getFirestore(app).collection("users").doc(uid).collection("meta").doc("supportUsage");
+}
 
-function withinDailyTicketLimit(uid: string): boolean {
+async function requireWithinDailyTicketLimit(app: App, uid: string): Promise<void> {
   const limit = Number(process.env.SUPPORT_TICKET_DAILY_LIMIT) || DEFAULT_DAILY_TICKET_LIMIT;
   const now = Date.now();
-  const entry = ticketCreationCounts.get(uid);
-  if (!entry || now >= entry.resetAt) {
-    ticketCreationCounts.set(uid, { count: 1, resetAt: now + DAY_MS });
-    return true;
-  }
-  if (entry.count >= limit) {
-    return false;
-  }
-  entry.count += 1;
-  return true;
+  
+  await getFirestore(app).runTransaction(async (t) => {
+    const docRef = supportUsageDoc(app, uid);
+    const snap = await t.get(docRef);
+    const data = snap.data();
+    
+    if (!data || now >= (data.ticketSubmissionsResetAt || 0)) {
+      t.set(docRef, { ticketSubmissionsToday: 1, ticketSubmissionsResetAt: now + DAY_MS }, { merge: true });
+      return;
+    }
+    
+    if (data.ticketSubmissionsToday >= limit) {
+      throw new TicketRateLimitError();
+    }
+    
+    t.set(docRef, { ticketSubmissionsToday: data.ticketSubmissionsToday + 1 }, { merge: true });
+  });
 }
 
 export class TicketRateLimitError extends Error {
@@ -123,37 +125,21 @@ export async function createTicket(
     title: string;
     description: string;
     context: Omit<TicketContext, "timestamp">;
-    /**
-     * Raw PNG bytes, base64-encoded, uploaded here server-side via the Admin SDK (which bypasses
-     * Storage security rules entirely) rather than the client uploading directly — this project's
-     * Storage rules live in storage.rules but can't be deployed from this environment (no
-     * `firebase login`-authenticated CLI available), so a client-side upload would 403 against
-     * whatever default rules the bucket actually has live. Revisit as a direct client upload once
-     * `firebase deploy --only storage` has actually been run against this project.
-     */
-    screenshotBase64?: string;
+    screenshotPath?: string;
   }
 ): Promise<Ticket> {
-  if (!withinDailyTicketLimit(uid)) {
-    throw new TicketRateLimitError();
-  }
+  await requireWithinDailyTicketLimit(app, uid);
 
   const billing = await getBillingState(app, uid);
   const now = new Date().toISOString();
   const ref = ticketsCollection(app).doc();
 
   let screenshotPath: string | undefined;
-  if (input.screenshotBase64) {
-    try {
-      screenshotPath = `ticketScreenshots/${uid}/${ref.id}.png`;
-      await getStorage(app)
-        .bucket()
-        .file(screenshotPath)
-        .save(Buffer.from(input.screenshotBase64, "base64"), { contentType: "image/png" });
-    } catch (e) {
-      console.error("createTicket: screenshot upload failed — continuing without it", e);
-      screenshotPath = undefined;
+  if (input.screenshotPath) {
+    if (!input.screenshotPath.startsWith(`ticketScreenshots/${uid}/`)) {
+      throw new TicketAccessError();
     }
+    screenshotPath = input.screenshotPath;
   }
 
   const ticket: Ticket = {
@@ -188,6 +174,17 @@ export async function getTicketScreenshotUrl(app: App, ticketId: string): Promis
   return url;
 }
 
+export async function getTicketScreenshotUrlForUser(app: App, uid: string, ticketId: string): Promise<string | null> {
+  const ticket = await getTicketOrThrow(app, ticketId);
+  if (ticket.uid !== uid) throw new TicketAccessError();
+  if (!ticket.screenshotPath) return null;
+  const [url] = await getStorage(app)
+    .bucket()
+    .file(ticket.screenshotPath)
+    .getSignedUrl({ action: "read", expires: Date.now() + 5 * 60 * 1000 });
+  return url;
+}
+
 /** Sorts newest-first — shared by every list function here instead of chaining .orderBy onto a .where()
  *  query, which would require a manual composite Firestore index per filter combination. Fine at this
  *  app's scale (same reasoning as /api/admin/users's in-memory Promise.all in server.ts). */
@@ -195,10 +192,19 @@ function byNewestFirst(a: Ticket, b: Ticket): number {
   return b.createdAt.localeCompare(a.createdAt);
 }
 
+function stripAdminFields(ticket: Ticket): Ticket {
+  const copy = { ...ticket };
+  delete copy.adminNotes;
+  return copy;
+}
+
 /** Caller's own tickets only — the route calling this must pass the caller's own uid. */
 export async function listTicketsForUser(app: App, uid: string): Promise<Ticket[]> {
-  const snap = await ticketsCollection(app).where("uid", "==", uid).get();
-  return snap.docs.map((d) => d.data() as Ticket).sort(byNewestFirst);
+  const snap = await ticketsCollection(app)
+    .where("uid", "==", uid)
+    .orderBy("createdAt", "desc")
+    .get();
+  return snap.docs.map((d) => stripAdminFields(d.data() as Ticket));
 }
 
 async function getTicketOrThrow(app: App, ticketId: string): Promise<Ticket> {
@@ -220,7 +226,7 @@ export async function getTicketForUser(
 ): Promise<{ ticket: Ticket; messages: TicketMessage[] }> {
   const ticket = await getTicketOrThrow(app, ticketId);
   if (ticket.uid !== uid) throw new TicketAccessError();
-  return { ticket, messages: await listMessages(app, ticketId) };
+  return { ticket: stripAdminFields(ticket), messages: await listMessages(app, ticketId) };
 }
 
 /** Appends a user reply — verifies ownership first, same access rule as getTicketForUser. */
@@ -242,8 +248,9 @@ export async function listAllTickets(
   let query: FirebaseFirestore.Query = ticketsCollection(app);
   if (filter?.status) query = query.where("status", "==", filter.status);
   if (filter?.triageType) query = query.where("triageType", "==", filter.triageType);
+  query = query.orderBy("createdAt", "desc");
   const snap = await query.get();
-  return snap.docs.map((d) => d.data() as Ticket).sort(byNewestFirst);
+  return snap.docs.map((d) => d.data() as Ticket);
 }
 
 export async function getTicketForAdmin(app: App, ticketId: string): Promise<{ ticket: Ticket; messages: TicketMessage[] }> {
@@ -263,10 +270,24 @@ export async function updateTicket(
   ticketId: string,
   updates: Partial<Pick<Ticket, "status" | "triageType" | "priority" | "adminNotes">>
 ): Promise<Ticket> {
-  await getTicketOrThrow(app, ticketId); // 404s cleanly instead of silently upserting a stray doc
+  const oldTicket = await getTicketOrThrow(app, ticketId); // 404s cleanly instead of silently upserting a stray doc
   const definedUpdates = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
   const ref = ticketsCollection(app).doc(ticketId);
   await ref.set({ ...definedUpdates, updatedAt: new Date().toISOString() }, { merge: true });
+
+  if (
+    updates.status && 
+    ["resolved", "closed", "wontfix"].includes(updates.status) &&
+    !["resolved", "closed", "wontfix"].includes(oldTicket.status) &&
+    oldTicket.screenshotPath
+  ) {
+    try {
+      await getStorage(app).bucket().file(oldTicket.screenshotPath).delete();
+    } catch (e: any) {
+      if (e.code !== 404) console.error("Failed to delete screenshot", e);
+    }
+  }
+
   return (await ref.get()).data() as Ticket;
 }
 

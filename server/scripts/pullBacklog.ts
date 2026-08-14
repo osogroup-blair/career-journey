@@ -14,7 +14,7 @@ const BACKLOG_DIR = path.resolve(process.cwd(), 'backlog');
 // What counts as "actionable" for a coding agent to pick up — triaged as real work,
 // not yet shipped/rejected. Matches admin-support-feedback-plan.md Phase 4.
 const ACTIONABLE_TRIAGE_TYPES = new Set(['bug', 'enhancement']);
-const ACTIONABLE_STATUSES = new Set(['triaged', 'backlogged', 'in_progress']);
+const ACTIONABLE_STATUSES = new Set(['triaged', 'backlogged', 'in_progress', 'in_review']);
 
 function slugFor(ticket: Ticket): string {
   const prefix = ticket.triageType === 'bug' ? 'BUG' : 'ENH';

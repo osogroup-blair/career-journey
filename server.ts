@@ -25,6 +25,7 @@ import {
   TicketRateLimitError,
   TicketNotFoundError,
   TicketAccessError,
+  getTicketScreenshotUrlForUser,
 } from "./server/support";
 import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketPriority } from "./src/types/support";
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
@@ -227,19 +228,19 @@ async function startServer() {
       return;
     }
     try {
-      const { type, title, description, context, screenshotBase64 } = req.body as {
+      const { type, title, description, context, screenshotPath } = req.body as {
         type: TicketType;
         title: string;
         description: string;
         context: Omit<TicketContext, "timestamp">;
-        screenshotBase64?: string;
+        screenshotPath?: string;
       };
       if (!title?.trim() || !description?.trim()) {
         res.status(400).json({ error: "title and description are required" });
         return;
       }
       const email = (await getAuth(adminApp).getUser(uid)).email || null;
-      const ticket = await createTicket(adminApp, uid, email, { type, title, description, context, screenshotBase64 });
+      const ticket = await createTicket(adminApp, uid, email, { type, title, description, context, screenshotPath });
       res.json(ticket);
     } catch (e: any) {
       if (e instanceof TicketRateLimitError) {
@@ -285,6 +286,31 @@ async function startServer() {
         return;
       }
       console.error("getTicketForUser failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/support/tickets/:id/screenshot", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const url = await getTicketScreenshotUrlForUser(adminApp, uid, req.params.id);
+      if (url) res.json({ url });
+      else res.status(404).json({ error: "No screenshot attached to this ticket" });
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      if (e instanceof TicketAccessError) {
+        res.status(403).json({ error: e.message });
+        return;
+      }
+      console.error("getTicketScreenshotUrlForUser failed", e);
       res.status(500).json({ error: e.message });
     }
   });

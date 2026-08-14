@@ -11,12 +11,13 @@ const TYPE_ICON: Record<Ticket['type'], React.ComponentType<{ className?: string
   other: MoreHorizontal,
 };
 
-const STATUS_OPTIONS: TicketStatus[] = ['new', 'triaged', 'backlogged', 'in_progress', 'resolved', 'closed', 'wontfix'];
+const STATUS_OPTIONS: TicketStatus[] = ['new', 'triaged', 'backlogged', 'in_progress', 'in_review', 'resolved', 'closed', 'wontfix'];
 const STATUS_LABEL: Record<TicketStatus, string> = {
   new: 'New',
   triaged: 'Triaged',
   backlogged: 'Backlogged',
   in_progress: 'In progress',
+  in_review: 'In review',
   resolved: 'Resolved',
   closed: 'Closed',
   wontfix: "Won't fix",
@@ -26,6 +27,7 @@ const STATUS_VARIANT: Record<TicketStatus, 'default' | 'success' | 'warning' | '
   triaged: 'default',
   backlogged: 'default',
   in_progress: 'warning',
+  in_review: 'warning',
   resolved: 'success',
   closed: 'outline',
   wontfix: 'destructive',

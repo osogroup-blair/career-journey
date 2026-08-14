@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStore } from '../store';
 import { Button, Input, Label, Textarea, useToast } from './ui';
-import { createTicket, captureTicketContext, blobToBase64 } from '../lib/supportClient';
+import { createTicket, captureTicketContext, uploadTicketScreenshot } from '../lib/supportClient';
 import { TicketType } from '../types/support';
 import { Bug, Lightbulb, HelpCircle, MoreHorizontal, MessageCircleQuestion, Loader2, X, Camera, Trash2 } from 'lucide-react';
 
@@ -81,8 +81,11 @@ export default function FeedbackWidget() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const screenshotBase64 = screenshotBlob ? await blobToBase64(screenshotBlob) : undefined;
-      await createTicket({ type, title, description, context, screenshotBase64 });
+      let screenshotPath: string | undefined;
+      if (screenshotBlob) {
+        screenshotPath = await uploadTicketScreenshot(screenshotBlob);
+      }
+      await createTicket({ type, title, description, context, screenshotPath });
       toast.success("Thanks — that's been sent. We'll follow up if we need more detail.");
       reset();
       setOpen(false);
