@@ -97,7 +97,7 @@ export default function Matches() {
     matches, addMatch, updateMatch, deleteMatch, promoteMatch,
     matchPreferences, updateMatchPreferences,
     careerJourney, updateCareerJourneyPerson,
-    jobs, billing,
+    jobs, billing, isAdmin,
   } = useStore();
   const navigate = useNavigate();
   const toast = useToast();
@@ -315,7 +315,7 @@ export default function Matches() {
   // Hard gate: Job Analysis (Matches) requires a paid plan — billing is null
   // in local-only mode (no Firebase, no billing concept), which stays fully
   // open, same as today. See payment-system-plan.md Phase 2.
-  if (billing && billing.plan === 'free') {
+  if (!isAdmin && billing && billing.plan === 'free') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <div className="max-w-md text-center space-y-4">

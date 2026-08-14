@@ -60,6 +60,11 @@ function withinBurstLimit(uid: string, limit: number): boolean {
  * behavior of this middleware).
  */
 export async function requireWithinAiQuota(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if ((req as any).isAdmin) {
+    next();
+    return;
+  }
+
   const uid = (req as any).uid as string | undefined;
   const app = getAdminApp();
 

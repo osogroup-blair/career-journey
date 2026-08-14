@@ -50,6 +50,11 @@ export function isPaidPlan(plan: PlanId): boolean {
  * auth-adjacent middleware in this app.
  */
 export function requireAnyPaidPlan(req: Request, res: Response, next: NextFunction): void {
+  if ((req as any).isAdmin) {
+    next();
+    return;
+  }
+
   const app = getAdminApp();
   const uid = (req as any).uid as string | undefined;
   if (!app || !uid) {

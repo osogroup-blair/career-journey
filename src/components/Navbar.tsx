@@ -6,8 +6,8 @@ import { generateId } from '../lib/utils';
 import { auth, isFirebaseConfigured } from '../lib/firebase';
 import {
   Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar,
-  LogOut, Sparkles, TrendingUp, Menu, X, MoreHorizontal, ChevronDown, CreditCard,
-  Settings as SettingsIcon
+  LogOut, Sparkles, TrendingUp, Menu, X, ChevronDown, CreditCard,
+  Settings as SettingsIcon, User, FileText
 } from 'lucide-react';
 import { Button, useToast } from './ui';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
@@ -15,39 +15,22 @@ import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
 import { validateCareerJourney } from '../lib/careerJourneyNormalize';
 import { listAdminTickets } from '../lib/adminClient';
 
-type NavItem = {
-  to: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-};
-
-// Primary journey, grouped by phase: shape your Career Journey, then find & pursue jobs with it.
-const JOURNEY_GROUPS: NavItem[][] = [
-  [
-    { to: '/build', label: 'Build', icon: Sparkles },
-    { to: '/edit', label: 'Edit', icon: Pencil },
-    { to: '/strengthen', label: 'Strengthen', icon: TrendingUp },
-  ],
-  [
-    { to: '/matches', label: 'Matches', icon: Radar },
-    { to: '/applications', label: 'Job Tracker', icon: Briefcase },
-  ],
-];
-
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { careerJourney, addJob, setCareerJourney, billing, isAdmin } = useStore();
   const toast = useToast();
 
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [jobsOpen, setJobsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
+  
+  const resumeRef = useRef<HTMLDivElement>(null);
+  const jobsRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [newTicketCount, setNewTicketCount] = useState(0);
 
-  // Lightweight poll rather than a live subscription — a new ticket showing up within a
-  // couple minutes is plenty timely for an admin who isn't staring at this tab, and avoids
-  // holding a permanent Firestore listener open for every admin session.
   useEffect(() => {
     if (!isAdmin) return;
     const check = () => listAdminTickets({ status: 'new' }).then((t) => setNewTicketCount(t.length)).catch(() => {});
@@ -58,16 +41,19 @@ export default function Navbar() {
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+      if (resumeRef.current && !resumeRef.current.contains(e.target as Node)) setResumeOpen(false);
+      if (jobsRef.current && !jobsRef.current.contains(e.target as Node)) setJobsOpen(false);
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
     };
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  // Close mobile menu on route change.
   useEffect(() => {
     setMobileOpen(false);
-    setMoreOpen(false);
+    setResumeOpen(false);
+    setJobsOpen(false);
+    setProfileOpen(false);
   }, [location.pathname]);
 
   const downloadJSON = (data: any, filename: string) => {
@@ -149,14 +135,7 @@ export default function Navbar() {
         ? 'bg-brand-50 text-brand-700'
         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
     }`;
-
-  const renderNavItem = (item: NavItem) => (
-    <Link key={item.to} to={item.to} className={linkClass(item.to)}>
-      <item.icon className="h-4 w-4" />
-      {item.label}
-    </Link>
-  );
-
+    
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/95 backdrop-blur-md shadow-xs">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -169,108 +148,89 @@ export default function Navbar() {
             </div>
             <div className="hidden sm:block">
               <span className="text-lg font-bold tracking-tight text-slate-900">Career Journey</span>
-              <span className="block text-[10px] uppercase font-semibold text-brand-600 tracking-wider">Tailor your resume to any role</span>
             </div>
           </Link>
 
-          {/* Desktop Navigation — grouped by phase of the journey */}
-          <nav className="hidden md:flex items-center gap-1 ml-2">
-            <Link to="/" className={linkClass('/')}>
-              <Compass className="h-4 w-4" />
-              Dashboard
-            </Link>
-
-            {JOURNEY_GROUPS.map((group, i) => (
-              <React.Fragment key={i}>
-                <span className="w-px h-5 bg-slate-200 mx-1" aria-hidden="true" />
-                {group.map(renderNavItem)}
-              </React.Fragment>
-            ))}
-
-            {/* More — secondary/power-user tools, out of the primary flow */}
-            <div className="relative ml-1" ref={moreRef}>
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center gap-2 ml-4">
+            
+            {/* Resume Dropdown */}
+            <div className="relative" ref={resumeRef}>
               <button
-                onClick={() => setMoreOpen((v) => !v)}
+                onClick={() => {
+                  setResumeOpen((v) => !v);
+                  setJobsOpen(false);
+                }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  moreOpen || isActive('/journey')
+                  resumeOpen || isActive('/build') || isActive('/edit') || isActive('/strengthen') || isActive('/journey')
                     ? 'bg-brand-50 text-brand-700'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
-                <MoreHorizontal className="h-4 w-4" />
-                More
-                <ChevronDown className={`h-3 w-3 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+                <FileText className="h-4 w-4" />
+                Resume
+                <ChevronDown className={`h-3 w-3 transition-transform ${resumeOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {moreOpen && (
-                <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50">
-                  <Link
-                    to="/journey"
-                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
+              {resumeOpen && (
+                <div className="absolute left-0 top-full mt-2 w-48 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50">
+                  <Link to="/build" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <Sparkles className="h-4 w-4 text-slate-400" />
+                    Build
+                  </Link>
+                  <Link to="/edit" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <Pencil className="h-4 w-4 text-slate-400" />
+                    Edit
+                  </Link>
+                  <Link to="/strengthen" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <TrendingUp className="h-4 w-4 text-slate-400" />
+                    Strengthen
+                  </Link>
+                  <div className="my-1.5 border-t border-slate-100" />
+                  <Link to="/journey" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                     <Award className="h-4 w-4 text-slate-400" />
                     Advanced Editor
                   </Link>
-
-                  {isAdmin && (
-                    <Link
-                      to="/admin"
-                      className="flex items-center justify-between gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Sparkles className="h-4 w-4 text-slate-400" />
-                        Admin
-                      </span>
-                      {newTicketCount > 0 && (
-                        <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-brand-600 text-[10px] font-bold text-white">
-                          {newTicketCount}
-                        </span>
-                      )}
-                    </Link>
-                  )}
-
-                  {billing && (
-                    <Link
-                      to="/settings"
-                      className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <SettingsIcon className="h-4 w-4 text-slate-400" />
-                      Settings
-                    </Link>
-                  )}
-
-                  <div className="my-1.5 border-t border-slate-100" />
-
-                  <label className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer">
-                    <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-                    <Upload className="h-4 w-4 text-slate-400" />
-                    Import JSON
-                  </label>
-
-                  {careerJourney && (
-                    <button
-                      onClick={handleExportJSON}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 text-left"
-                    >
-                      <Download className="h-4 w-4 text-slate-400" />
-                      Export JSON
-                    </button>
-                  )}
-
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 text-left"
-                  >
-                    <FileDown className="h-4 w-4 text-slate-400" />
-                    Blank Template
-                  </button>
                 </div>
               )}
             </div>
+
+            {/* Jobs Dropdown */}
+            <div className="relative" ref={jobsRef}>
+              <button
+                onClick={() => {
+                  setJobsOpen((v) => !v);
+                  setResumeOpen(false);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  jobsOpen || isActive('/matches') || isActive('/applications')
+                    ? 'bg-brand-50 text-brand-700'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Briefcase className="h-4 w-4" />
+                Jobs
+                <ChevronDown className={`h-3 w-3 transition-transform ${jobsOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {jobsOpen && (
+                <div className="absolute left-0 top-full mt-2 w-48 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50">
+                  <Link to="/matches" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <Radar className="h-4 w-4 text-slate-400" />
+                    Matches
+                  </Link>
+                  <Link to="/applications" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <Briefcase className="h-4 w-4 text-slate-400" />
+                    Job Tracker
+                  </Link>
+                </div>
+              )}
+            </div>
+            
           </nav>
         </div>
 
-        {/* Primary Actions */}
+        {/* Primary Actions & Profile */}
         <div className="flex items-center gap-2 sm:gap-3">
           <Button onClick={createNewJob} size="sm" className="hidden sm:inline-flex bg-brand-600 hover:bg-brand-700 text-white shadow-xs">
             <Plus className="h-4 w-4 mr-1" />
@@ -280,27 +240,72 @@ export default function Navbar() {
             <Plus className="h-4 w-4" />
           </Button>
 
-          {billing && (
-            <Link
-              to="/upgrade"
-              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-              title={billing.plan === 'free' ? 'Upgrade' : 'Manage billing'}
-            >
-              <CreditCard className="h-3.5 w-3.5" />
-              {billing.plan === 'free' ? `${billing.freeAiActionsUsed}/20 free` : 'Billing'}
-            </Link>
-          )}
-
-          {isFirebaseConfigured && auth && (
+          {/* Profile Dropdown */}
+          <div className="relative hidden md:block" ref={profileRef}>
             <button
-              onClick={() => signOut(auth!)}
-              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
-              title="Sign out"
+              onClick={() => {
+                setProfileOpen((v) => !v);
+              }}
+              className="flex items-center justify-center h-9 w-9 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
             >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign Out
+              <User className="h-4 w-4" />
             </button>
-          )}
+
+            {profileOpen && (
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50">
+                {isAdmin && (
+                  <Link to="/admin" className="flex items-center justify-between gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <span className="flex items-center gap-2.5">
+                      <Sparkles className="h-4 w-4 text-slate-400" />
+                      Admin
+                    </span>
+                    {newTicketCount > 0 && (
+                      <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-brand-600 text-[10px] font-bold text-white">
+                        {newTicketCount}
+                      </span>
+                    )}
+                  </Link>
+                )}
+
+                {billing && (
+                  <Link to="/settings" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <SettingsIcon className="h-4 w-4 text-slate-400" />
+                    Settings & Billing
+                  </Link>
+                )}
+
+                {(isAdmin || billing) && <div className="my-1.5 border-t border-slate-100" />}
+
+                <label className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer">
+                  <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+                  <Upload className="h-4 w-4 text-slate-400" />
+                  Import JSON
+                </label>
+
+                {careerJourney && (
+                  <button onClick={handleExportJSON} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 text-left">
+                    <Download className="h-4 w-4 text-slate-400" />
+                    Export JSON
+                  </button>
+                )}
+
+                <button onClick={handleDownloadTemplate} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 text-left">
+                  <FileDown className="h-4 w-4 text-slate-400" />
+                  Blank Template
+                </button>
+
+                {isFirebaseConfigured && auth && (
+                  <>
+                    <div className="my-1.5 border-t border-slate-100" />
+                    <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 text-left">
+                      <LogOut className="h-4 w-4 text-red-400" />
+                      Sign Out
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Mobile menu toggle */}
           <button
@@ -317,23 +322,46 @@ export default function Navbar() {
       {/* Mobile Navigation Panel */}
       {mobileOpen && (
         <nav className="md:hidden border-t border-slate-200 bg-white px-4 py-3 space-y-1 max-h-[calc(100vh-4rem)] overflow-y-auto">
-          <Link to="/" className={linkClass('/') + ' w-full'}>
-            <Compass className="h-4 w-4" />
-            Dashboard
+          <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Resume</div>
+          <Link to="/build" className={linkClass('/build') + ' w-full'}>
+            <Sparkles className="h-4 w-4" /> Build
           </Link>
-          {JOURNEY_GROUPS.flat().map((item) => (
-            <Link key={item.to} to={item.to} className={linkClass(item.to) + ' w-full'}>
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </Link>
-          ))}
+          <Link to="/edit" className={linkClass('/edit') + ' w-full'}>
+            <Pencil className="h-4 w-4" /> Edit
+          </Link>
+          <Link to="/strengthen" className={linkClass('/strengthen') + ' w-full'}>
+            <TrendingUp className="h-4 w-4" /> Strengthen
+          </Link>
+          <Link to="/journey" className={linkClass('/journey') + ' w-full'}>
+            <Award className="h-4 w-4" /> Advanced Editor
+          </Link>
 
           <div className="my-2 border-t border-slate-100" />
 
-          <Link to="/journey" className={linkClass('/journey') + ' w-full'}>
-            <Award className="h-4 w-4" />
-            Advanced Editor
+          <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Jobs</div>
+          <Link to="/matches" className={linkClass('/matches') + ' w-full'}>
+            <Radar className="h-4 w-4" /> Matches
           </Link>
+          <Link to="/applications" className={linkClass('/applications') + ' w-full'}>
+            <Briefcase className="h-4 w-4" /> Job Tracker
+          </Link>
+
+          <div className="my-2 border-t border-slate-100" />
+
+          <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Profile & Settings</div>
+          
+          {isAdmin && (
+            <Link to="/admin" className={linkClass('/admin') + ' w-full justify-between'}>
+              <span className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Admin</span>
+              {newTicketCount > 0 && <span className="px-1.5 py-0.5 rounded-full bg-brand-600 text-[10px] font-bold text-white">{newTicketCount}</span>}
+            </Link>
+          )}
+
+          {billing && (
+            <Link to="/settings" className={linkClass('/settings') + ' w-full'}>
+              <SettingsIcon className="h-4 w-4" /> Settings & Billing
+            </Link>
+          )}
 
           <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 cursor-pointer">
             <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
@@ -353,15 +381,8 @@ export default function Navbar() {
             Blank Template
           </button>
 
-          {billing && (
-            <Link to="/upgrade" className={linkClass('/upgrade') + ' w-full'}>
-              <CreditCard className="h-4 w-4" />
-              {billing.plan === 'free' ? `Upgrade (${billing.freeAiActionsUsed}/20 free)` : 'Billing'}
-            </Link>
-          )}
-
           {isFirebaseConfigured && auth && (
-            <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 text-left">
+            <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 text-left mt-2">
               <LogOut className="h-4 w-4" />
               Sign Out
             </button>
