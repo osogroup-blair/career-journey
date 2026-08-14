@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { JobAnalysis, JobMatch, MatchPreferences } from './types';
 import { BillingState } from './types/billing';
+import { FeatureFlags } from './types/featureFlags';
 import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
 import { dataStore } from './data';
 import { auth } from './lib/firebase';
@@ -40,9 +41,13 @@ interface AppState {
   billing: BillingState | null;
   /** From the `admin` custom claim on the signed-in user's ID token — see server/scripts/setAdmin.ts. False in local-only mode. */
   isAdmin: boolean;
+  /** Active feature flags matrix and kill switches */
+  featureFlags: FeatureFlags | null;
   hydrate: () => Promise<void>;
   /** Re-fetches billing state on demand — call after returning from Stripe Checkout/Portal, since webhooks land async and the store won't otherwise know a plan changed. */
   refreshBilling: () => Promise<void>;
+  /** Re-fetches feature flags on demand */
+  refreshFeatureFlags: () => Promise<void>;
   addJob: (job: JobAnalysis) => void;
   updateJob: (id: string, updates: Partial<JobAnalysis>) => void;
   deleteJob: (id: string) => void;
@@ -120,15 +125,17 @@ export const useStore = create<AppState>((set, get) => {
     activeAiTasks: {},
     billing: null,
     isAdmin: false,
+    featureFlags: null,
 
     hydrate: async () => {
-      const [careerJourney, jobs, matches, matchPreferences, billing, idTokenResult] = await Promise.all([
+      const [careerJourney, jobs, matches, matchPreferences, billing, idTokenResult, featureFlagsRes] = await Promise.all([
         dataStore.getCareerJourney(),
         dataStore.listJobs(),
         dataStore.listMatches(),
         dataStore.getMatchPreferences(),
         dataStore.getBilling(),
         auth?.currentUser?.getIdTokenResult() ?? Promise.resolve(null),
+        fetch('/api/features').then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       const normalizedJobs = Object.fromEntries(
         Object.entries(jobs ?? {}).map(([id, job]) => [id, migrateLegacyJob(job)])
@@ -140,12 +147,25 @@ export const useStore = create<AppState>((set, get) => {
         matchPreferences: { ...DEFAULT_MATCH_PREFERENCES, ...(matchPreferences ?? {}) },
         billing,
         isAdmin: idTokenResult?.claims?.admin === true,
+        featureFlags: featureFlagsRes,
       });
     },
 
     refreshBilling: async () => {
       const billing = await dataStore.getBilling();
       set({ billing });
+    },
+
+    refreshFeatureFlags: async () => {
+      try {
+        const res = await fetch('/api/features');
+        if (res.ok) {
+          const featureFlags = await res.json();
+          set({ featureFlags });
+        }
+      } catch {
+        // Ignore network failure
+      }
     },
 
     addJob: (job) => {

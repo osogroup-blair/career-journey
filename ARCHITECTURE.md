@@ -100,6 +100,7 @@ The canonical Zod schema for the whole profile: `meta`, `person`, `education`, `
 | `/api/export` | `requireFirebaseAuth` |
 | `/api/billing` | `requireFirebaseAuth` |
 | `/api/support` | `requireFirebaseAuth` |
+| `/api/user` | `requireFirebaseAuth` |
 
 All of these no-op in local dev without `FIREBASE_SERVICE_ACCOUNT_JSON` set, **except** `requireFirebaseAuth`, which fails closed (500) if `NODE_ENV === "production"` and Firebase Admin isn't configured. The Stripe webhook route is registered with `express.raw()` *before* the global `express.json()` — required because Stripe signature verification needs the raw body.
 
@@ -109,7 +110,8 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 
 **Billing** — `POST /api/billing/webhook`, `createCheckoutSession`, `createPortalSession`, `byomSettings`, `validateByomKey`.
 **Support** — `POST/GET /api/support/tickets`, `GET/POST /api/support/tickets/:id/messages`.
-**Admin** — `/api/admin/tickets*` (list/get/update/reply/screenshot), `/api/admin/featureFlags` (get/set), `/api/admin/allowedModels` (set), `/api/admin/users` (list + comp toggle), `/api/admin/prompts*` (list/save/restore/test-run).
+**User & Privacy** — `GET /api/user/export-data` (full GDPR data archive), `DELETE /api/user/account` (self-service account purge).
+**Admin** — `/api/admin/tickets*` (list/get/update/reply/screenshot), `/api/admin/featureFlags` (get/set), `/api/admin/allowedModels` (set), `/api/admin/users` (list + plan override + quota reset + comp toggle), `GET /api/admin/users/:uid/detail`, `POST /api/admin/users/:uid/status` (suspend/reactivate), `POST /api/admin/users/:uid/send-reset`, `DELETE /api/admin/users/:uid`, `GET /api/admin/audit-logs`, `/api/admin/prompts*` (list/save/restore/test-run).
 **AI pipeline** — `parse`, `keywords`, `clarifyQuestions`, `fitScore`, `auditGates`, `liteScan` (also individually gated by `requireAnyPaidPlan`), `patchJourney`, `resumeStrategy`, `generateResume`, `coverLetter`, `applicationAssistant`, `generateFormAnswers`, `interviewPrep`, `interviewPrepChat`, `offerGuidance`, `compareOffers`, `buildJourneyFromResume`, `buildJourneyChat`, `refineFromInterviewAnswer`.
 **Sources** — `fetchCompanyJobs` (Greenhouse/Lever board scrape), `fetchJobFromUrl` (structured board parse with generic-HTML fallback).
 **Export** — `resume.docx`, `coverLetter.docx` (streamed via `server/docxBuilder.ts`).
@@ -121,7 +123,7 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 - **`server/promptStore.ts`** (~29KB) — 19 hardcoded default prompt templates, one per pipeline stage. Admin overrides persist as **local JSON files** under `server/promptConfig/{id}.json`, not Firestore — a deliberate dev-mode shortcut per an inline comment ("local JSON file in dev; Firestore once that's live"), meaning admin prompt edits currently don't survive a redeploy to a fresh environment.
 - **`server/knowledge.ts`** — loads `server/knowledge/*.md` once at process startup into `FULL_KNOWLEDGE` (six files, prepended as system prompt to most `/api/ai/*` calls) and `CAREER_JOURNEY_BUILDER_KNOWLEDGE` (one file, used only by the three Builder endpoints). These `.md` files are the job-pipeline AI's own prompt content — not developer docs — and are provider-agnostic already (no hardcoded references to Gemini/OpenAI/Anthropic).
 - **`server/rateLimiter.ts`** — `requireWithinAiQuota`: falls back to a flat in-memory daily cap for unauthenticated/no-admin-app requests; for authenticated BYOM users, layers an in-memory per-minute burst check on top of the Firestore-backed quota transaction in `billing.ts`.
-- **`server/email.ts`** — thin Resend wrapper for ticket notifications, separate from Firebase Auth's built-in mailer (which can only send fixed verification/reset templates). Never throws; no-ops (logs only) if `RESEND_API_KEY` is unset.
+- **`server/email.ts`** — thin Nodemailer wrapper for Gmail SMTP ticket notifications (`SMTP_USER`, `SMTP_PASS`), separate from Firebase Auth's built-in mailer (which can only send fixed verification/reset templates). Never throws; no-ops (logs only) if `SMTP_USER` or `SMTP_PASS` is unset.
 - **`server/docxBuilder.ts`** — builds resume/cover-letter `.docx` binaries with the `docx` package.
 
 ### `server/scripts/`
@@ -133,6 +135,7 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 | `seedAllowedModels.ts` | `seed:allowedModels` | Overwrites `config/allowedModels` with the current BYOM model list |
 | `verifyAiProviders.ts` | `verify:ai` | Smoke-tests the pilot schemas against every provider with a configured key |
 | `pullBacklog.ts` | `backlog:pull` | Exports triaged tickets to gitignored `backlog/*.md` |
+| `cleanupUsers.ts` | `cleanup:users` | Clean up stale test/demo user accounts from Auth and Firestore |
 
 ---
 
@@ -186,10 +189,10 @@ Every admin page's real security boundary is server-side (`requireAdmin` on `/ap
 
 `FeedbackWidget.tsx` (floating, global) → `POST /api/support/tickets` → `MyFeedback.tsx` (user's own thread) / `AdminTickets.tsx` (triage) → `npm run backlog:pull` → `backlog/*.md`.
 
-- Screenshot capture is client-side (`html2canvas-pro`, chosen over vanilla `html2canvas` because the latter can't parse modern CSS color functions), opt-in per submission, base64-encoded and uploaded **server-side** by `createTicket` via the Admin SDK — a deliberate workaround, not the final design, because `storage.rules` (which would allow direct client→Storage upload) has never actually been deployed in this project (no `firebase login`-authenticated CLI has been available). See `admin-support-hardening-plan.md` Phase 1–2 for the intended end state.
+- Screenshot capture is client-side (`html2canvas-pro`), opt-in per submission, uploaded directly to Firebase Storage via `uploadTicketScreenshot` in `src/lib/supportClient.ts`. Users can view their own attached screenshot in `MyFeedback.tsx` via signed URLs (`getTicketScreenshotUrlForUser`).
 - `adminNotes` is documented as internal-only and must never reach the ticket's owner — enforced via a `stripAdminFields` helper applied in the user-facing read paths only. If you touch `server/support.ts`, keep this filter in place; it was a real shipped leak, fixed in the hardening pass.
 - Ticket list queries sort in-memory rather than using Firestore `.orderBy()`, because the required composite indexes were never deployed (same CLI-access constraint as above). Fine at current volume; a real cost at scale.
-- Notifications (new ticket, user reply, admin reply) are fire-and-forget emails via Resend, no-op if unconfigured.
+- Notifications (new ticket, user reply, admin reply) are fire-and-forget emails via Nodemailer (Gmail SMTP), no-op if `SMTP_USER`/`SMTP_PASS` are unconfigured.
 - `pullBacklog.ts` only exports tickets with `triageType` in `{bug, enhancement}` and `status` in `{triaged, backlogged, in_progress}` — a ticket disappears from `backlog/` the moment it's marked `resolved`, regardless of whether a fix has actually shipped.
 
 ---
@@ -231,10 +234,10 @@ Kept here as a single list so nothing gets rediscovered from scratch. See `AGENT
 
 1. **AI provider abstraction is 2/19 endpoints migrated.** BYOM users' calls to everything except `keywords`/`fitScore` silently run on the platform Gemini key. (`server/ai/`, `payment-system-plan.md`)
 2. **Two separate prompt-override mechanisms**: `server/promptStore.ts` (admin, local JSON files) vs. `users/{uid}/promptConfigs` (per-user, Firestore). Not reconciled.
-3. **`storage.rules` and the newest `firestore.rules`/`firestore.indexes.json` additions have never been deployed** to the live Firebase project — no authenticated `firebase login` CLI session exists in this environment. This forces the current server-side screenshot-upload and in-memory-sort workarounds.
+3. **`storage.rules` and the newest `firestore.rules`/`firestore.indexes.json` additions have never been deployed** to the live Firebase project — no authenticated `firebase login` CLI session exists in this environment. Screenshot uploads operate client-side (`uploadTicketScreenshot`), but rules/indexes remain unpushed until a CLI session deploys them.
 4. **Admin prompt overrides live in local JSON files**, not Firestore — won't survive a redeploy to a fresh environment.
 5. **`server/knowledge/project_instructions.md` references `build_resume.js`**, which doesn't exist in this repo (actual resume generation is `server/docxBuilder.ts` + the `generateResume`/`resumeStrategy` AI endpoints). This is prompt content fed to the app's own AI, not developer docs — worth fixing but touches AI behavior, so treat as a deliberate follow-up, not a docs typo.
 6. **`config/allowedModels`'s seeded model list doesn't include the Gemini client's own hardcoded default** (`gemini-3.1-pro-preview`).
-7. **Ticket-submission rate limiting is in-memory**, resets on every server restart (low-stakes abuse guard, not a monetization control — see `admin-support-hardening-plan.md` Phase 6 for the tradeoff discussion).
-8. **No automated test suite exists anywhere in this repo.** `npm run lint` is `tsc --noEmit` only. Every feature to date has been verified by live manual testing against real accounts/Stripe test mode, documented inline in the plan docs.
+7. **Ticket-submission rate limiting is transactionally enforced in Firestore** (`requireWithinDailyTicketLimit` in `server/support.ts`).
+8. **Automated test suite configured with Vitest** (`vitest.config.ts`, `server/__tests__/support.test.ts`). Run via `npm test` or `npx vitest run`.
 9. **`package.json`'s `name` field is still `"react-example"`** and `version` is `"0.0.0"`, both unused placeholders from initial scaffolding.

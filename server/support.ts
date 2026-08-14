@@ -202,9 +202,10 @@ function stripAdminFields(ticket: Ticket): Ticket {
 export async function listTicketsForUser(app: App, uid: string): Promise<Ticket[]> {
   const snap = await ticketsCollection(app)
     .where("uid", "==", uid)
-    .orderBy("createdAt", "desc")
     .get();
-  return snap.docs.map((d) => stripAdminFields(d.data() as Ticket));
+  return snap.docs
+    .map((d) => stripAdminFields(d.data() as Ticket))
+    .sort(byNewestFirst);
 }
 
 async function getTicketOrThrow(app: App, ticketId: string): Promise<Ticket> {
@@ -248,9 +249,10 @@ export async function listAllTickets(
   let query: FirebaseFirestore.Query = ticketsCollection(app);
   if (filter?.status) query = query.where("status", "==", filter.status);
   if (filter?.triageType) query = query.where("triageType", "==", filter.triageType);
-  query = query.orderBy("createdAt", "desc");
   const snap = await query.get();
-  return snap.docs.map((d) => d.data() as Ticket);
+  return snap.docs
+    .map((d) => d.data() as Ticket)
+    .sort(byNewestFirst);
 }
 
 export async function getTicketForAdmin(app: App, ticketId: string): Promise<{ ticket: Ticket; messages: TicketMessage[] }> {

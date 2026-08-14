@@ -11,15 +11,16 @@ right call at the time but should be revisited now.
   opt-in screenshot) → `MyFeedback.tsx` (status/replies) → `AdminTickets.tsx` (triage) →
   `server/scripts/pullBacklog.ts` (`npm run backlog:pull`, exports triaged tickets to
   gitignored `backlog/*.md`). All of it was verified live against the real Firebase project
-  during development, not just type-checked.
-- **This environment has no `firebase login`-authenticated CLI.** That single constraint is
-  the reason for three separate workarounds below (screenshot upload path, Firestore query
-  shape, and the fact that `firestore.rules`'/`storage.rules`' newest additions were never
-  actually deployed). None of them are insecure as shipped — see each phase for why — but
-  they're not the intended long-term design either.
-- One real, confirmed, unfixed bug exists: **`adminNotes` leaks to the ticket owner.** See
-  Phase 0 — this should be the first thing whoever picks this up does, it's small and
-  unambiguous.
+  during development.
+- **Status update (Commit `fd8c4fa`)**: Phases 0, 2, 5, 6, 7, 9, and 10 have been **shipped**:
+  - **Phase 0 (SHIPPED)**: `stripAdminFields` helper implemented in `server/support.ts`.
+  - **Phase 2 (SHIPPED)**: Client-side screenshot upload implemented via `uploadTicketScreenshot` in `src/lib/supportClient.ts`.
+  - **Phase 5 (SHIPPED)**: Users can view their attached screenshot via `getTicketScreenshotUrlForUser` in `MyFeedback.tsx`.
+  - **Phase 6 (SHIPPED)**: Daily ticket rate limits are transactionally persisted in Firestore (`requireWithinDailyTicketLimit`).
+  - **Phase 7 (SHIPPED)**: Screenshots are auto-deleted when tickets are marked resolved/closed/wontfix in `updateTicket`.
+  - **Phase 9 (SHIPPED)**: Vitest test suite introduced (`vitest.config.ts`, `server/__tests__/support.test.ts`).
+  - **Phase 10 (SHIPPED)**: Stale test accounts cleaned up via `server/scripts/cleanupUsers.ts`.
+- Remaining unstarted phases: Phase 1 (Firebase CLI login), Phase 3 (Composite indexes deploy), Phase 4 (Activating live Resend/SMTP notifications), Phase 8 (Backlog workflow refinement).
 
 ## Phase 0 — Fix the `adminNotes` leak (do this first, no decision needed)
 

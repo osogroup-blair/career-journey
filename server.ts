@@ -11,7 +11,8 @@ import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
 import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebaseAdmin";
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
-import { getBillingState, setBillingFields, requireAnyPaidPlan } from "./server/billing";
+import { getBillingState, setBillingFields, requireAnyPaidPlan, requireFeature } from "./server/billing";
+import { getDefaultFeatureMatrix } from "./src/types/featureFlags";
 import {
   createTicket,
   listTicketsForUser,
@@ -31,11 +32,13 @@ import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketP
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
 import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
-import { isByomPlan, AIProviderId } from "./src/types/billing";
+import { isByomPlan, AIProviderId, PlanId, BillingState } from "./src/types/billing";
 import { getFeatureFlags, setFeatureFlags } from "./server/featureFlags";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import type { AllowedModelsConfig } from "./src/types/aiModels";
+import { sendEmail, isEmailConfigured } from "./server/email";
+import { logAdminAction, listAuditLogs } from "./server/auditLog";
 
 /** Distinguishes "your BYOM key is missing/invalid" (actionable, 400) from an actual server error (500). */
 function handleAiRouteError(e: any, res: express.Response) {
@@ -114,6 +117,7 @@ async function startServer() {
   app.use("/api/export", requireFirebaseAuth);
   app.use("/api/billing", requireFirebaseAuth);
   app.use("/api/support", requireFirebaseAuth);
+  app.use("/api/user", requireFirebaseAuth);
 
   app.post("/api/billing/createCheckoutSession", async (req, res) => {
     const adminApp = getAdminApp();
@@ -453,6 +457,26 @@ async function startServer() {
     }
   });
 
+  app.get("/api/features", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.json({
+        features: getDefaultFeatureMatrix(),
+        killSwitches: { matches: false, aiPipeline: false },
+      });
+      return;
+    }
+    try {
+      const flags = await getFeatureFlags(adminApp);
+      res.json({
+        features: flags.features,
+        killSwitches: flags.killSwitches,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/admin/featureFlags", async (req, res) => {
     const adminApp = getAdminApp();
     if (!adminApp) {
@@ -509,8 +533,12 @@ async function startServer() {
           const billing = await getBillingState(adminApp, u.uid);
           return {
             uid: u.uid,
-            email: u.email,
+            email: u.email || null,
+            displayName: u.displayName || null,
+            disabled: u.disabled,
+            isAdmin: u.customClaims?.admin === true,
             createdAt: u.metadata.creationTime,
+            lastSignInTime: u.metadata.lastSignInTime || null,
             plan: billing.plan,
             comped: billing.comped || false,
             subscriptionStatus: billing.subscriptionStatus,
@@ -527,6 +555,229 @@ async function startServer() {
     }
   });
 
+  app.get("/api/admin/users/:uid/detail", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const uid = req.params.uid;
+      const [user, billing, jobsSnap, matchesSnap, ticketsSnap] = await Promise.all([
+        getAuth(adminApp).getUser(uid),
+        getBillingState(adminApp, uid),
+        getFirestore(adminApp).collection("users").doc(uid).collection("jobs").get(),
+        getFirestore(adminApp).collection("users").doc(uid).collection("matches").get(),
+        getFirestore(adminApp).collection("tickets").where("uid", "==", uid).get(),
+      ]);
+
+      res.json({
+        user: {
+          uid: user.uid,
+          email: user.email || null,
+          displayName: user.displayName || null,
+          photoURL: user.photoURL || null,
+          emailVerified: user.emailVerified,
+          disabled: user.disabled,
+          isAdmin: user.customClaims?.admin === true,
+          creationTime: user.metadata.creationTime,
+          lastSignInTime: user.metadata.lastSignInTime || null,
+        },
+        billing,
+        stats: {
+          jobsCount: jobsSnap.size,
+          matchesCount: matchesSnap.size,
+          ticketsCount: ticketsSnap.size,
+        },
+      });
+    } catch (e: any) {
+      console.error("get user detail failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- USER DATA OWNERSHIP & PRIVACY ---
+  app.get("/api/user/export-data", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured or user not authenticated" });
+      return;
+    }
+    try {
+      const db = getFirestore(adminApp);
+      const [userAuth, billing, jobsSnap, matchesSnap, ticketsSnap] = await Promise.all([
+        getAuth(adminApp).getUser(uid).catch(() => null),
+        getBillingState(adminApp, uid),
+        db.collection("users").doc(uid).collection("jobs").get().catch(() => ({ docs: [] as any[] })),
+        db.collection("users").doc(uid).collection("matches").get().catch(() => ({ docs: [] as any[] })),
+        db.collection("tickets").where("uid", "==", uid).get().catch(() => ({ docs: [] as any[] })),
+      ]);
+
+      res.json({
+        exportedAt: new Date().toISOString(),
+        user: userAuth
+          ? {
+              uid: userAuth.uid,
+              email: userAuth.email,
+              displayName: userAuth.displayName,
+              photoURL: userAuth.photoURL,
+              emailVerified: userAuth.emailVerified,
+              creationTime: userAuth.metadata.creationTime,
+            }
+          : { uid },
+        billing,
+        jobs: jobsSnap.docs.map((d) => d.data()),
+        matches: matchesSnap.docs.map((d) => d.data()),
+        tickets: ticketsSnap.docs.map((d) => d.data()),
+      });
+    } catch (e: any) {
+      console.error("export user data failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/user/account", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured or user not authenticated" });
+      return;
+    }
+    try {
+      const db = getFirestore(adminApp);
+
+      // Clean up jobs & matches subcollections
+      const [jobsSnap, matchesSnap] = await Promise.all([
+        db.collection("users").doc(uid).collection("jobs").get().catch(() => ({ docs: [] as any[] })),
+        db.collection("users").doc(uid).collection("matches").get().catch(() => ({ docs: [] as any[] })),
+      ]);
+
+      const batch = db.batch();
+      jobsSnap.docs.forEach((d) => batch.delete(d.ref));
+      matchesSnap.docs.forEach((d) => batch.delete(d.ref));
+      batch.delete(db.collection("users").doc(uid).collection("meta").doc("billing"));
+      batch.delete(db.collection("users").doc(uid));
+      await batch.commit();
+
+      // Delete user from Firebase Auth
+      await getAuth(adminApp).deleteUser(uid);
+
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("delete user account failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/admin/audit-logs", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const logs = await listAuditLogs(adminApp, 100);
+      res.json(logs);
+    } catch (e: any) {
+      console.error("list audit logs failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:uid/status", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const { disabled } = req.body as { disabled: boolean };
+      await getAuth(adminApp).updateUser(req.params.uid, { disabled: Boolean(disabled) });
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: req.params.uid,
+        action: "set_status",
+        details: { disabled: Boolean(disabled) },
+      });
+
+      res.json({ ok: true, disabled: Boolean(disabled) });
+    } catch (e: any) {
+      console.error("update user disabled status failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:uid/send-reset", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const user = await getAuth(adminApp).getUser(req.params.uid);
+      if (!user.email) {
+        res.status(400).json({ error: "User does not have an email address" });
+        return;
+      }
+      const resetLink = await getAuth(adminApp).generatePasswordResetLink(user.email);
+      if (isEmailConfigured) {
+        await sendEmail({
+          to: user.email,
+          subject: "Password Reset Request - Career Journey",
+          html: `<p>Hello,</p><p>An administrator has generated a password reset link for your account:</p><p><a href="${resetLink}">Click here to reset your password</a></p><p>If you did not request this, you can ignore this email.</p>`,
+        });
+      }
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: req.params.uid,
+        targetEmail: user.email,
+        action: "send_reset",
+        details: { email: user.email },
+      });
+
+      res.json({ ok: true, resetLink });
+    } catch (e: any) {
+      console.error("generate password reset link failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:uid", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const uid = req.params.uid;
+      // Delete user from Firebase Auth
+      await getAuth(adminApp).deleteUser(uid);
+
+      // Clean up user documents in Firestore
+      const db = getFirestore(adminApp);
+      await db.collection("users").doc(uid).delete();
+      await db.collection("users").doc(uid).collection("meta").doc("billing").delete();
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: uid,
+        action: "delete_user",
+        details: { deletedAt: new Date().toISOString() },
+      });
+
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("delete user failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/admin/users/:uid/comp", async (req, res) => {
     const adminApp = getAdminApp();
     if (!adminApp) {
@@ -534,11 +785,141 @@ async function startServer() {
       return;
     }
     try {
+      const actorUid = (req as any).uid || "admin";
       const { comped } = req.body as { comped: boolean };
       await setBillingFields(adminApp, req.params.uid, { comped });
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: req.params.uid,
+        action: "set_comp",
+        details: { comped },
+      });
+
       res.json({ ok: true });
     } catch (e: any) {
       console.error("comp user failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:uid/plan", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const { plan } = req.body as { plan: PlanId };
+      const validPlans: PlanId[] = ["free", "pro_monthly", "byom_monthly", "byom_yearly"];
+      if (!validPlans.includes(plan)) {
+        res.status(400).json({ error: `Invalid plan. Must be one of: ${validPlans.join(", ")}` });
+        return;
+      }
+      await setBillingFields(adminApp, req.params.uid, { plan });
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: req.params.uid,
+        action: "update_plan",
+        details: { plan },
+      });
+
+      res.json({ ok: true, plan });
+    } catch (e: any) {
+      console.error("set user plan failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:uid/reset-quota", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const { quotaType } = req.body as { quotaType?: "free" | "pro_monthly" | "all" };
+      const targetType = quotaType || "all";
+      const updates: Partial<BillingState> = {};
+
+      if (targetType === "free" || targetType === "all") {
+        updates.freeAiActionsUsed = 0;
+      }
+      if (targetType === "pro_monthly" || targetType === "all") {
+        updates.proMonthlyAiActionsUsed = 0;
+        updates.proMonthlyPeriodStart = new Date().toISOString();
+      }
+      if (targetType === "all") {
+        updates.byomDailyActionsUsed = 0;
+      }
+
+      await setBillingFields(adminApp, req.params.uid, updates);
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: req.params.uid,
+        action: "reset_quota",
+        details: { quotaType: targetType, updates },
+      });
+
+      res.json({ ok: true, updates });
+    } catch (e: any) {
+      console.error("reset user quota failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/users/:uid/admin-role", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const targetUid = req.params.uid;
+      const { makeAdmin } = req.body as { makeAdmin: boolean };
+
+      if (typeof makeAdmin !== "boolean") {
+        res.status(400).json({ error: "makeAdmin must be a boolean" });
+        return;
+      }
+
+      const auth = getAuth(adminApp);
+      const targetUser = await auth.getUser(targetUid);
+
+      // Safeguard against revoking own admin if sole admin
+      if (!makeAdmin && targetUid === actorUid) {
+        const allUsers = await auth.listUsers(1000);
+        const adminCount = allUsers.users.filter((u) => u.customClaims?.admin === true).length;
+        if (adminCount <= 1) {
+          res.status(400).json({
+            error: "Cannot revoke your own admin access when you are the only administrator on the system.",
+          });
+          return;
+        }
+      }
+
+      const currentClaims = targetUser.customClaims || {};
+      await auth.setCustomUserClaims(targetUid, {
+        ...currentClaims,
+        admin: makeAdmin ? true : null,
+      });
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid,
+        targetEmail: targetUser.email,
+        action: makeAdmin ? "grant_admin" : "revoke_admin",
+        details: { makeAdmin, previousAdminState: currentClaims.admin === true },
+      });
+
+      res.json({ ok: true, isAdmin: makeAdmin });
+    } catch (e: any) {
+      console.error("update admin role failed", e);
       res.status(500).json({ error: e.message });
     }
   });
@@ -1196,7 +1577,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these â€
     return { updatedCareerJourney: cj, summary };
   }
 
-  app.post("/api/ai/patchJourney", async (req, res) => {
+  app.post("/api/ai/patchJourney", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { careerJourney, contextEntries } = req.body;
       const nextIds = computeNextIds(careerJourney);
@@ -1242,7 +1623,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
     }
   });
 
-  app.post("/api/ai/resumeStrategy", async (req, res) => {
+  app.post("/api/ai/resumeStrategy", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, remediation } = req.body as { parse: any; careerJourney: any; contextEntries: any; remediation?: string[] };
       const response = await ai.models.generateContent({
@@ -1320,7 +1701,7 @@ Output a detailed strategy.`,
   // keyword evidence table now does this check once, before resume generation,
   // instead of re-scoring the drafted strategy after the fact.
 
-  app.post("/api/ai/generateResume", async (req, res) => {
+  app.post("/api/ai/generateResume", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { careerJourney, strategy, parse, remediation } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[] };
       const response = await ai.models.generateContent({
@@ -1410,7 +1791,7 @@ ${JSON.stringify(parse, null, 2)}`,
     }
   });
 
-  app.post("/api/ai/coverLetter", async (req, res) => {
+  app.post("/api/ai/coverLetter", requireFeature("cover_letter"), async (req, res) => {
     try {
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
       const response = await ai.models.generateContent({
@@ -1536,7 +1917,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
     }
   });
 
-  app.post("/api/ai/interviewPrep", async (req, res) => {
+  app.post("/api/ai/interviewPrep", requireFeature("interview_prep"), async (req, res) => {
     try {
       const { round, parse, fitAnalysis, careerJourney } = req.body as { round: any; parse: any; fitAnalysis: any; careerJourney: any };
       const response = await ai.models.generateContent({
@@ -1580,7 +1961,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
     }
   });
 
-  app.post("/api/ai/interviewPrepChat", async (req, res) => {
+  app.post("/api/ai/interviewPrepChat", requireFeature("interview_prep"), async (req, res) => {
     try {
       const { transcript, round, parse, careerJourney } = req.body as {
         transcript: { role: "user" | "assistant"; content: string }[];
@@ -1612,7 +1993,7 @@ Candidate's latest message: "${latest}"`,
     }
   });
 
-  app.post("/api/ai/offerGuidance", async (req, res) => {
+  app.post("/api/ai/offerGuidance", requireFeature("offer_comparison"), async (req, res) => {
     try {
       const { offer, parse, careerJourney } = req.body as { offer: any; parse: any; careerJourney: any };
       const response = await ai.models.generateContent({
@@ -1647,7 +2028,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
     }
   });
 
-  app.post("/api/ai/compareOffers", async (req, res) => {
+  app.post("/api/ai/compareOffers", requireFeature("offer_comparison"), async (req, res) => {
     try {
       const { offers, careerJourney } = req.body as { offers: { jobId: string; companyName: string; roleTitle: string; offer: any }[]; careerJourney: any };
       const response = await ai.models.generateContent({
@@ -1786,7 +2167,7 @@ ${JSON.stringify(careerJourney?.person?.positioning || {}, null, 2)}`,
     },
   };
 
-  app.post("/api/ai/buildJourneyFromResume", async (req, res) => {
+  app.post("/api/ai/buildJourneyFromResume", requireFeature("strengthen_journey"), async (req, res) => {
     try {
       const { resumeText } = req.body as { resumeText: string };
       const nextIds = computeNextIds({});
@@ -1821,7 +2202,7 @@ ${resumeText}`,
     }
   });
 
-  app.post("/api/ai/buildJourneyChat", async (req, res) => {
+  app.post("/api/ai/buildJourneyChat", requireFeature("strengthen_journey"), async (req, res) => {
     try {
       const { transcript, currentDraft } = req.body as {
         transcript: { role: "user" | "assistant"; content: string }[];
@@ -1866,7 +2247,7 @@ ${transcriptText}`,
     }
   });
 
-  app.post("/api/ai/refineFromInterviewAnswer", async (req, res) => {
+  app.post("/api/ai/refineFromInterviewAnswer", requireFeature("strengthen_journey"), async (req, res) => {
     try {
       const { entityType, current, question, answer } = req.body as {
         entityType: "achievement" | "skill" | "role";

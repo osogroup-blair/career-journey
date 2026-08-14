@@ -27,6 +27,7 @@ import OfferStage from './pages/OfferStage';
 import CompareOffers from './pages/CompareOffers';
 import AdminPrompts from './pages/AdminPrompts';
 import CareerJourney from './pages/CareerJourney';
+import Profile from './pages/Profile';
 import Upgrade from './pages/Upgrade';
 import Settings from './pages/Settings';
 import MyFeedback from './pages/MyFeedback';
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="/build" element={<CareerJourneyBuilder />} />
             <Route path="/strengthen" element={<StrengthenJourney />} />
             <Route path="/journey" element={<CareerJourney />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/matches" element={<Matches />} />
             <Route path="/migrate" element={<Migrate />} />
             <Route path="/applications" element={<JobTracker />} />

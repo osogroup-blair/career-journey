@@ -253,6 +253,11 @@ export default function Navbar() {
 
             {profileOpen && (
               <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1.5 z-50">
+                <Link to="/profile" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  <User className="h-4 w-4 text-slate-400" />
+                  My Profile
+                </Link>
+
                 {isAdmin && (
                   <Link to="/admin" className="flex items-center justify-between gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                     <span className="flex items-center gap-2.5">
@@ -350,6 +355,10 @@ export default function Navbar() {
 
           <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Profile & Settings</div>
           
+          <Link to="/profile" className={linkClass('/profile') + ' w-full'}>
+            <User className="h-4 w-4" /> My Profile
+          </Link>
+
           {isAdmin && (
             <Link to="/admin" className={linkClass('/admin') + ' w-full justify-between'}>
               <span className="flex items-center gap-2"><Sparkles className="h-4 w-4" /> Admin</span>

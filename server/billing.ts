@@ -2,8 +2,10 @@ import type { App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import type { Request, Response, NextFunction } from "express";
 import { getAdminApp } from "./firebaseAdmin";
-import { getFeatureFlags } from "./featureFlags";
+import { getFeatureFlags, isFeatureEnabled } from "./featureFlags";
 import type { BillingState, PlanId } from "../src/types/billing";
+import type { FeatureKey } from "../src/types/featureFlags";
+import { FEATURE_METADATA } from "../src/types/featureFlags";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -41,44 +43,74 @@ export function isPaidPlan(plan: PlanId): boolean {
 }
 
 /**
- * Hard gate for Job Analysis/Matches endpoints — Free accounts get 403'd
- * outright regardless of remaining quota, unlike the soft quota gate in
- * rateLimiter.ts which the journey-building/per-job-pipeline endpoints use.
- * Comped accounts (Phase 5 admin override) and paid plans both pass. Also
- * enforces the `matches` kill switch from config/featureFlags. No-op when
- * Firebase Admin isn't configured (local dev), matching every other
- * auth-adjacent middleware in this app.
+ * Checks whether a feature is permitted for the current user based on:
+ * 1. Emergency kill switch state (aiPipeline or feature-specific)
+ * 2. Admin & comped privileges (automatic full feature access)
+ * 3. Subscription plan vs. the Feature Matrix in config/featureFlags
  */
-export function requireAnyPaidPlan(req: Request, res: Response, next: NextFunction): void {
-  if ((req as any).isAdmin) {
-    next();
-    return;
-  }
+export function requireFeature(feature: FeatureKey) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const app = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    const isAdmin = (req as any).isAdmin === true;
 
-  const app = getAdminApp();
-  const uid = (req as any).uid as string | undefined;
-  if (!app || !uid) {
-    next();
-    return;
-  }
-  Promise.all([getBillingState(app, uid), getFeatureFlags(app)])
-    .then(([billing, flags]) => {
-      if (flags.killSwitches.matches) {
-        res.status(503).json({ error: "Job Analysis is temporarily disabled — try again shortly." });
+    if (!app) {
+      // Local development without Firebase Admin
+      next();
+      return;
+    }
+
+    try {
+      const flags = await getFeatureFlags(app);
+
+      // Emergency kill switch applies to everyone including admins
+      if (flags.killSwitches.aiPipeline || (feature === "job_matches" && flags.killSwitches.matches)) {
+        res.status(503).json({
+          error: `${FEATURE_METADATA[feature]?.label || "This feature"} is temporarily disabled — try again shortly.`,
+        });
         return;
       }
-      if (billing.comped || isPaidPlan(billing.plan)) {
+
+      if (isAdmin) {
         next();
         return;
       }
-      res.status(403).json({
-        error: "Job Analysis (Matches) requires a paid plan — upgrade to unlock automated job discovery and triage.",
+
+      if (!uid) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      const billing = await getBillingState(app, uid);
+      const enabled = isFeatureEnabled(flags, feature, {
+        plan: billing.plan,
+        isAdmin: false,
+        comped: billing.comped,
       });
-    })
-    .catch((e) => {
-      console.error("requireAnyPaidPlan: billing lookup failed", e);
-      res.status(500).json({ error: "Could not verify your plan — try again." });
-    });
+
+      if (!enabled) {
+        res.status(403).json({
+          error: `${FEATURE_METADATA[feature]?.label || "This feature"} is not enabled for your plan — upgrade to unlock.`,
+          feature,
+          currentPlan: billing.plan,
+        });
+        return;
+      }
+
+      next();
+    } catch (e) {
+      console.error(`requireFeature(${feature}): check failed`, e);
+      res.status(500).json({ error: "Could not verify feature permissions — try again." });
+    }
+  };
+}
+
+/**
+ * Hard gate for Job Analysis/Matches endpoints — delegating to requireFeature("job_matches")
+ * for backwards compatibility.
+ */
+export function requireAnyPaidPlan(req: Request, res: Response, next: NextFunction): void {
+  requireFeature("job_matches")(req, res, next);
 }
 
 /**
@@ -98,15 +130,6 @@ type QuotaResult = { allowed: true } | { allowed: false; reason: string };
  * one unit if allowed, in a single Firestore transaction so a blocked call
  * never consumes quota and concurrent requests can't race past the limit.
  * Comped accounts always pass without consuming anything.
- *
- * Free: lifetime cap (config/featureFlags.freeLifetimeLimit), never resets.
- * Pro Monthly: per-period cap (proMonthlyLimit), resets each billing period
- * (approximated by calendar month until real Stripe period boundaries are
- * wired into subscriptionCurrentPeriodEnd for this purpose).
- * BYOM tiers: no monetization cap — just a daily abuse-guard counter
- * (byomDailyLimit). The companion per-minute burst guard lives in
- * rateLimiter.ts as an in-memory check, since a Firestore transaction per
- * request is too slow/costly to police a sub-minute window.
  */
 export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<QuotaResult> {
   const [flags, db] = [await getFeatureFlags(app), getFirestore(app)];

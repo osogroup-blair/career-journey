@@ -170,7 +170,12 @@ function MyFeedbackInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    listMyTickets().then(setTickets).catch((e) => toast.error(e.message));
+    listMyTickets()
+      .then(setTickets)
+      .catch((e) => {
+        toast.error(e.message);
+        setTickets([]);
+      });
   }, []);
 
   if (selectedId) {
