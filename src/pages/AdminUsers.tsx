@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import RequireAdmin from '../components/RequireAdmin';
 import { listAdminUsers, setUserComped, AdminUserRow } from '../lib/adminClient';
 import { Badge, Button, useToast } from '../components/ui';
 import { Loader2, Users } from 'lucide-react';
 
-function AdminUsersInner() {
+export default function AdminUsers() {
   const toast = useToast();
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
   const [busyUid, setBusyUid] = useState<string | null>(null);
@@ -72,8 +71,4 @@ function AdminUsersInner() {
       </div>
     </div>
   );
-}
-
-export default function AdminUsers() {
-  return <RequireAdmin><AdminUsersInner /></RequireAdmin>;
 }

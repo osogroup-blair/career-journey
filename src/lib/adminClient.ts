@@ -1,5 +1,6 @@
 import { authHeaders } from './aiClient';
 import { AllowedModelsConfig } from '../types/aiModels';
+import { Ticket, TicketMessage, TicketStatus, TicketTriageType } from '../types/support';
 
 async function errorMessage(res: Response): Promise<string> {
   const text = await res.text();
@@ -54,3 +55,26 @@ export const saveAllowedModels = (config: AllowedModelsConfig): Promise<void> =>
 
 export const listAdminUsers = (): Promise<AdminUserRow[]> => adminGet('/api/admin/users');
 export const setUserComped = (uid: string, comped: boolean): Promise<void> => adminPost(`/api/admin/users/${uid}/comp`, { comped });
+
+export const listAdminTickets = (filter?: { status?: TicketStatus; triageType?: TicketTriageType }): Promise<Ticket[]> => {
+  const params = new URLSearchParams();
+  if (filter?.status) params.set('status', filter.status);
+  if (filter?.triageType) params.set('triageType', filter.triageType);
+  const qs = params.toString();
+  return adminGet(`/api/admin/tickets${qs ? `?${qs}` : ''}`);
+};
+
+export const getAdminTicket = (id: string): Promise<{ ticket: Ticket; messages: TicketMessage[] }> =>
+  adminGet(`/api/admin/tickets/${id}`);
+
+export const updateAdminTicket = (
+  id: string,
+  updates: Partial<Pick<Ticket, 'status' | 'triageType' | 'priority' | 'adminNotes'>>
+): Promise<Ticket> => adminPost(`/api/admin/tickets/${id}`, updates);
+
+export const addAdminTicketMessage = (id: string, body: string): Promise<TicketMessage> =>
+  adminPost(`/api/admin/tickets/${id}/messages`, { body });
+
+/** Short-lived (5 min) signed URL — fetch fresh right before displaying, don't cache it. */
+export const getAdminTicketScreenshotUrl = (id: string): Promise<{ url: string }> =>
+  adminGet(`/api/admin/tickets/${id}/screenshot`);

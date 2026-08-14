@@ -11,7 +11,13 @@ export function getAdminApp(): App | null {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return null;
   try {
     const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    adminApp = initializeApp({ credential: cert(credentials) });
+    adminApp = initializeApp({
+      credential: cert(credentials),
+      // Needed for getStorage(app).bucket() (server/support.ts's screenshot signed-URL lookup,
+      // admin-support-feedback-plan.md Phase 7) to resolve a default bucket without a name
+      // passed at every call site. Reuses the same var the client SDK config already uses.
+      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+    });
     return adminApp;
   } catch (e) {
     console.error("Failed to initialize Firebase Admin SDK — check FIREBASE_SERVICE_ACCOUNT_JSON", e);

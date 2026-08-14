@@ -12,6 +12,21 @@ import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebas
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
 import { getBillingState, setBillingFields, requireAnyPaidPlan } from "./server/billing";
+import {
+  createTicket,
+  listTicketsForUser,
+  getTicketForUser,
+  addUserMessage,
+  listAllTickets,
+  getTicketForAdmin,
+  updateTicket,
+  addAdminMessage,
+  getTicketScreenshotUrl,
+  TicketRateLimitError,
+  TicketNotFoundError,
+  TicketAccessError,
+} from "./server/support";
+import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketPriority } from "./src/types/support";
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
 import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
@@ -97,6 +112,7 @@ async function startServer() {
   app.use("/api/admin", requireAdmin);
   app.use("/api/export", requireFirebaseAuth);
   app.use("/api/billing", requireFirebaseAuth);
+  app.use("/api/support", requireFirebaseAuth);
 
   app.post("/api/billing/createCheckoutSession", async (req, res) => {
     const adminApp = getAdminApp();
@@ -197,6 +213,217 @@ async function startServer() {
       // a server error. Each provider SDK's error message is usually already
       // actionable ("invalid API key", "insufficient quota", etc).
       res.json({ valid: false, error: e.message || "Key validation failed" });
+    }
+  });
+
+  // Support tickets (admin-support-feedback-plan.md Phase 1). uid/email come from the
+  // verified ID token (requireFirebaseAuth), never the request body — same trust
+  // boundary as every other authenticated route here.
+  app.post("/api/support/tickets", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { type, title, description, context, screenshotBase64 } = req.body as {
+        type: TicketType;
+        title: string;
+        description: string;
+        context: Omit<TicketContext, "timestamp">;
+        screenshotBase64?: string;
+      };
+      if (!title?.trim() || !description?.trim()) {
+        res.status(400).json({ error: "title and description are required" });
+        return;
+      }
+      const email = (await getAuth(adminApp).getUser(uid)).email || null;
+      const ticket = await createTicket(adminApp, uid, email, { type, title, description, context, screenshotBase64 });
+      res.json(ticket);
+    } catch (e: any) {
+      if (e instanceof TicketRateLimitError) {
+        res.status(429).json({ error: e.message });
+        return;
+      }
+      console.error("createTicket failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/support/tickets", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      res.json(await listTicketsForUser(adminApp, uid));
+    } catch (e: any) {
+      console.error("listTicketsForUser failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/support/tickets/:id/messages", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      res.json(await getTicketForUser(adminApp, uid, req.params.id));
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      if (e instanceof TicketAccessError) {
+        res.status(403).json({ error: e.message });
+        return;
+      }
+      console.error("getTicketForUser failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/support/tickets/:id/messages", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { body } = req.body as { body: string };
+      if (!body?.trim()) {
+        res.status(400).json({ error: "body is required" });
+        return;
+      }
+      const message = await addUserMessage(adminApp, uid, req.params.id, body);
+      res.json(message);
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      if (e instanceof TicketAccessError) {
+        res.status(403).json({ error: e.message });
+        return;
+      }
+      console.error("addUserMessage failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Admin ticket inbox (admin-support-feedback-plan.md Phase 3) — full CRUD against the
+  // same tickets collection /api/support/* writes, gated by the /api/admin middleware
+  // group registered above (requireFirebaseAuth + requireAdmin).
+  app.get("/api/admin/tickets", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { status, triageType } = req.query as { status?: TicketStatus; triageType?: TicketTriageType };
+      res.json(await listAllTickets(adminApp, { status, triageType }));
+    } catch (e: any) {
+      console.error("listAllTickets failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/admin/tickets/:id", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      res.json(await getTicketForAdmin(adminApp, req.params.id));
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      console.error("getTicketForAdmin failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Short-lived signed URL (5 min) rather than a stored public one — the bucket denies direct
+  // client reads entirely (storage.rules), this is the only way to view a screenshot at all.
+  app.get("/api/admin/tickets/:id/screenshot", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const url = await getTicketScreenshotUrl(adminApp, req.params.id);
+      if (!url) {
+        res.status(404).json({ error: "This ticket has no screenshot" });
+        return;
+      }
+      res.json({ url });
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      console.error("getTicketScreenshotUrl failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/tickets/:id", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { status, triageType, priority, adminNotes } = req.body as {
+        status?: TicketStatus;
+        triageType?: TicketTriageType;
+        priority?: TicketPriority;
+        adminNotes?: string;
+      };
+      res.json(await updateTicket(adminApp, req.params.id, { status, triageType, priority, adminNotes }));
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      console.error("updateTicket failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/tickets/:id/messages", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const { body } = req.body as { body: string };
+      if (!body?.trim()) {
+        res.status(400).json({ error: "body is required" });
+        return;
+      }
+      res.json(await addAdminMessage(adminApp, uid, req.params.id, body));
+    } catch (e: any) {
+      if (e instanceof TicketNotFoundError) {
+        res.status(404).json({ error: e.message });
+        return;
+      }
+      console.error("addAdminMessage failed", e);
+      res.status(500).json({ error: e.message });
     }
   });
 

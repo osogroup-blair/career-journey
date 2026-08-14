@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, LoadingButton, Card, CardHeader, CardTitle, CardContent, Textarea, Badge, useToast } from '../components/ui';
 import { getAdminPrompts, saveAdminPrompt, restoreAdminPromptDefault, testRunAdminPrompt, AdminPromptConfig } from '../lib/aiClient';
-import RequireAdmin from '../components/RequireAdmin';
 import { PlayCircle, RotateCcw, Save, Sparkles } from 'lucide-react';
 
-function AdminPromptsInner() {
+export default function AdminPrompts() {
   const [prompts, setPrompts] = useState<Record<string, AdminPromptConfig>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -143,8 +142,4 @@ function AdminPromptsInner() {
       ))}
     </div>
   );
-}
-
-export default function AdminPrompts() {
-  return <RequireAdmin><AdminPromptsInner /></RequireAdmin>;
 }

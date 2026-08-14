@@ -6,7 +6,7 @@ import { AIProviderId, isByomPlan } from '../types/billing';
 import { getStoredByomKey, setStoredByomKey, clearStoredByomKey, maskKey, StoredByomKey } from '../lib/byomKeyStorage';
 import { validateByomKey, saveByomSettings } from '../lib/billingClient';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, Label, useToast } from '../components/ui';
-import { KeyRound, Loader2, CheckCircle2, Trash2 } from 'lucide-react';
+import { KeyRound, Loader2, CheckCircle2, Trash2, MessageSquare, ChevronRight } from 'lucide-react';
 
 const PROVIDER_LABEL: Record<AIProviderId, string> = {
   gemini: 'Gemini',
@@ -80,6 +80,17 @@ export default function Settings() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+
+      <a
+        href="#/feedback"
+        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3.5 hover:border-brand-300 hover:bg-brand-50/40 transition-colors"
+      >
+        <span className="flex items-center gap-2.5 text-sm font-medium text-slate-900">
+          <MessageSquare className="w-4 h-4 text-brand-500" />
+          My Feedback
+        </span>
+        <ChevronRight className="w-4 h-4 text-slate-400" />
+      </a>
 
       <Card>
         <CardHeader>

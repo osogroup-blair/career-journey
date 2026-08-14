@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Ticket screenshot attachments (admin-support-feedback-plan.md Phase 7). Uid-prefixed paths,
+// owner-write / server-only-read intent — see below for why that's currently enforced in code,
+// not by this file.
+//
+// NOT CURRENTLY DEPLOYED: this repo has no `firebase login`-authenticated CLI available, so
+// there's no way to run `firebase deploy --only storage` and actually apply these rules to the
+// live bucket. Because of that, uploads currently go through the createTicket server endpoint
+// (server/support.ts) via the Admin SDK — which bypasses Storage rules entirely — instead of the
+// client uploading straight to Storage. This file documents the intended rules for whenever a
+// deploy does happen (at which point createTicket could switch to validating a client-uploaded
+// path instead of receiving the raw bytes, the same pattern the BYOM key validation route uses).
+//
+// Read is meant to be server-only (Admin SDK) even once deployed — never a public bucket, and
+// not even the uploading user reads their own file back directly. Admins view screenshots via a
+// signed URL the server generates on demand (GET /api/admin/tickets/:id/screenshot).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /ticketScreenshots/{uid}/{fileName} {
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow read: if false;
+    }
+  }
+}

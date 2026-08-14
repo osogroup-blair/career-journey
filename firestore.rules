@@ -55,5 +55,22 @@ service cloud.firestore {
     match /stripeEvents/{eventId} {
       allow read, write: if false;
     }
+
+    // Support tickets (admin-support-feedback-plan.md Phase 0). Top-level, not nested
+    // under users/{uid}/..., because admin needs to query across every account — same
+    // reasoning as config/ and stripeEvents/ above. All writes (create, triage,
+    // replies) go through server/support.ts via the Admin SDK, which bypasses these
+    // rules entirely — that's how admin's cross-account view and the owner's own
+    // create/reply actions both work despite write being false here. The owner can
+    // only ever read their own tickets/messages, never another account's.
+    match /tickets/{ticketId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow write: if false;
+      match /messages/{messageId} {
+        allow read: if request.auth != null
+          && get(/databases/$(database)/documents/tickets/$(ticketId)).data.uid == request.auth.uid;
+        allow write: if false;
+      }
+    }
   }
 }

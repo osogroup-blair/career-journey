@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import RequireAdmin from '../components/RequireAdmin';
 import { getFeatureFlags, saveFeatureFlags, FeatureFlags } from '../lib/adminClient';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, Label, useToast } from '../components/ui';
 import { Loader2, Sliders } from 'lucide-react';
 
-function AdminFlagsInner() {
+export default function AdminFlags() {
   const toast = useToast();
   const [flags, setFlags] = useState<FeatureFlags | null>(null);
   const [saving, setSaving] = useState(false);
@@ -87,8 +86,4 @@ function AdminFlagsInner() {
       </Button>
     </div>
   );
-}
-
-export default function AdminFlags() {
-  return <RequireAdmin><AdminFlagsInner /></RequireAdmin>;
 }

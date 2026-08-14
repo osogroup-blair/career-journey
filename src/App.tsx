@@ -7,6 +7,7 @@ import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Navbar from './components/Navbar';
 import { ToastProvider } from './components/ui';
 import AiActivityIndicator from './components/AiActivityIndicator';
+import FeedbackWidget from './components/FeedbackWidget';
 import Dashboard from './pages/Dashboard';
 import EditJourney from './pages/EditJourney';
 import CareerJourneyBuilder from './pages/CareerJourneyBuilder';
@@ -15,6 +16,7 @@ import JobTracker from './pages/JobTracker';
 import Matches from './pages/Matches';
 import Migrate from './pages/Migrate';
 import JobLayout from './layouts/JobLayout';
+import AdminLayout from './layouts/AdminLayout';
 import IntakeStage from './pages/IntakeStage';
 import ParsedStage from './pages/ParsedStage';
 import RatingStage from './pages/RatingStage';
@@ -27,9 +29,11 @@ import AdminPrompts from './pages/AdminPrompts';
 import CareerJourney from './pages/CareerJourney';
 import Upgrade from './pages/Upgrade';
 import Settings from './pages/Settings';
+import MyFeedback from './pages/MyFeedback';
 import AdminFlags from './pages/AdminFlags';
 import AdminModels from './pages/AdminModels';
 import AdminUsers from './pages/AdminUsers';
+import AdminTickets from './pages/AdminTickets';
 import Terms from './pages/legal/Terms';
 import Privacy from './pages/legal/Privacy';
 import Refunds from './pages/legal/Refunds';
@@ -42,6 +46,7 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
         <Navbar />
         <AiActivityIndicator />
+        <FeedbackWidget />
         <div className="flex-1">
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -53,12 +58,17 @@ export default function App() {
             <Route path="/migrate" element={<Migrate />} />
             <Route path="/applications" element={<JobTracker />} />
             <Route path="/compare-offers" element={<CompareOffers />} />
-            <Route path="/admin/prompts" element={<AdminPrompts />} />
             <Route path="/upgrade" element={<Upgrade />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/admin/flags" element={<AdminFlags />} />
-            <Route path="/admin/models" element={<AdminModels />} />
-            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/feedback" element={<MyFeedback />} />
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<Navigate to="users" replace />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="tickets" element={<AdminTickets />} />
+              <Route path="flags" element={<AdminFlags />} />
+              <Route path="models" element={<AdminModels />} />
+              <Route path="prompts" element={<AdminPrompts />} />
+            </Route>
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/refunds" element={<Refunds />} />

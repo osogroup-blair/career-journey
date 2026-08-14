@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import RequireAdmin from '../components/RequireAdmin';
 import { dataStore } from '../data';
 import { saveAllowedModels } from '../lib/adminClient';
 import { AllowedModelsConfig, AllowedModel } from '../types/aiModels';
@@ -14,7 +13,7 @@ function emptyConfig(): AllowedModelsConfig {
   return { gemini: [], openai: [], anthropic: [] };
 }
 
-function AdminModelsInner() {
+export default function AdminModels() {
   const toast = useToast();
   const [config, setConfig] = useState<AllowedModelsConfig | null>(null);
   const [saving, setSaving] = useState(false);
@@ -115,8 +114,4 @@ function AdminModelsInner() {
       </Button>
     </div>
   );
-}
-
-export default function AdminModels() {
-  return <RequireAdmin><AdminModelsInner /></RequireAdmin>;
 }

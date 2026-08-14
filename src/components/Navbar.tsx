@@ -13,6 +13,7 @@ import { Button, useToast } from './ui';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
 import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
 import { validateCareerJourney } from '../lib/careerJourneyNormalize';
+import { listAdminTickets } from '../lib/adminClient';
 
 type NavItem = {
   to: string;
@@ -42,6 +43,18 @@ export default function Navbar() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
+  const [newTicketCount, setNewTicketCount] = useState(0);
+
+  // Lightweight poll rather than a live subscription — a new ticket showing up within a
+  // couple minutes is plenty timely for an admin who isn't staring at this tab, and avoids
+  // holding a permanent Firestore listener open for every admin session.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const check = () => listAdminTickets({ status: 'new' }).then((t) => setNewTicketCount(t.length)).catch(() => {});
+    check();
+    const interval = setInterval(check, 120_000);
+    return () => clearInterval(interval);
+  }, [isAdmin]);
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -200,36 +213,20 @@ export default function Navbar() {
                   </Link>
 
                   {isAdmin && (
-                    <>
-                      <Link
-                        to="/admin/prompts"
-                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
+                    <Link
+                      to="/admin"
+                      className="flex items-center justify-between gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <span className="flex items-center gap-2.5">
                         <Sparkles className="h-4 w-4 text-slate-400" />
-                        Admin — AI Prompts
-                      </Link>
-                      <Link
-                        to="/admin/users"
-                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        <Sparkles className="h-4 w-4 text-slate-400" />
-                        Admin — Users
-                      </Link>
-                      <Link
-                        to="/admin/flags"
-                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        <Sparkles className="h-4 w-4 text-slate-400" />
-                        Admin — Feature Flags
-                      </Link>
-                      <Link
-                        to="/admin/models"
-                        className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        <Sparkles className="h-4 w-4 text-slate-400" />
-                        Admin — Models
-                      </Link>
-                    </>
+                        Admin
+                      </span>
+                      {newTicketCount > 0 && (
+                        <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-brand-600 text-[10px] font-bold text-white">
+                          {newTicketCount}
+                        </span>
+                      )}
+                    </Link>
                   )}
 
                   {billing && (
