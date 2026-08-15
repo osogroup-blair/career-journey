@@ -15,6 +15,7 @@ import {
   AdminAuditLog,
 } from '../lib/adminClient';
 import { Badge, Button, useToast, Input, Card, CardHeader, CardTitle, CardContent } from '../components/ui';
+import { AiUsageBreakdown } from '../components/AiUsageBreakdown';
 import {
   Loader2,
   Users,
@@ -874,6 +875,11 @@ export default function AdminUsers() {
                           : 'Never'}
                       </span>
                     </div>
+                  </div>
+
+                  {/* AI Token Breakdown for Admin */}
+                  <div className="pt-1">
+                    <AiUsageBreakdown adminTargetUid={userDetail.user.uid} />
                   </div>
 
                   {/* Moderation Actions */}

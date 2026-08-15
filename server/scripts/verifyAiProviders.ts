@@ -18,24 +18,24 @@ async function testClient(client: StructuredAIClient) {
   console.log(`\n=== ${client.provider} ===`);
 
   console.log('--- keywords (simple/flat pilot) ---');
-  const keywords = await client.generateStructured({
+  const { data: keywords, usage: kwUsage } = await client.generateStructured({
     systemPrompt: 'You are a job-fit keyword extraction assistant. Given a job requirement and a candidate profile, extract keyword signals in the exact schema provided.',
     prompt: `Job Parse: {"requirements": ["5+ years of React experience", "Strong TypeScript skills"]}
 Candidate Career Journey Context: {"skills": [{"id": "SK-1", "name": "React", "years_experience": 6}]}
 Extract 1-2 keyword signals for these requirements, citing SK-1 as an evidenceRef where it applies.`,
     schema: KeywordsResponseSchema,
   });
-  console.log(`Got ${keywords.length} keyword(s), schema-valid.`);
+  console.log(`Got ${keywords.length} keyword(s), schema-valid. Tokens: ${kwUsage.totalTokens} (${kwUsage.promptTokens} in / ${kwUsage.completionTokens} out)`);
 
   console.log('--- fitScore (nested/complex pilot) ---');
-  const fit = await client.generateStructured({
+  const { data: fit, usage: fitUsage } = await client.generateStructured({
     systemPrompt: 'You are a job-fit scoring assistant. Score the candidate against the role in the exact schema provided.',
     prompt: `Job Parse: {"title": "Senior Frontend Engineer", "requirements": ["5+ years React"]}
 Career Journey: {"roles": [{"id": "ROLE-1", "title": "Frontend Engineer", "years": 6}]}
 Score this candidate's fit, citing ROLE-1 where relevant.`,
     schema: FitAnalysisSchema,
   });
-  console.log(`Got overallVerdict "${fit.overallVerdict}", schema-valid.`);
+  console.log(`Got overallVerdict "${fit.overallVerdict}", schema-valid. Tokens: ${fitUsage.totalTokens} (${fitUsage.promptTokens} in / ${fitUsage.completionTokens} out)`);
 
   console.log(`PASS — ${client.provider}`);
 }

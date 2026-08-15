@@ -16,6 +16,7 @@ const SEED: AllowedModelsConfig = {
     { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (flagship)', enabled: true },
     { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (balanced, default)', enabled: true },
     { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (cost-efficient)', enabled: true },
+    { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (flagship reasoning)', enabled: true },
   ],
   openai: [
     { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol (flagship)', enabled: true },

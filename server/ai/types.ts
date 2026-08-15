@@ -3,6 +3,18 @@ import type { AIProviderId } from "../../src/types/billing";
 
 export type { AIProviderId };
 
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface StructuredAIResult<T> {
+  data: T;
+  usage: TokenUsage;
+  model: string;
+}
+
 export interface GenerateStructuredParams<T> {
   /** Instructions/reference material that applies to the whole call — prepended once, not per-turn. */
   systemPrompt: string;
@@ -23,5 +35,6 @@ export interface GenerateStructuredParams<T> {
  */
 export interface StructuredAIClient {
   readonly provider: AIProviderId;
-  generateStructured<T>(params: GenerateStructuredParams<T>): Promise<T>;
+  readonly model: string;
+  generateStructured<T>(params: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>>;
 }

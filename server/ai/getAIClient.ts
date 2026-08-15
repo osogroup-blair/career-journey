@@ -7,16 +7,18 @@ import { getAdminApp } from "../firebaseAdmin";
 import { getBillingState } from "../billing";
 import { isByomPlan } from "../../src/types/billing";
 
-let platformClient: GeminiClient | null = null;
+const platformClients = new Map<string, GeminiClient>();
 
-function getPlatformClient(): StructuredAIClient {
-  if (!platformClient) {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
-    }
-    platformClient = new GeminiClient(process.env.GEMINI_API_KEY);
+function getPlatformClient(model: string = "gemini-3.5-flash-lite"): StructuredAIClient {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured");
   }
-  return platformClient;
+  let client = platformClients.get(model);
+  if (!client) {
+    client = new GeminiClient(process.env.GEMINI_API_KEY, model);
+    platformClients.set(model, client);
+  }
+  return client;
 }
 
 /** Thrown when a BYOM-plan request has no usable key — route handlers should turn this into a 400, not a 500. */
@@ -43,16 +45,16 @@ export function buildProviderClient(provider: AIProviderId, apiKey: string, mode
  * server/billing.ts's byomProvider/byomModel fields) if the headers omit them,
  * so the client doesn't have to resend them on every single request.
  */
-export async function getAIClientForRequest(req: Request): Promise<StructuredAIClient> {
+export async function getAIClientForRequest(req: Request, defaultModel: string = "gemini-3.5-flash-lite"): Promise<StructuredAIClient> {
   const uid = (req as any).uid as string | undefined;
   const app = getAdminApp();
   if (!app || !uid) {
-    return getPlatformClient();
+    return getPlatformClient(defaultModel);
   }
 
   const billing = await getBillingState(app, uid);
   if (!isByomPlan(billing.plan)) {
-    return getPlatformClient();
+    return getPlatformClient(defaultModel);
   }
 
   const apiKey = req.header("X-BYOM-Key");
@@ -64,10 +66,10 @@ export async function getAIClientForRequest(req: Request): Promise<StructuredAIC
       "You're on a BYOM plan but haven't added an API key yet — add one in Settings."
     );
   }
-  return buildProviderClient(provider, apiKey, model);
+  return buildProviderClient(provider, apiKey, model || defaultModel);
 }
 
 /** Non-request-scoped accessor for code paths not yet migrated to per-user BYOM routing — always the platform client. */
-export function getAIClient(): StructuredAIClient {
-  return getPlatformClient();
+export function getAIClient(defaultModel: string = "gemini-3.5-flash-lite"): StructuredAIClient {
+  return getPlatformClient(defaultModel);
 }

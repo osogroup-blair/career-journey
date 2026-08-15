@@ -1,11 +1,12 @@
 import type { App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import type { Request, Response, NextFunction } from "express";
 import { getAdminApp } from "./firebaseAdmin";
 import { getFeatureFlags, isFeatureEnabled } from "./featureFlags";
 import type { BillingState, PlanId } from "../src/types/billing";
 import type { FeatureKey } from "../src/types/featureFlags";
 import { FEATURE_METADATA } from "../src/types/featureFlags";
+import type { AiUsageLog, UserAiUsageSummary } from "../src/types/usage";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -204,4 +205,114 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
     tx.set(ref, { ...state, byomDailyActionsUsed: (state.byomDailyActionsUsed || 0) + 1 }, { merge: true });
     return { allowed: true };
   });
+}
+
+export const FEATURE_NAMES: Record<string, string> = {
+  parse: "Job Description Parsing",
+  keywords: "ATS Keyword Extraction",
+  clarifyQuestions: "Clarification Questions",
+  fitScore: "Role Fit Scoring",
+  auditGates: "Hard Gate Audit",
+  liteScan: "Discovery Lite Scan",
+  patchJourney: "Journey Patching",
+  resumeStrategy: "Resume Strategy Matrix",
+  generateResume: "Resume Bullet Generation",
+  coverLetter: "Cover Letter Drafting",
+  applicationAssistant: "Application Assistant Chat",
+  generateFormAnswers: "Application Form Answers",
+  interviewPrep: "Interview Prep Strategy",
+  interviewPrepChat: "Mock Interview Coaching",
+  offerGuidance: "Offer Evaluation & Guidance",
+  compareOffers: "Offer Comparison",
+  buildJourneyFromResume: "Master Journey Resume Ingestion",
+  buildJourneyChat: "Journey Discovery Chat",
+  refineFromInterviewAnswer: "Interview Answer Extraction",
+};
+
+/**
+ * Records an AI usage event into Firestore:
+ * 1. Writes an item to `users/{uid}/aiUsageLogs`
+ * 2. Atomically increments token counters in `users/{uid}/meta/billing`
+ */
+export async function recordAiUsage(
+  app: App,
+  uid: string,
+  log: Omit<AiUsageLog, "id" | "uid" | "timestamp"> & { timestamp?: string }
+): Promise<void> {
+  const db = getFirestore(app);
+  const now = new Date().toISOString();
+  const totalTokens = Math.max(0, log.totalTokens || 0);
+
+  const logDoc: Omit<AiUsageLog, "id"> = {
+    uid,
+    timestamp: log.timestamp || now,
+    endpoint: log.endpoint,
+    featureName: log.featureName || FEATURE_NAMES[log.endpoint] || log.endpoint,
+    model: log.model,
+    provider: log.provider || "gemini",
+    promptTokens: log.promptTokens || 0,
+    completionTokens: log.completionTokens || 0,
+    totalTokens,
+    isByom: log.isByom || false,
+  };
+
+  // Add the log entry asynchronously
+  const logPromise = db.collection("users").doc(uid).collection("aiUsageLogs").add(logDoc);
+
+  // Update the billing counters
+  const billingDocRef = billingRef(app, uid);
+  const updatePayload: Record<string, any> = {
+    lifetimeAiTokensUsed: FieldValue.increment(totalTokens),
+  };
+
+  if (log.isByom) {
+    updatePayload.byomDailyTokensUsed = FieldValue.increment(totalTokens);
+  } else {
+    // Read plan to know whether to increment free or pro counter
+    const billingSnap = await billingDocRef.get();
+    const plan = (billingSnap.data() as Partial<BillingState>)?.plan || "free";
+    if (plan === "free") {
+      updatePayload.freeAiTokensUsed = FieldValue.increment(totalTokens);
+    } else if (plan === "pro_monthly") {
+      updatePayload.proMonthlyAiTokensUsed = FieldValue.increment(totalTokens);
+    }
+  }
+
+  const billingPromise = billingDocRef.set(updatePayload, { merge: true });
+
+  await Promise.all([logPromise, billingPromise]);
+}
+
+/**
+ * Fetches the user's AI token usage summary and recent usage logs.
+ */
+export async function getUserAiUsage(
+  app: App,
+  uid: string,
+  limitCount = 50
+): Promise<UserAiUsageSummary> {
+  const db = getFirestore(app);
+  const [billing, logsSnap] = await Promise.all([
+    getBillingState(app, uid),
+    db.collection("users").doc(uid).collection("aiUsageLogs").get(),
+  ]);
+
+  const allLogs: AiUsageLog[] = logsSnap.docs.map((doc) => ({
+    id: doc.id,
+    ...(doc.data() as Omit<AiUsageLog, "id">),
+  }));
+
+  // Sort by timestamp descending in memory
+  allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  const recentLogs = allLogs.slice(0, limitCount);
+
+  return {
+    lifetimeTokensUsed: billing.lifetimeAiTokensUsed || 0,
+    currentPeriodTokensUsed:
+      billing.plan === "pro_monthly"
+        ? billing.proMonthlyAiTokensUsed || 0
+        : billing.freeAiTokensUsed || 0,
+    recentLogs,
+  };
 }

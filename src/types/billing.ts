@@ -23,6 +23,15 @@ export interface BillingState {
   /** Never resets. Free's cap is a lifetime total, not monthly. */
   freeAiActionsUsed: number;
 
+  /** Lifetime AI tokens used by Free tier or platform key. */
+  freeAiTokensUsed?: number;
+
+  /** AI tokens used in the current Pro Monthly billing cycle. */
+  proMonthlyAiTokensUsed?: number;
+
+  /** Total lifetime AI tokens consumed across all plans. */
+  lifetimeAiTokensUsed?: number;
+
   /** Resets each Pro Monthly billing period. */
   proMonthlyAiActionsUsed: number;
   /** ISO timestamp — start of the period the counter above is tracking. */
@@ -30,6 +39,7 @@ export interface BillingState {
 
   /** BYOM abuse-guard daily counter — a safety rail, not a plan limit. Resets every 24h. */
   byomDailyActionsUsed?: number;
+  byomDailyTokensUsed?: number;
   byomDailyResetAt?: string;
 
   /** Provider + model choice for BYOM tiers — not secret, the API key itself is never stored here (see Phase 4). */

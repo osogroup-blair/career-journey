@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import type { StructuredAIClient, GenerateStructuredParams } from "./types";
+import type { StructuredAIClient, GenerateStructuredParams, StructuredAIResult } from "./types";
 
 const TOOL_NAME = "emit_response";
 
@@ -8,11 +8,11 @@ export class AnthropicClient implements StructuredAIClient {
   readonly provider = "anthropic" as const;
   private client: Anthropic;
 
-  constructor(apiKey: string, private model: string = "claude-sonnet-5") {
+  constructor(apiKey: string, readonly model: string = "claude-sonnet-5") {
     this.client = new Anthropic({ apiKey });
   }
 
-  async generateStructured<T>({ systemPrompt, prompt, schema }: GenerateStructuredParams<T>): Promise<T> {
+  async generateStructured<T>({ systemPrompt, prompt, schema }: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>> {
     // Anthropic has no dedicated structured-output mode — the standard pattern
     // is a single forced tool call, where the tool's input_schema IS the
     // response shape and the model's "tool call" is just the JSON we want.
@@ -35,6 +35,14 @@ export class AnthropicClient implements StructuredAIClient {
     if (!toolUse) {
       throw new Error("Anthropic did not return a tool_use block");
     }
-    return schema.parse(toolUse.input);
+    const data = schema.parse(toolUse.input);
+    const promptTokens = message.usage?.input_tokens || 0;
+    const completionTokens = message.usage?.output_tokens || 0;
+    const usage = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+    };
+    return { data, usage, model: this.model };
   }
 }

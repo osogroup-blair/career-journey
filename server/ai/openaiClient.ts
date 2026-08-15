@@ -1,16 +1,16 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import type { StructuredAIClient, GenerateStructuredParams } from "./types";
+import type { StructuredAIClient, GenerateStructuredParams, StructuredAIResult } from "./types";
 
 export class OpenAIClient implements StructuredAIClient {
   readonly provider = "openai" as const;
   private client: OpenAI;
 
-  constructor(apiKey: string, private model: string = "gpt-5.6-terra") {
+  constructor(apiKey: string, readonly model: string = "gpt-5.6-terra") {
     this.client = new OpenAI({ apiKey });
   }
 
-  async generateStructured<T>({ systemPrompt, prompt, schema }: GenerateStructuredParams<T>): Promise<T> {
+  async generateStructured<T>({ systemPrompt, prompt, schema }: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>> {
     // Non-strict json_schema mode: strict:true requires every property to be
     // listed in `required` (optional fields would need converting to nullable
     // unions instead) — this app's existing schemas have genuinely optional
@@ -31,6 +31,12 @@ export class OpenAIClient implements StructuredAIClient {
     if (!content) {
       throw new Error("OpenAI returned an empty response");
     }
-    return schema.parse(JSON.parse(content));
+    const data = schema.parse(JSON.parse(content));
+    const usage = {
+      promptTokens: response.usage?.prompt_tokens || 0,
+      completionTokens: response.usage?.completion_tokens || 0,
+      totalTokens: response.usage?.total_tokens || 0,
+    };
+    return { data, usage, model: this.model };
   }
 }

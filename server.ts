@@ -11,7 +11,7 @@ import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
 import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebaseAdmin";
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
-import { getBillingState, setBillingFields, requireAnyPaidPlan, requireFeature } from "./server/billing";
+import { getBillingState, setBillingFields, requireAnyPaidPlan, requireFeature, recordAiUsage, getUserAiUsage } from "./server/billing";
 import { getDefaultFeatureMatrix } from "./src/types/featureFlags";
 import {
   createTicket,
@@ -48,6 +48,37 @@ function handleAiRouteError(e: any, res: express.Response) {
     return;
   }
   res.status(500).json({ error: e.message });
+}
+
+async function trackUsage(
+  req: express.Request,
+  endpoint: string,
+  model: string,
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | { promptTokens?: number; completionTokens?: number; totalTokens?: number },
+  provider: string = "gemini"
+) {
+  const adminApp = getAdminApp();
+  const uid = (req as any).uid as string | undefined;
+  if (!adminApp || !uid) return;
+
+  const isByom = Boolean(req.headers["x-byom-key"]);
+  const promptTokens = (usageMetadata as any)?.promptTokenCount ?? (usageMetadata as any)?.promptTokens ?? 0;
+  const completionTokens = (usageMetadata as any)?.candidatesTokenCount ?? (usageMetadata as any)?.completionTokens ?? 0;
+  const totalTokens = (usageMetadata as any)?.totalTokenCount ?? (usageMetadata as any)?.totalTokens ?? (promptTokens + completionTokens);
+
+  try {
+    await recordAiUsage(adminApp, uid, {
+      endpoint,
+      model,
+      provider,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      isByom,
+    });
+  } catch (err) {
+    console.error(`Failed to record AI usage for ${endpoint}:`, err);
+  }
 }
 
 dotenv.config();
@@ -596,7 +627,38 @@ async function startServer() {
     }
   });
 
+  app.get("/api/admin/users/:uid/usage", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const summary = await getUserAiUsage(adminApp, req.params.uid);
+      res.json(summary);
+    } catch (e: any) {
+      console.error("get admin user usage failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- USER DATA OWNERSHIP & PRIVACY ---
+  app.get("/api/user/usage", async (req, res) => {
+    const adminApp = getAdminApp();
+    const uid = (req as any).uid as string | undefined;
+    if (!adminApp || !uid) {
+      res.status(500).json({ error: "Firebase Admin is not configured or user not authenticated" });
+      return;
+    }
+    try {
+      const summary = await getUserAiUsage(adminApp, uid);
+      res.json(summary);
+    } catch (e: any) {
+      console.error("get user usage failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/user/export-data", async (req, res) => {
     const adminApp = getAdminApp();
     const uid = (req as any).uid as string | undefined;
@@ -1021,6 +1083,7 @@ ${jdText}`,
           }
         }
       });
+      await trackUsage(req, "parse", "gemini-3.1-pro-preview", response.usageMetadata);
       res.json({ ...JSON.parse(response.text!), jdSegments: segmentJdText(jdText) });
     } catch (e: any) {
       console.error(e);
@@ -1033,7 +1096,8 @@ ${jdText}`,
   app.post("/api/ai/keywords", async (req, res) => {
     try {
       const { parse, careerJourney, jdSegments } = req.body;
-      const keywords = await (await getAIClientForRequest(req)).generateStructured({
+      const client = await getAIClientForRequest(req, "gemini-3.5-flash-lite");
+      const { data, usage, model } = await client.generateStructured({
         systemPrompt: `${KNOWLEDGE_PREAMBLE}${getActivePrompt('keywords')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse, null, 2)}
@@ -1046,7 +1110,8 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
 `,
         schema: KeywordsResponseSchema,
       });
-      res.json(keywords);
+      await trackUsage(req, "keywords", model, usage, client.provider);
+      res.json(data);
     } catch (e: any) {
       handleAiRouteError(e, res);
     }
@@ -1065,7 +1130,7 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.5-flash-lite",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('clarifyQuestions')}
 
@@ -1095,6 +1160,7 @@ ${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organ
         }
       });
 
+      await trackUsage(req, "clarifyQuestions", "gemini-3.5-flash-lite", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1107,7 +1173,8 @@ ${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organ
   app.post("/api/ai/fitScore", async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, gateClarifications, jdSegments } = req.body;
-      const fitAnalysis = await (await getAIClientForRequest(req)).generateStructured({
+      const client = await getAIClientForRequest(req, "gemini-3.5-flash-lite");
+      const { data, usage, model } = await client.generateStructured({
         systemPrompt: `${KNOWLEDGE_PREAMBLE}${getActivePrompt('fitScore')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse)}
@@ -1123,7 +1190,8 @@ ${JSON.stringify(gateClarifications || {})}
 Generate an objective fit analysis. If the candidate has provided convincing explanations and objective proofs, factor them into upgrading the relevant dimension ratings ('Strong' | 'Moderate') and adjust the rationale and overallVerdict accordingly. For each leadWith/gaps entry, cite real evidenceRefs/jdRefs ids where applicable â€” leave them empty rather than inventing an id.`,
         schema: FitAnalysisSchema,
       });
-      res.json(fitAnalysis);
+      await trackUsage(req, "fitScore", model, usage, client.provider);
+      res.json(data);
     } catch (e: any) {
       handleAiRouteError(e, res);
     }
@@ -1133,7 +1201,7 @@ Generate an objective fit analysis. If the candidate has provided convincing exp
     try {
       const { parse, careerJourney, gateClarifications, jdSegments } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.5-flash-lite",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('auditGates')}
 
@@ -1175,6 +1243,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
           }
         }
       });
+      await trackUsage(req, "auditGates", "gemini-3.5-flash-lite", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1320,7 +1389,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
     try {
       const { jdText, careerJourney, archiveLearnings } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.5-flash-lite",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('liteScan')}
 
@@ -1371,6 +1440,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these â€
           }
         }
       });
+      await trackUsage(req, "liteScan", "gemini-3.5-flash-lite", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1598,6 +1668,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
         },
       });
       const delta = JSON.parse(response.text!);
+      await trackUsage(req, "patchJourney", "gemini-3.1-pro-preview", response.usageMetadata);
       const { updatedCareerJourney, summary: deltaSummary } = applyCareerJourneyDelta(careerJourney, delta, nextIds);
 
       updatedCareerJourney.meta = updatedCareerJourney.meta || {};
@@ -1690,6 +1761,7 @@ Output a detailed strategy.`,
           }
         }
       });
+      await trackUsage(req, "resumeStrategy", "gemini-3.1-pro-preview", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1705,7 +1777,7 @@ Output a detailed strategy.`,
     try {
       const { careerJourney, strategy, parse, remediation } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[] };
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('generateResume')}
 ${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed keyword gate. These keywords are missing and must be truthfully worked into the summary, skills, or a role bullet if any honest evidence supports them (do not fabricate experience for a keyword that has none): ${remediation.join(', ')}\n` : ''}
@@ -1720,6 +1792,7 @@ Job Parse:
 ${JSON.stringify(parse, null, 2)}`,
         config: {
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 1024 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -1784,6 +1857,7 @@ ${JSON.stringify(parse, null, 2)}`,
           }
         }
       });
+      await trackUsage(req, "generateResume", "gemini-3.7-flash", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1795,7 +1869,7 @@ ${JSON.stringify(parse, null, 2)}`,
     try {
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('coverLetter')}
 
@@ -1814,6 +1888,7 @@ ${JSON.stringify(resumeStrategy || {}, null, 2)}
 Return the final cover letter body text only (no subject line, no "Dear Hiring Manager" placeholder unless no name is available - use a natural team salutation like "Dear [Company] team," when no specific name is known), plus its word count.`,
         config: {
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 1024 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -1826,6 +1901,7 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       });
       const result = JSON.parse(response.text!);
       result.approvalStatus = "Draft";
+      await trackUsage(req, "coverLetter", "gemini-3.7-flash", response.usageMetadata);
       res.json(result);
     } catch (e: any) {
       console.error(e);
@@ -1842,7 +1918,7 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Assistant"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('applicationAssistant')}
 
@@ -1863,6 +1939,7 @@ ${history}
 
 Candidate's latest message: "${latest}"`,
       });
+      await trackUsage(req, "applicationAssistant", "gemini-3.7-flash", response.usageMetadata);
       res.json({ reply: response.text });
     } catch (e: any) {
       console.error(e);
@@ -1874,7 +1951,7 @@ Candidate's latest message: "${latest}"`,
     try {
       const { fields, parse, careerJourney, resume } = req.body as { fields: { id: string; label: string; fieldType: string; options?: string[] }[]; parse: any; careerJourney: any; resume: any };
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('generateFormAnswers')}
 
@@ -1891,6 +1968,7 @@ Career Journey:
 ${JSON.stringify(careerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 1024 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -1910,6 +1988,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
       const { answers } = JSON.parse(response.text!);
       const byId: Record<string, string> = {};
       for (const a of answers) byId[a.fieldId] = a.answer;
+      await trackUsage(req, "generateFormAnswers", "gemini-3.7-flash", response.usageMetadata);
       res.json({ answers: byId });
     } catch (e: any) {
       console.error(e);
@@ -1921,7 +2000,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
     try {
       const { round, parse, fitAnalysis, careerJourney } = req.body as { round: any; parse: any; fitAnalysis: any; careerJourney: any };
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('interviewPrep')}
 
@@ -1954,6 +2033,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
       });
       const result = JSON.parse(response.text!);
       result.generatedAt = new Date().toISOString();
+      await trackUsage(req, "interviewPrep", "gemini-3.7-flash", response.usageMetadata);
       res.json(result);
     } catch (e: any) {
       console.error(e);
@@ -1970,7 +2050,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Coach"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('interviewPrepChat')}
 
@@ -1986,6 +2066,7 @@ ${history}
 
 Candidate's latest message: "${latest}"`,
       });
+      await trackUsage(req, "interviewPrepChat", "gemini-3.7-flash", response.usageMetadata);
       res.json({ reply: response.text });
     } catch (e: any) {
       console.error(e);
@@ -1997,7 +2078,7 @@ Candidate's latest message: "${latest}"`,
     try {
       const { offer, parse, careerJourney } = req.body as { offer: any; parse: any; careerJourney: any };
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('offerGuidance')}
 
@@ -2009,6 +2090,7 @@ Career Journey (for leverage/market positioning context):
 ${JSON.stringify(careerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 1024 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -2021,6 +2103,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
           }
         }
       });
+      await trackUsage(req, "offerGuidance", "gemini-3.7-flash", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2032,7 +2115,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
     try {
       const { offers, careerJourney } = req.body as { offers: { jobId: string; companyName: string; roleTitle: string; offer: any }[]; careerJourney: any };
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${KNOWLEDGE_PREAMBLE}
 ${getActivePrompt('compareOffers')}
 
@@ -2042,6 +2125,7 @@ Career Journey (positioning/preferences context):
 ${JSON.stringify(careerJourney?.person?.positioning || {}, null, 2)}`,
         config: {
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 1024 },
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -2063,6 +2147,7 @@ ${JSON.stringify(careerJourney?.person?.positioning || {}, null, 2)}`,
           }
         }
       });
+      await trackUsage(req, "compareOffers", "gemini-3.7-flash", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2195,6 +2280,7 @@ ${resumeText}`,
           },
         },
       });
+      await trackUsage(req, "buildJourneyFromResume", "gemini-3.1-pro-preview", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2214,7 +2300,7 @@ ${resumeText}`,
         .join("\n");
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3.7-flash",
         contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
 
 ---
@@ -2240,6 +2326,7 @@ ${transcriptText}`,
           },
         },
       });
+      await trackUsage(req, "buildJourneyChat", "gemini-3.7-flash", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2284,6 +2371,7 @@ User's answer: ${answer}`,
           },
         },
       });
+      await trackUsage(req, "refineFromInterviewAnswer", "gemini-3.1-pro-preview", response.usageMetadata);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);

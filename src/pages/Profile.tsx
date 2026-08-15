@@ -5,6 +5,7 @@ import { updateProfile, updatePassword, sendEmailVerification, sendPasswordReset
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, Label, Badge, useToast } from '../components/ui';
 import { openBillingPortal } from '../lib/billingClient';
 import { exportUserData, deleteUserAccount } from '../lib/userClient';
+import { AiUsageBreakdown } from '../components/AiUsageBreakdown';
 import {
   User as UserIcon,
   Mail,
@@ -709,6 +710,11 @@ export default function Profile() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* AI Token Usage Telemetry */}
+      <div className="pt-2">
+        <AiUsageBreakdown />
       </div>
     </div>
   );

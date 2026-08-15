@@ -6,6 +6,7 @@ import { startCheckout, openBillingPortal } from '../lib/billingClient';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, useToast } from '../components/ui';
 import { PlanId } from '../types/billing';
 import { CheckCircle2, Loader2, Radar, Sparkles } from 'lucide-react';
+import { AiUsageBreakdown } from '../components/AiUsageBreakdown';
 
 const FREE_LIFETIME_LIMIT = 20; // mirrors server/billing.ts's default — display only, server is the source of truth
 
@@ -189,6 +190,11 @@ export default function Upgrade() {
           ))}
         </div>
       )}
+
+      {/* AI Token Breakdown & Telemetry */}
+      <div className="pt-4">
+        <AiUsageBreakdown />
+      </div>
     </div>
   );
 }
