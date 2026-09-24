@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import RequireAdmin from '../components/RequireAdmin';
 import { listAdminTickets } from '../lib/adminClient';
-import { Users, LifeBuoy, Sliders, Cpu, Sparkles, Bot } from 'lucide-react';
+import { Users, LifeBuoy, Sliders, Cpu, Sparkles, Bot, BookOpen } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/admin/users', label: 'Users', icon: Users },
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: '/admin/models', label: 'Models', icon: Cpu },
   { to: '/admin/ai-defaults', label: 'AI Defaults', icon: Bot },
   { to: '/admin/prompts', label: 'AI Prompts', icon: Sparkles },
+  { to: '/admin/skills', label: 'AI Skills', icon: BookOpen },
 ];
 
 /**

@@ -1,5 +1,5 @@
 import type { App } from "firebase-admin/app";
-import { KNOWLEDGE_FILES, PIPELINE_KNOWLEDGE_FILE_NAMES, BUILDER_KNOWLEDGE_FILE_NAME } from "../knowledge";
+import { getKnowledgeFiles, PIPELINE_KNOWLEDGE_FILE_NAMES, BUILDER_KNOWLEDGE_FILE_NAME } from "../knowledge";
 import { getPromptAiConfigFor } from "../promptAiConfig";
 
 const PIPELINE_PREAMBLE_INTRO =
@@ -16,9 +16,10 @@ export function defaultKnowledgeFilesFor(promptId: string): string[] {
 }
 
 function joinFiles(names: string[]): string {
+  const files = getKnowledgeFiles();
   return names
-    .filter((name) => name in KNOWLEDGE_FILES)
-    .map((name) => `<<< ${name} >>>\n${KNOWLEDGE_FILES[name]}`)
+    .filter((name) => name in files)
+    .map((name) => `<<< ${name} >>>\n${files[name]}`)
     .join("\n\n");
 }
 

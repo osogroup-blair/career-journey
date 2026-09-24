@@ -18,7 +18,14 @@ import { projectCareerJourney, CAREER_JOURNEY_FIELDS, applyCareerJourneyExtracto
 import { createLegacyGenAI, type LegacyGenAI } from "./server/ai/legacyGenAIShim";
 import { LEGACY_RESPONSE_SCHEMAS } from "./server/ai/legacySchemas";
 import { buildKnowledgePreamble, buildKnowledgePreambleFromFiles, resolveKnowledgeSelection } from "./server/ai/knowledgePreamble";
-import { ALL_KNOWLEDGE_FILE_NAMES } from "./server/knowledge";
+import {
+  getAllKnowledgeFileNames,
+  getAllSkillConfigs,
+  saveSkillOverride,
+  restoreSkillDefault,
+  createCustomSkill,
+  deleteCustomSkill,
+} from "./server/knowledge";
 import { getContextWindow, resolveContextWindow } from "./server/ai/contextWindows";
 import {
   getContextWindowOverrides,
@@ -1359,7 +1366,78 @@ async function startServer() {
   });
 
   app.get("/api/admin/knowledgeFiles", (req, res) => {
-    res.json({ files: ALL_KNOWLEDGE_FILE_NAMES });
+    res.json({ files: getAllKnowledgeFileNames() });
+  });
+
+  // AI "skills" — the server/knowledge/*.md files concatenated into prompt
+  // preambles (server/ai/knowledgePreamble.ts). Same edit/restore shape as
+  // the /api/admin/prompts/* routes above, plus create/delete for
+  // admin-authored skills beyond the 7 built-in files.
+  app.get("/api/admin/skills", (req, res) => {
+    res.json(getAllSkillConfigs());
+  });
+
+  app.post("/api/admin/skills/:filename", (req, res) => {
+    const { filename } = req.params;
+    const { content } = req.body as { content: string };
+    if (typeof content !== "string" || !content.trim()) return res.status(400).json({ error: "content is required" });
+    try {
+      const saved = saveSkillOverride(filename, content);
+      res.json(saved);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/skills/:filename/restore", (req, res) => {
+    const { filename } = req.params;
+    try {
+      const restored = restoreSkillDefault(filename);
+      res.json(restored);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/skills", async (req, res) => {
+    const { filename, label, content } = req.body as { filename: string; label: string; content: string };
+    if (typeof filename !== "string" || typeof label !== "string" || typeof content !== "string") {
+      return res.status(400).json({ error: "filename, label, and content are required" });
+    }
+    try {
+      const created = createCustomSkill(filename, label, content);
+      const adminApp = getAdminApp();
+      if (adminApp) {
+        await logAdminAction(adminApp, {
+          actorUid: (req as any).uid || "admin",
+          targetUid: "platform",
+          action: "create_custom_skill",
+          details: { filename },
+        });
+      }
+      res.status(201).json(created);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/admin/skills/:filename", async (req, res) => {
+    const { filename } = req.params;
+    try {
+      deleteCustomSkill(filename);
+      const adminApp = getAdminApp();
+      if (adminApp) {
+        await logAdminAction(adminApp, {
+          actorUid: (req as any).uid || "admin",
+          targetUid: "platform",
+          action: "delete_custom_skill",
+          details: { filename },
+        });
+      }
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   });
 
   app.post("/api/ai/parse", async (req, res) => {

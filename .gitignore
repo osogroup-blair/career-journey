@@ -8,4 +8,5 @@ coverage/
 !.env.example
 .claude/settings.local.json
 server/promptConfig/
+server/knowledgeConfig/
 backlog/

@@ -1,7 +1,7 @@
 import type { App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import type { AIProviderId } from "./ai/types";
-import { ALL_KNOWLEDGE_FILE_NAMES } from "./knowledge";
+import { getAllKnowledgeFileNames } from "./knowledge";
 import { DEFAULT_PROMPTS } from "./promptStore";
 import { CAREER_JOURNEY_FIELDS } from "./careerJourneyProjection";
 
@@ -79,8 +79,9 @@ export function validatePromptAiConfigUpdate(id: string, input: unknown): void {
     if (!Array.isArray(files) || !files.every((f) => typeof f === "string")) {
       throw new Error("includedKnowledge must be an array of strings or null.");
     }
+    const validNames = getAllKnowledgeFileNames();
     for (const f of files) {
-      if (!ALL_KNOWLEDGE_FILE_NAMES.includes(f)) {
+      if (!validNames.includes(f)) {
         throw new Error(`Unknown knowledge file "${f}".`);
       }
     }

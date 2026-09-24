@@ -22,6 +22,8 @@ export interface AdminAuditLog {
     | 'update_allowed_models'
     | 'update_ai_defaults'
     | 'update_prompt_ai_config'
+    | 'create_custom_skill'
+    | 'delete_custom_skill'
     | 'update_model_context_window';
   details: Record<string, any>;
   timestamp: string;
