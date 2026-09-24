@@ -1,10 +1,8 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
 import dotenv from "dotenv";
-import { FULL_KNOWLEDGE, CAREER_JOURNEY_BUILDER_KNOWLEDGE } from "./server/knowledge";
 import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/careerJourneyVersioning";
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
@@ -13,6 +11,16 @@ import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
 import { getBillingState, setBillingFields, requireAnyPaidPlan, requireFeature, recordAiUsage, getUserAiUsage } from "./server/billing";
 import { getDefaultFeatureMatrix } from "./src/types/featureFlags";
+import { getAiDefaults, setAiDefaults, validateAiDefaultsUpdate } from "./server/aiDefaults";
+import { getPromptAiConfigFor, setPromptAiConfigFor, validatePromptAiConfigUpdate, getPromptAiConfigMap } from "./server/promptAiConfig";
+import { resolveModelForPrompt } from "./server/ai/resolveModelForPrompt";
+import { createLegacyGenAI, type LegacyGenAI } from "./server/ai/legacyGenAIShim";
+import { LEGACY_RESPONSE_SCHEMAS } from "./server/ai/legacySchemas";
+import { buildKnowledgePreamble, buildKnowledgePreambleFromFiles, resolveKnowledgeSelection } from "./server/ai/knowledgePreamble";
+import { ALL_KNOWLEDGE_FILE_NAMES } from "./server/knowledge";
+import { getContextWindow } from "./server/ai/contextWindows";
+import { SAMPLE_INPUTS, renderSampleContents } from "./server/ai/promptSampleInputs";
+import { countTokens } from "gpt-tokenizer";
 import {
   createTicket,
   listTicketsForUser,
@@ -31,7 +39,6 @@ import {
 import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketPriority } from "./src/types/support";
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
-import { createOllamaGenAI } from "./server/ai/ollamaPlatformClient";
 import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
 import { isByomPlan, AIProviderId, PlanId, BillingState } from "./src/types/billing";
 import { getFeatureFlags, setFeatureFlags, validateFeatureFlagsUpdate } from "./server/featureFlags";
@@ -90,29 +97,30 @@ async function trackUsage(
 
 dotenv.config();
 
-const KNOWLEDGE_PREAMBLE = `Reference material below is the candidate's job-application pipeline: project instructions plus five skill files (JD pipeline, cover letter, voice, ATS tactics, JD signal map). Follow these rules exactly wherever they apply to the task requested after the reference material. Do not summarize or explain the reference material back; use it silently to inform your output.
+// Cached by `${provider}:${model}`, same pattern as getAIClient.ts's
+// platformClients map — cheap to look up per request since the underlying
+// admin config reads (resolveModelForPrompt) are themselves 30s-cached.
+const legacyClients = new Map<string, LegacyGenAI>();
 
-${FULL_KNOWLEDGE}
-
----
-`;
-
-// Defaults to the local Ollama server — a local model costs nothing to run
-// and keeps this data off any third-party API — for every one of the direct
-// generateContent() call sites below that predate the provider-agnostic
-// StructuredAIClient abstraction (server/ai/*). Set AI_PLATFORM_PROVIDER=gemini
-// to switch back to the real Gemini SDK without touching any call site.
-// Typed `any`: createOllamaGenAI only implements the narrow
-// `.models.generateContent(...)` slice of GoogleGenAI's surface that these
-// call sites actually use.
-const AI_PLATFORM_PROVIDER = (process.env.AI_PLATFORM_PROVIDER || "ollama").toLowerCase();
-const ai: any =
-  AI_PLATFORM_PROVIDER === "gemini"
-    ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
-    : createOllamaGenAI(
-        process.env.OLLAMA_BASE_URL || "http://localhost:11434",
-        process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b"
-      );
+/**
+ * Resolves and returns the AI client server.ts's 17 not-yet-migrated-to-Zod
+ * endpoints call, honoring an admin's per-prompt model override or global
+ * default (server/promptAiConfig.ts / server/aiDefaults.ts) at request time —
+ * no redeploy needed to switch a prompt, or everything, to a different
+ * provider/model. Replaces the old module-level `ai` const, which was fixed
+ * for the life of the process from env vars alone. See
+ * server/ai/legacyGenAIShim.ts for what each provider dispatches to.
+ */
+async function getLegacyClientForPrompt(promptId: string): Promise<{ client: LegacyGenAI; resolved: Awaited<ReturnType<typeof resolveModelForPrompt>> }> {
+  const resolved = await resolveModelForPrompt(getAdminApp(), promptId);
+  const key = `${resolved.provider}:${resolved.model}`;
+  let client = legacyClients.get(key);
+  if (!client) {
+    client = createLegacyGenAI(resolved.provider, resolved.model);
+    legacyClients.set(key, client);
+  }
+  return { client, resolved };
+}
 
 /**
  * Deterministic, non-AI segmentation of raw JD text into paragraph/bullet
@@ -1044,8 +1052,19 @@ async function startServer() {
     }
   });
 
-  app.get("/api/admin/prompts", (req, res) => {
-    res.json(getAllPromptConfigs());
+  app.get("/api/admin/prompts", async (req, res) => {
+    const adminApp = getAdminApp();
+    const promptAiConfigs = await getPromptAiConfigMap(adminApp);
+    const configs = getAllPromptConfigs();
+    const withAiConfig: Record<string, any> = {};
+    for (const [id, cfg] of Object.entries(configs)) {
+      withAiConfig[id] = {
+        ...cfg,
+        modelOverride: promptAiConfigs[id]?.modelOverride ?? null,
+        includedKnowledge: promptAiConfigs[id]?.includedKnowledge ?? null,
+      };
+    }
+    res.json(withAiConfig);
   });
 
   app.post("/api/admin/prompts/:id", (req, res) => {
@@ -1063,47 +1082,162 @@ async function startServer() {
     res.json({ id, template: DEFAULT_PROMPTS[id]?.template ?? "" });
   });
 
-  // Runs a candidate prompt template (possibly unsaved edits) against a small
-  // fixed sample so an admin can sanity-check a change before committing it.
-  app.post("/api/admin/prompts/:id/testRun", async (req, res) => {
+  // Lets an admin set/clear this one prompt's model override and knowledge-
+  // file selection — separate Firestore doc from the (local-file, dev-only)
+  // template override above, since this piece needs to be real in every
+  // deployed environment for production enforcement to mean anything.
+  app.post("/api/admin/prompts/:id/aiConfig", async (req, res) => {
+    const { id } = req.params;
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      validatePromptAiConfigUpdate(id, req.body);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const updated = await setPromptAiConfigFor(adminApp, id, req.body);
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: "platform",
+        action: "update_prompt_ai_config",
+        details: { promptId: id, updates: req.body },
+      });
+      res.json(updated);
+    } catch (e: any) {
+      console.error("setPromptAiConfigFor failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Estimated token count for one prompt's current (possibly unsaved) model +
+  // knowledge-file selection, so an admin can see the effect of a draft
+  // change before saving it. `gpt-tokenizer`'s count is an approximation for
+  // any non-OpenAI model — labeled "~estimated" client-side for that reason.
+  app.get("/api/admin/prompts/:id/contextSize", async (req, res) => {
     try {
       const { id } = req.params;
-      const { template, sampleJdText } = req.body as { template: string; sampleJdText?: string };
-      if (id !== "parse") {
-        return res.status(400).json({ error: "Test Run currently only supports the 'parse' prompt — other prompts need a full job/career-journey context to run meaningfully." });
-      }
-      const jdText = sampleJdText || "Senior Software Engineer at a Series B fintech startup. Requires 5+ years of backend experience, strong Python skills, and a Bachelor's degree in Computer Science. Remote-friendly within the US.";
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${KNOWLEDGE_PREAMBLE}\n${template}\n\nCompany: Sample Co\nRole: Sample Role\n\nJob Description:\n${jdText}`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              company: { type: Type.STRING }, roleTitle: { type: Type.STRING }, reportingLine: { type: Type.STRING },
-              teamScope: { type: Type.STRING }, mustHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
-              niceToHaves: { type: Type.ARRAY, items: { type: Type.STRING } }, strategicSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
-              industryDomain: { type: Type.ARRAY, items: { type: Type.STRING } }, stageSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
-              topCriticalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-              hardGates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { category: { type: Type.STRING }, requirement: { type: Type.STRING } } } },
-            },
-          },
-        },
-      });
-      res.json({ output: JSON.parse(response.text!) });
+      if (!(id in DEFAULT_PROMPTS)) return res.status(404).json({ error: `Unknown prompt "${id}"` });
+      const adminApp = getAdminApp();
+
+      const providerParam = req.query.provider as string | undefined;
+      const modelParam = req.query.model as string | undefined;
+      const knowledgeParam = typeof req.query.knowledge === "string" ? (req.query.knowledge as string) : undefined;
+      const knowledgeOverride = knowledgeParam === undefined ? undefined : knowledgeParam === "" ? [] : knowledgeParam.split(",");
+
+      const resolved = providerParam && modelParam
+        ? { provider: providerParam as AIProviderId, model: modelParam }
+        : await resolveModelForPrompt(adminApp, id);
+
+      const knowledgeFiles = await resolveKnowledgeSelection(adminApp, id, knowledgeOverride);
+      const preamble = buildKnowledgePreambleFromFiles(id, knowledgeFiles);
+
+      const template = getActivePrompt(id);
+      const sampleText = renderSampleContents(id, preamble, template);
+      const estimatedTokens = countTokens(sampleText);
+      const contextWindow = await getContextWindow(resolved.provider, resolved.model);
+      const ratio = contextWindow ? estimatedTokens / contextWindow : null;
+      const warningLevel = ratio === null ? "unknown" : ratio > 0.9 ? "over" : ratio > 0.7 ? "near" : "ok";
+
+      res.json({ estimatedTokens, contextWindow, warningLevel, knowledgeFiles, provider: resolved.provider, model: resolved.model });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
     }
   });
 
+  // Runs a candidate prompt template (possibly unsaved edits) against a
+  // realistic sample for this prompt (server/ai/promptSampleInputs.ts),
+  // through the same model-resolution/provider-shim path real production
+  // traffic for this prompt would use — so what Test Run shows is provably
+  // what saving these settings would actually do.
+  app.post("/api/admin/prompts/:id/testRun", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { template, provider, model, knowledge } = req.body as {
+        template: string;
+        provider?: AIProviderId;
+        model?: string;
+        knowledge?: string[] | null;
+      };
+      if (!(id in DEFAULT_PROMPTS)) return res.status(404).json({ error: `Unknown prompt "${id}"` });
+
+      const adminApp = getAdminApp();
+      const resolved = provider && model ? { provider, model } : await resolveModelForPrompt(adminApp, id);
+      const knowledgeFiles = await resolveKnowledgeSelection(adminApp, id, knowledge === undefined ? undefined : knowledge);
+      const preamble = buildKnowledgePreambleFromFiles(id, knowledgeFiles);
+
+      const client = createLegacyGenAI(resolved.provider, resolved.model);
+      const schema = LEGACY_RESPONSE_SCHEMAS[id];
+      const contents = renderSampleContents(id, preamble, template);
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents,
+        config: schema ? { responseMimeType: "application/json", responseSchema: schema as any } : undefined,
+      });
+
+      const output = schema ? JSON.parse(response.text!) : response.text;
+      res.json({ output, usage: response.usageMetadata, provider: resolved.provider, model: resolved.model });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/admin/aiDefaults", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    res.json(await getAiDefaults(adminApp));
+  });
+
+  app.post("/api/admin/aiDefaults", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      validateAiDefaultsUpdate(req.body);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const updated = await setAiDefaults(adminApp, req.body);
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: "platform",
+        action: "update_ai_defaults",
+        details: { updates: req.body },
+      });
+      res.json(updated);
+    } catch (e: any) {
+      console.error("setAiDefaults failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/admin/knowledgeFiles", (req, res) => {
+    res.json({ files: ALL_KNOWLEDGE_FILE_NAMES });
+  });
+
   app.post("/api/ai/parse", async (req, res) => {
     try {
       const { jdText, company, roleTitle } = req.body;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("parse");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "parse");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('parse')}
 
 Company: ${company || ''}
@@ -1113,35 +1247,10 @@ Job Description:
 ${jdText}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              company: { type: Type.STRING },
-              roleTitle: { type: Type.STRING },
-              reportingLine: { type: Type.STRING },
-              teamScope: { type: Type.STRING },
-              mustHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
-              niceToHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
-              strategicSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
-              industryDomain: { type: Type.ARRAY, items: { type: Type.STRING } },
-              stageSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
-              topCriticalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-              hardGates: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING },
-                    requirement: { type: Type.STRING }
-                  }
-                }
-              }
-            },
-            required: ["company", "roleTitle", "reportingLine", "teamScope", "mustHaves", "niceToHaves", "strategicSignals", "industryDomain", "stageSignals", "topCriticalSkills", "hardGates"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.parse as any,
         }
       });
-      await trackUsage(req, "parse", "gemini-3.1-pro-preview", response.usageMetadata);
+      await trackUsage(req, "parse", resolved.model, response.usageMetadata, resolved.provider);
       res.json({ ...JSON.parse(response.text!), jdSegments: segmentJdText(jdText) });
     } catch (e: any) {
       console.error(e);
@@ -1154,9 +1263,9 @@ ${jdText}`,
   app.post("/api/ai/keywords", async (req, res) => {
     try {
       const { parse, careerJourney, jdSegments } = req.body;
-      const client = await getAIClientForRequest(req, "gemini-3.5-flash-lite");
+      const client = await getAIClientForRequest(req, "keywords");
       const { data, usage, model } = await client.generateStructured({
-        systemPrompt: `${KNOWLEDGE_PREAMBLE}${getActivePrompt('keywords')}`,
+        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "keywords")}${getActivePrompt('keywords')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse, null, 2)}
 
@@ -1187,9 +1296,11 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
         return res.json([]);
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash-lite",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("clarifyQuestions");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "clarifyQuestions");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('clarifyQuestions')}
 
 List of Gap Keywords and their ATS status:
@@ -1199,26 +1310,11 @@ Candidate Master Career Journey Roles:
 ${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organization: r.organization, title: r.title })), null, 2)}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                keywordId: { type: Type.STRING },
-                keywordPhrase: { type: Type.STRING },
-                questionText: { type: Type.STRING },
-                suggestedAction: { type: Type.STRING },
-                targetRoleId: { type: Type.STRING },
-                proposedAdditionType: { type: Type.STRING, description: "'Add new deliverable' | 'Add new achievement' | 'Add new skill'" }
-              },
-              required: ["id", "keywordId", "keywordPhrase", "questionText", "suggestedAction", "targetRoleId", "proposedAdditionType"]
-            }
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.clarifyQuestions as any,
         }
       });
 
-      await trackUsage(req, "clarifyQuestions", "gemini-3.5-flash-lite", response.usageMetadata);
+      await trackUsage(req, "clarifyQuestions", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1231,9 +1327,9 @@ ${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organ
   app.post("/api/ai/fitScore", async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, gateClarifications, jdSegments } = req.body;
-      const client = await getAIClientForRequest(req, "gemini-3.5-flash-lite");
+      const client = await getAIClientForRequest(req, "fitScore");
       const { data, usage, model } = await client.generateStructured({
-        systemPrompt: `${KNOWLEDGE_PREAMBLE}${getActivePrompt('fitScore')}`,
+        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "fitScore")}${getActivePrompt('fitScore')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse)}
 JD Segments (cite ids from here in jdRefs when a gap or lead-with point traces to specific JD text):
@@ -1258,9 +1354,11 @@ Generate an objective fit analysis. If the candidate has provided convincing exp
   app.post("/api/ai/auditGates", async (req, res) => {
     try {
       const { parse, careerJourney, gateClarifications, jdSegments } = req.body;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash-lite",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("auditGates");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "auditGates");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('auditGates')}
 
 Job Parse (containing requirements & hard gates):
@@ -1276,32 +1374,10 @@ Active Candidate Clarifications / Proofs (if any, keyed by the gate category or 
 ${JSON.stringify(gateClarifications || {}, null, 2)}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              overallVerdict: { type: Type.STRING, description: "'CLEAR TO APPLY' | 'VERIFY FIRST' | 'LIKELY AUTO-REJECT'" },
-              gates: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING },
-                    requirement: { type: Type.STRING },
-                    verdict: { type: Type.STRING, description: "'CLEAR' | 'FAIL' | 'UNCERTAIN'" },
-                    reason: { type: Type.STRING },
-                    suggestedAction: { type: Type.STRING },
-                    evidenceRefs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { type: { type: Type.STRING }, id: { type: Type.STRING } }, required: ["type", "id"] } },
-                    jdRefs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { segmentId: { type: Type.STRING } }, required: ["segmentId"] } }
-                  },
-                  required: ["category", "requirement", "verdict", "reason", "suggestedAction"]
-                }
-              }
-            },
-            required: ["overallVerdict", "gates"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.auditGates as any,
         }
       });
-      await trackUsage(req, "auditGates", "gemini-3.5-flash-lite", response.usageMetadata);
+      await trackUsage(req, "auditGates", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1446,9 +1522,11 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
   app.post("/api/ai/liteScan", requireAnyPaidPlan, async (req, res) => {
     try {
       const { jdText, careerJourney, archiveLearnings } = req.body;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash-lite",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("liteScan");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "liteScan");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('liteScan')}
 
 Job Description:
@@ -1459,46 +1537,10 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
 ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these — if this posting resembles a pattern that's previously led to rejection or a bad fit, reflect that in matchScore/verdict/topGaps rather than scoring on keyword overlap alone):\n${archiveLearnings}\n` : ''}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              parse: {
-                type: Type.OBJECT,
-                properties: {
-                  company: { type: Type.STRING },
-                  roleTitle: { type: Type.STRING },
-                  reportingLine: { type: Type.STRING },
-                  teamScope: { type: Type.STRING },
-                  mustHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  niceToHaves: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  strategicSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  industryDomain: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  stageSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  topCriticalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  hardGates: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        category: { type: Type.STRING },
-                        requirement: { type: Type.STRING }
-                      }
-                    }
-                  }
-                },
-                required: ["company", "roleTitle", "reportingLine", "teamScope", "mustHaves", "niceToHaves", "strategicSignals", "industryDomain", "stageSignals", "topCriticalSkills", "hardGates"]
-              },
-              matchScore: { type: Type.NUMBER },
-              verdict: { type: Type.STRING, description: "'PASS' | 'BORDERLINE' | 'SKIP'" },
-              hardGateRisk: { type: Type.STRING, description: "'CLEAR TO APPLY' | 'VERIFY FIRST' | 'LIKELY AUTO-REJECT'" },
-              topGaps: { type: Type.ARRAY, items: { type: Type.STRING } },
-              leadWith: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["parse", "matchScore", "verdict", "hardGateRisk", "topGaps", "leadWith"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.liteScan as any,
         }
       });
-      await trackUsage(req, "liteScan", "gemini-3.5-flash-lite", response.usageMetadata);
+      await trackUsage(req, "liteScan", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1508,97 +1550,8 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
 
   // Delta-based, not full-object-regeneration: asking Gemini to return an entire
   // updated CareerJourney under a bare `{ type: Type.OBJECT }` reliably comes back
-  // `{}` (confirmed while building the Phase 4/5 builder endpoints - Gemini treats an
-  // OBJECT schema with no declared `properties` as "no properties allowed"). Every
-  // field below is a flat, fully-typed leaf, so there's nowhere for that trap to hide.
-  // The server applies the delta to the existing Career Journey itself, the same way
-  // the Phase 5 interview-refinement endpoint does.
-  const PATCH_DELTA_SCHEMA = {
-    type: Type.OBJECT,
-    properties: {
-      reason: { type: Type.STRING },
-      newAchievements: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            category: { type: Type.STRING },
-            targetRoleId: { type: Type.STRING },
-          },
-          required: ["title"],
-        },
-      },
-      newSkills: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            category: { type: Type.STRING },
-            proficiency: { type: Type.STRING },
-            years_experience: { type: Type.NUMBER },
-            last_used: { type: Type.STRING },
-          },
-          required: ["name"],
-        },
-      },
-      newDeliverables: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            targetRoleId: { type: Type.STRING },
-            targetInitiativeId: { type: Type.STRING },
-            description: { type: Type.STRING },
-            impact: { type: Type.STRING },
-            capability_alignment: { type: Type.ARRAY, items: { type: Type.STRING } },
-            skill_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
-          },
-          required: ["targetRoleId", "description"],
-        },
-      },
-      updatedDeliverables: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            deliverableId: { type: Type.STRING },
-            description: { type: Type.STRING },
-            impact: { type: Type.STRING },
-          },
-          required: ["deliverableId"],
-        },
-      },
-      updatedAchievements: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            achievementId: { type: Type.STRING },
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-          },
-          required: ["achievementId"],
-        },
-      },
-      updatedSkills: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            skillId: { type: Type.STRING },
-            proficiency: { type: Type.STRING },
-            years_experience: { type: Type.NUMBER },
-            last_used: { type: Type.STRING },
-          },
-          required: ["skillId"],
-        },
-      },
-    },
-    required: ["reason"],
-  };
+  // `{}` — see server/ai/legacySchemas.ts's PATCH_DELTA_SCHEMA (used below via
+  // LEGACY_RESPONSE_SCHEMAS.patchJourney), which this endpoint's schema was moved into.
 
   // Applies a PATCH_DELTA_SCHEMA-shaped delta to a deep copy of careerJourney,
   // assigning real IDs as it goes. Returns the updated journey plus human-readable
@@ -1710,9 +1663,11 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
       const { careerJourney, contextEntries } = req.body;
       const nextIds = computeNextIds(careerJourney);
       const nextVersion = computeNextVersion(careerJourney?.meta?.version);
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview", // Need a smarter model for JSON merging
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("patchJourney");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "patchJourney");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('patchJourney')}
 
 Existing Career Journey:
@@ -1722,11 +1677,11 @@ New Context Entries (key is Keyword ID, value is Context Object):
 ${JSON.stringify(contextEntries, null, 2)}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: PATCH_DELTA_SCHEMA,
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.patchJourney as any,
         },
       });
       const delta = JSON.parse(response.text!);
-      await trackUsage(req, "patchJourney", "gemini-3.1-pro-preview", response.usageMetadata);
+      await trackUsage(req, "patchJourney", resolved.model, response.usageMetadata, resolved.provider);
       const { updatedCareerJourney, summary: deltaSummary } = applyCareerJourneyDelta(careerJourney, delta, nextIds);
 
       updatedCareerJourney.meta = updatedCareerJourney.meta || {};
@@ -1755,9 +1710,11 @@ ${JSON.stringify(contextEntries, null, 2)}`,
   app.post("/api/ai/resumeStrategy", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, remediation } = req.body as { parse: any; careerJourney: any; contextEntries: any; remediation?: string[] };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("resumeStrategy");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "resumeStrategy");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('resumeStrategy')}
 ${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed Stage 7 keyword gate. Work these missing keywords truthfully into keywordPlacement, skillRows, and/or selectedOutcomes wherever the Career Journey honestly supports them - never fabricate evidence for one that has none: ${remediation.join(', ')}\n` : ''}
 Generate a Resume Strategy for this job posting based on candidate's context.
@@ -1772,54 +1729,10 @@ ${JSON.stringify(contextEntries)}
 Output a detailed strategy.`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              outputBasename: { type: Type.STRING },
-              headerTagline: { type: Type.STRING },
-              executiveSummary: { type: Type.STRING },
-              selectedOutcomes: { type: Type.ARRAY, items: { type: Type.STRING } },
-              roleStrategies: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    company: { type: Type.STRING },
-                    titleReframe: { type: Type.STRING },
-                    note: { type: Type.STRING }
-                  },
-                  required: ["company", "titleReframe", "note"]
-                }
-              },
-              skillRows: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    label: { type: Type.STRING },
-                    content: { type: Type.STRING }
-                  },
-                  required: ["label", "content"]
-                }
-              },
-              keywordPlacement: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING },
-                    keywords: { type: Type.ARRAY, items: { type: Type.STRING } }
-                  },
-                  required: ["category", "keywords"]
-                }
-              },
-              cautionClaims: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["outputBasename", "headerTagline", "executiveSummary", "selectedOutcomes", "roleStrategies", "skillRows", "keywordPlacement", "cautionClaims"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.resumeStrategy as any,
         }
       });
-      await trackUsage(req, "resumeStrategy", "gemini-3.1-pro-preview", response.usageMetadata);
+      await trackUsage(req, "resumeStrategy", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1834,9 +1747,11 @@ Output a detailed strategy.`,
   app.post("/api/ai/generateResume", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { careerJourney, strategy, parse, remediation } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[] };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("generateResume");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "generateResume");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('generateResume')}
 ${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed keyword gate. These keywords are missing and must be truthfully worked into the summary, skills, or a role bullet if any honest evidence supports them (do not fabricate experience for a keyword that has none): ${remediation.join(', ')}\n` : ''}
 
@@ -1851,71 +1766,10 @@ ${JSON.stringify(parse, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              contactInfo: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              skills: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: { category: { type: Type.STRING }, terms: { type: Type.STRING } },
-                  required: ["category", "terms"]
-                }
-              },
-              experience: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    company: { type: Type.STRING },
-                    companyDescriptor: { type: Type.STRING, description: "The canonical resume_company_descriptor for this role's employer, verbatim from the Career Journey, if one exists." },
-                    companyUrl: { type: Type.STRING, description: "The canonical resume_company_url for this role's employer, verbatim from the Career Journey, if one exists." },
-                    title: { type: Type.STRING },
-                    dates: { type: Type.STRING },
-                    location: { type: Type.STRING },
-                    bullets: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          text: { type: Type.STRING },
-                          evidenceRefs: {
-                            type: Type.ARRAY,
-                            items: {
-                              type: Type.OBJECT,
-                              properties: { type: { type: Type.STRING }, id: { type: Type.STRING } },
-                              required: ["type", "id"]
-                            }
-                          }
-                        },
-                        required: ["text"]
-                      }
-                    }
-                  },
-                  required: ["company", "title", "dates", "location", "bullets"]
-                }
-              },
-              education: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    institution: { type: Type.STRING },
-                    degree: { type: Type.STRING },
-                    graduationDate: { type: Type.STRING }
-                  },
-                  required: ["institution", "degree", "graduationDate"]
-                }
-              }
-            },
-            required: ["name", "contactInfo", "summary", "skills", "experience", "education"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.generateResume as any,
         }
       });
-      await trackUsage(req, "generateResume", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "generateResume", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1926,9 +1780,11 @@ ${JSON.stringify(parse, null, 2)}`,
   app.post("/api/ai/coverLetter", requireFeature("cover_letter"), async (req, res) => {
     try {
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("coverLetter");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "coverLetter");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('coverLetter')}
 
 Job Parse:
@@ -1947,19 +1803,12 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              content: { type: Type.STRING },
-              wordCount: { type: Type.NUMBER }
-            },
-            required: ["content", "wordCount"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.coverLetter as any,
         }
       });
       const result = JSON.parse(response.text!);
       result.approvalStatus = "Draft";
-      await trackUsage(req, "coverLetter", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "coverLetter", resolved.model, response.usageMetadata, resolved.provider);
       res.json(result);
     } catch (e: any) {
       console.error(e);
@@ -1975,9 +1824,11 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       };
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Assistant"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("applicationAssistant");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "applicationAssistant");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('applicationAssistant')}
 
 Job Parse:
@@ -1997,7 +1848,7 @@ ${history}
 
 Candidate's latest message: "${latest}"`,
       });
-      await trackUsage(req, "applicationAssistant", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "applicationAssistant", resolved.model, response.usageMetadata, resolved.provider);
       res.json({ reply: response.text });
     } catch (e: any) {
       console.error(e);
@@ -2008,9 +1859,11 @@ Candidate's latest message: "${latest}"`,
   app.post("/api/ai/generateFormAnswers", async (req, res) => {
     try {
       const { fields, parse, careerJourney, resume } = req.body as { fields: { id: string; label: string; fieldType: string; options?: string[] }[]; parse: any; careerJourney: any; resume: any };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("generateFormAnswers");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "generateFormAnswers");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('generateFormAnswers')}
 
 Fields:
@@ -2027,26 +1880,13 @@ ${JSON.stringify(careerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              answers: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: { fieldId: { type: Type.STRING }, answer: { type: Type.STRING } },
-                  required: ["fieldId", "answer"]
-                }
-              }
-            },
-            required: ["answers"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.generateFormAnswers as any,
         }
       });
       const { answers } = JSON.parse(response.text!);
       const byId: Record<string, string> = {};
       for (const a of answers) byId[a.fieldId] = a.answer;
-      await trackUsage(req, "generateFormAnswers", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "generateFormAnswers", resolved.model, response.usageMetadata, resolved.provider);
       res.json({ answers: byId });
     } catch (e: any) {
       console.error(e);
@@ -2057,9 +1897,11 @@ ${JSON.stringify(careerJourney, null, 2)}`,
   app.post("/api/ai/interviewPrep", requireFeature("interview_prep"), async (req, res) => {
     try {
       const { round, parse, fitAnalysis, careerJourney } = req.body as { round: any; parse: any; fitAnalysis: any; careerJourney: any };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("interviewPrep");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrep");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('interviewPrep')}
 
 Interview Round:
@@ -2075,23 +1917,12 @@ Career Journey:
 ${JSON.stringify(careerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              likelyQuestions: {
-                type: Type.ARRAY,
-                items: { type: Type.OBJECT, properties: { question: { type: Type.STRING }, why: { type: Type.STRING } }, required: ["question", "why"] }
-              },
-              meetingGoal: { type: Type.STRING },
-              talkingPoints: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["likelyQuestions", "meetingGoal", "talkingPoints"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.interviewPrep as any,
         }
       });
       const result = JSON.parse(response.text!);
       result.generatedAt = new Date().toISOString();
-      await trackUsage(req, "interviewPrep", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "interviewPrep", resolved.model, response.usageMetadata, resolved.provider);
       res.json(result);
     } catch (e: any) {
       console.error(e);
@@ -2107,9 +1938,11 @@ ${JSON.stringify(careerJourney, null, 2)}`,
       };
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Coach"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("interviewPrepChat");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrepChat");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('interviewPrepChat')}
 
 Interview Round:
@@ -2124,7 +1957,7 @@ ${history}
 
 Candidate's latest message: "${latest}"`,
       });
-      await trackUsage(req, "interviewPrepChat", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "interviewPrepChat", resolved.model, response.usageMetadata, resolved.provider);
       res.json({ reply: response.text });
     } catch (e: any) {
       console.error(e);
@@ -2135,9 +1968,11 @@ Candidate's latest message: "${latest}"`,
   app.post("/api/ai/offerGuidance", requireFeature("offer_comparison"), async (req, res) => {
     try {
       const { offer, parse, careerJourney } = req.body as { offer: any; parse: any; careerJourney: any };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("offerGuidance");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "offerGuidance");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('offerGuidance')}
 
 Offer Details:
@@ -2149,19 +1984,10 @@ ${JSON.stringify(careerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              askAbout: { type: Type.ARRAY, items: { type: Type.STRING } },
-              avoidAsking: { type: Type.ARRAY, items: { type: Type.STRING } },
-              negotiationAngles: { type: Type.ARRAY, items: { type: Type.STRING } },
-              redFlags: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["askAbout", "avoidAsking", "negotiationAngles", "redFlags"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.offerGuidance as any,
         }
       });
-      await trackUsage(req, "offerGuidance", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "offerGuidance", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2172,9 +1998,11 @@ ${JSON.stringify(careerJourney, null, 2)}`,
   app.post("/api/ai/compareOffers", requireFeature("offer_comparison"), async (req, res) => {
     try {
       const { offers, careerJourney } = req.body as { offers: { jobId: string; companyName: string; roleTitle: string; offer: any }[]; careerJourney: any };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${KNOWLEDGE_PREAMBLE}
+      const { client, resolved } = await getLegacyClientForPrompt("compareOffers");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "compareOffers");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('compareOffers')}
 
 Offers:
@@ -2184,28 +2012,10 @@ ${JSON.stringify(careerJourney?.person?.positioning || {}, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              perOffer: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    jobId: { type: Type.STRING },
-                    pros: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    cons: { type: Type.ARRAY, items: { type: Type.STRING } }
-                  },
-                  required: ["jobId", "pros", "cons"]
-                }
-              },
-              recommendation: { type: Type.STRING }
-            },
-            required: ["perOffer", "recommendation"]
-          }
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.compareOffers as any,
         }
       });
-      await trackUsage(req, "compareOffers", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "compareOffers", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2215,111 +2025,18 @@ ${JSON.stringify(careerJourney?.person?.positioning || {}, null, 2)}`,
 
   // Gemini's structured-output mode treats a bare `{ type: Type.OBJECT }` (no
   // `properties`) as "an object with no properties allowed" and returns `{}` —
-  // learned by actually testing this endpoint, not by inspection. The draft needs a
-  // concrete (if partial) shape so the model has somewhere to put what it extracts.
-  const DRAFT_CAREER_JOURNEY_SCHEMA = {
-    type: Type.OBJECT,
-    properties: {
-      person: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          location: { type: Type.STRING },
-          phone: { type: Type.STRING },
-          email: { type: Type.STRING },
-          linkedin: { type: Type.STRING },
-        },
-      },
-      roles: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            organization: { type: Type.STRING },
-            title: { type: Type.STRING },
-            start_date: { type: Type.STRING },
-            end_date: { type: Type.STRING },
-            location: { type: Type.STRING },
-            description: { type: Type.STRING },
-            initiatives: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  name: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  deliverables: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        id: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        impact: { type: Type.STRING },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      achievements: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            category: { type: Type.STRING },
-            role_ids: { type: Type.ARRAY, items: { type: Type.STRING } },
-          },
-        },
-      },
-      skills_index: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            name: { type: Type.STRING },
-            category: { type: Type.STRING },
-            proficiency: { type: Type.STRING },
-            last_used: { type: Type.STRING },
-          },
-        },
-      },
-      education: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            id: { type: Type.STRING },
-            institution: { type: Type.STRING },
-            program: { type: Type.STRING },
-            degree_type: { type: Type.STRING },
-            start: { type: Type.STRING },
-            end: { type: Type.STRING },
-          },
-        },
-      },
-    },
-  };
+  // see server/ai/legacySchemas.ts's DRAFT_CAREER_JOURNEY_SCHEMA (used below via
+  // LEGACY_RESPONSE_SCHEMAS), which this endpoint's schema was moved into.
 
   app.post("/api/ai/buildJourneyFromResume", requireFeature("strengthen_journey"), async (req, res) => {
     try {
       const { resumeText } = req.body as { resumeText: string };
       const nextIds = computeNextIds({});
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
-
----
-
+      const { client, resolved } = await getLegacyClientForPrompt("buildJourneyFromResume");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "buildJourneyFromResume");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('buildJourneyFromResume')}
 
 Start ID numbering fresh from these values: ${JSON.stringify(nextIds)}.
@@ -2328,17 +2045,10 @@ Resume text:
 ${resumeText}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              draftCareerJourney: DRAFT_CAREER_JOURNEY_SCHEMA,
-              notes: { type: Type.ARRAY, items: { type: Type.STRING } },
-            },
-            required: ["draftCareerJourney", "notes"],
-          },
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.buildJourneyFromResume as any,
         },
       });
-      await trackUsage(req, "buildJourneyFromResume", "gemini-3.1-pro-preview", response.usageMetadata);
+      await trackUsage(req, "buildJourneyFromResume", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2357,12 +2067,11 @@ ${resumeText}`,
         .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
         .join("\n");
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.7-flash",
-        contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
-
----
-
+      const { client, resolved } = await getLegacyClientForPrompt("buildJourneyChat");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "buildJourneyChat");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePrompt('buildJourneyChat')}
 
 Current draft so far (merge each new answer into this, don't restart it): ${JSON.stringify(currentDraft || {})}
@@ -2373,18 +2082,10 @@ Conversation so far:
 ${transcriptText}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              assistantMessage: { type: Type.STRING },
-              updatedDraft: DRAFT_CAREER_JOURNEY_SCHEMA,
-              readyForReview: { type: Type.BOOLEAN },
-            },
-            required: ["assistantMessage", "updatedDraft", "readyForReview"],
-          },
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.buildJourneyChat as any,
         },
       });
-      await trackUsage(req, "buildJourneyChat", "gemini-3.7-flash", response.usageMetadata);
+      await trackUsage(req, "buildJourneyChat", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2400,12 +2101,11 @@ ${transcriptText}`,
         question: string;
         answer: string;
       };
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `${CAREER_JOURNEY_BUILDER_KNOWLEDGE}
-
----
-
+      const { client, resolved } = await getLegacyClientForPrompt("refineFromInterviewAnswer");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "refineFromInterviewAnswer");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
 ${getActivePromptFilled('refineFromInterviewAnswer', { entityType })}
 
 Current ${entityType}: ${JSON.stringify(current)}
@@ -2415,21 +2115,10 @@ Question asked: ${question}
 User's answer: ${answer}`,
         config: {
           responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              last_used: { type: Type.STRING },
-              proficiency: { type: Type.STRING },
-              years_experience: { type: Type.NUMBER },
-              summary: { type: Type.STRING },
-            },
-            required: ["summary"],
-          },
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.refineFromInterviewAnswer as any,
         },
       });
-      await trackUsage(req, "refineFromInterviewAnswer", "gemini-3.1-pro-preview", response.usageMetadata);
+      await trackUsage(req, "refineFromInterviewAnswer", resolved.model, response.usageMetadata, resolved.provider);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);

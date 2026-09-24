@@ -1,6 +1,7 @@
 import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, KeywordCoverage, CareerJourneyPatch, ExperienceContext, GeneratedResume, ClarificationQuestion, CoverLetter, JobMatchScanResult, SourcedJobPosting } from '../types';
 import { auth } from './firebase';
 import { getStoredByomKey } from './byomKeyStorage';
+import { AIProviderId } from '../types/billing';
 
 // No-op when Firebase isn't configured; once it is, every API call carries the
 // signed-in user's ID token so server.ts's requireFirebaseAuth can verify it.
@@ -192,6 +193,22 @@ export interface AdminPromptConfig {
   template: string;
   updatedAt: string | null;
   version: number;
+  modelOverride: { provider: AIProviderId; model: string } | null;
+  includedKnowledge: string[] | null;
+}
+
+export interface AiDefaults {
+  provider: AIProviderId;
+  model: string;
+}
+
+export interface PromptContextSize {
+  estimatedTokens: number;
+  contextWindow: number | null;
+  warningLevel: 'ok' | 'near' | 'over' | 'unknown';
+  knowledgeFiles: string[];
+  provider: AIProviderId;
+  model: string;
 }
 
 export async function getAdminPrompts(): Promise<Record<string, AdminPromptConfig>> {
@@ -212,10 +229,54 @@ export async function restoreAdminPromptDefault(id: string): Promise<AdminPrompt
   return await res.json();
 }
 
-export async function testRunAdminPrompt(id: string, template: string): Promise<{ output: any }> {
-  const res = await apiPost(`/api/admin/prompts/${id}/testRun`, { template });
+export async function saveAdminPromptAiConfig(
+  id: string,
+  updates: { modelOverride?: { provider: AIProviderId; model: string } | null; includedKnowledge?: string[] | null }
+): Promise<{ modelOverride: { provider: AIProviderId; model: string } | null; includedKnowledge: string[] | null }> {
+  const res = await apiPost(`/api/admin/prompts/${id}/aiConfig`, updates);
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function getAdminPromptContextSize(
+  id: string,
+  draft: { provider?: AIProviderId; model?: string; knowledge?: string[] | null }
+): Promise<PromptContextSize> {
+  const params = new URLSearchParams();
+  if (draft.provider) params.set('provider', draft.provider);
+  if (draft.model) params.set('model', draft.model);
+  if (draft.knowledge !== undefined) params.set('knowledge', (draft.knowledge ?? []).join(','));
+  const res = await fetch(`/api/admin/prompts/${id}/contextSize?${params.toString()}`, { headers: await authHeaders() });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function testRunAdminPrompt(
+  id: string,
+  template: string,
+  draft?: { provider?: AIProviderId; model?: string; knowledge?: string[] | null }
+): Promise<{ output: any; usage?: any; provider?: AIProviderId; model?: string }> {
+  const res = await apiPost(`/api/admin/prompts/${id}/testRun`, { template, ...draft });
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Test run failed');
   return await res.json();
+}
+
+export async function getAdminAiDefaults(): Promise<AiDefaults> {
+  const res = await fetch('/api/admin/aiDefaults', { headers: await authHeaders() });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function saveAdminAiDefaults(updates: Partial<AiDefaults>): Promise<AiDefaults> {
+  const res = await apiPost('/api/admin/aiDefaults', updates);
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function getAdminKnowledgeFiles(): Promise<string[]> {
+  const res = await fetch('/api/admin/knowledgeFiles', { headers: await authHeaders() });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return (await res.json()).files;
 }
 
 export async function buildJourneyChat(

@@ -7,34 +7,54 @@ import { OllamaClient } from "./ollamaClient";
 import { getAdminApp } from "../firebaseAdmin";
 import { getBillingState } from "../billing";
 import { isByomPlan } from "../../src/types/billing";
+import { resolveModelForPrompt } from "./resolveModelForPrompt";
 
 const platformClients = new Map<string, StructuredAIClient>();
 
 /**
- * Which provider free/Pro Monthly users (and local dev/unauthenticated
- * requests) get by default. Defaults to "ollama" — a local model costs
- * nothing to run and keeps user data off any third-party API — but can be
- * switched back to "gemini" via env var without a code change.
+ * Env-only fallback provider, used when there's no admin config doc to read
+ * (local dev without Firebase) or no providerOverride is given. Defaults to
+ * "ollama" — a local model costs nothing to run and keeps user data off any
+ * third-party API — but can be switched via env var without a code change.
  */
 function platformProvider(): "ollama" | "gemini" {
   return (process.env.AI_PLATFORM_PROVIDER || "ollama").toLowerCase() === "gemini" ? "gemini" : "ollama";
 }
 
-function getPlatformClient(model?: string): StructuredAIClient {
-  const provider = platformProvider();
+/**
+ * `providerOverride`/`model` let a caller that already resolved an admin's
+ * per-prompt or global AI-defaults config (resolveModelForPrompt) hand this
+ * function the real provider/model to use, instead of falling back to the
+ * env-var-only platformProvider() — the only way admin config for OpenAI/
+ * Anthropic platform defaults can ever take effect, since env vars alone
+ * only distinguish "ollama" vs "gemini".
+ */
+function getPlatformClient(model?: string, providerOverride?: AIProviderId): StructuredAIClient {
+  const provider = providerOverride || platformProvider();
   const cacheKey = `${provider}:${model || ""}`;
   let client = platformClients.get(cacheKey);
   if (client) return client;
 
-  if (provider === "ollama") {
-    const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-    const ollamaModel = process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b";
-    client = new OllamaClient(baseUrl, ollamaModel);
-  } else {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
+  switch (provider) {
+    case "ollama": {
+      const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+      client = new OllamaClient(baseUrl, model || process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b");
+      break;
     }
-    client = new GeminiClient(process.env.GEMINI_API_KEY, model || "gemini-3.5-flash-lite");
+    case "openai": {
+      if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+      client = new OpenAIClient(process.env.OPENAI_API_KEY, model);
+      break;
+    }
+    case "anthropic": {
+      if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
+      client = new AnthropicClient(process.env.ANTHROPIC_API_KEY, model);
+      break;
+    }
+    default: {
+      if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
+      client = new GeminiClient(process.env.GEMINI_API_KEY, model || "gemini-3.5-flash-lite");
+    }
   }
   platformClients.set(cacheKey, client);
   return client;
@@ -62,21 +82,24 @@ export function buildProviderClient(provider: AIProviderId, apiKey: string, mode
 }
 
 /**
- * Resolves the AI client for a specific request. Free/Pro Monthly (and local
- * dev/unauthenticated fallback) get the platform client (Ollama by default —
- * see platformProvider()). BYOM tiers get a client built from the
- * key/provider/model carried in request headers — never a server-side lookup,
- * since the key is deliberately never stored (see payment-system-plan.md's
- * Phase 4 key-handling decision). Provider and model fall back to the user's
- * saved *choice* (not the key — see server/billing.ts's byomProvider/byomModel
- * fields) if the headers omit them, so the client doesn't have to resend them
- * on every single request.
+ * Resolves the AI client for a specific request/prompt. Free/Pro Monthly (and
+ * local dev/unauthenticated fallback) get the platform client — provider and
+ * model resolved from the admin's per-prompt override or global default
+ * (resolveModelForPrompt), falling back to env vars with no admin config doc
+ * present. BYOM tiers get a client built from the key/provider/model carried
+ * in request headers — never a server-side lookup, since the key is
+ * deliberately never stored (see payment-system-plan.md's Phase 4 key-
+ * handling decision). Provider and model fall back to the user's saved
+ * *choice* (not the key — see server/billing.ts's byomProvider/byomModel
+ * fields), then the admin-resolved platform default, if the headers omit them.
  */
-export async function getAIClientForRequest(req: Request, defaultModel?: string): Promise<StructuredAIClient> {
+export async function getAIClientForRequest(req: Request, promptId: string): Promise<StructuredAIClient> {
   const uid = (req as any).uid as string | undefined;
   const app = getAdminApp();
+  const platformDefault = await resolveModelForPrompt(app, promptId);
+
   if (!app || !uid) {
-    return getPlatformClient(defaultModel);
+    return getPlatformClient(platformDefault.model, platformDefault.provider);
   }
 
   const billing = await getBillingState(app, uid);
@@ -88,11 +111,11 @@ export async function getAIClientForRequest(req: Request, defaultModel?: string)
     // BYOM plans below.
     const baseUrl = req.header("X-BYOM-Local-Url") || process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     const model = req.header("X-BYOM-Model") || billing.byomModel;
-    return buildProviderClient("ollama", baseUrl, model || defaultModel);
+    return buildProviderClient("ollama", baseUrl, model || platformDefault.model);
   }
 
   if (!isByomPlan(billing.plan)) {
-    return getPlatformClient(defaultModel);
+    return getPlatformClient(platformDefault.model, platformDefault.provider);
   }
 
   const apiKey = req.header("X-BYOM-Key");
@@ -104,7 +127,7 @@ export async function getAIClientForRequest(req: Request, defaultModel?: string)
       "You're on a BYOM plan but haven't added an API key yet — add one in Settings."
     );
   }
-  return buildProviderClient(provider, apiKey, model || defaultModel);
+  return buildProviderClient(provider, apiKey, model || platformDefault.model);
 }
 
 /** Non-request-scoped accessor for code paths not yet migrated to per-user BYOM routing — always the platform client. */

@@ -33,6 +33,7 @@ import Settings from './pages/Settings';
 import MyFeedback from './pages/MyFeedback';
 import AdminFlags from './pages/AdminFlags';
 import AdminModels from './pages/AdminModels';
+import AdminAiDefaults from './pages/AdminAiDefaults';
 import AdminUsers from './pages/AdminUsers';
 import AdminTickets from './pages/AdminTickets';
 import Terms from './pages/legal/Terms';
@@ -69,6 +70,7 @@ export default function App() {
               <Route path="tickets" element={<AdminTickets />} />
               <Route path="flags" element={<AdminFlags />} />
               <Route path="models" element={<AdminModels />} />
+              <Route path="ai-defaults" element={<AdminAiDefaults />} />
               <Route path="prompts" element={<AdminPrompts />} />
             </Route>
             <Route path="/terms" element={<Terms />} />

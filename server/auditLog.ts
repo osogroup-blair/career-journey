@@ -19,7 +19,9 @@ export interface AdminAuditLog {
     | 'revoke_admin'
     | 'triage_ticket'
     | 'update_feature_flags'
-    | 'update_allowed_models';
+    | 'update_allowed_models'
+    | 'update_ai_defaults'
+    | 'update_prompt_ai_config';
   details: Record<string, any>;
   timestamp: string;
 }
