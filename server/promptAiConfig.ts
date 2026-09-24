@@ -3,18 +3,21 @@ import { getFirestore } from "firebase-admin/firestore";
 import type { AIProviderId } from "./ai/types";
 import { ALL_KNOWLEDGE_FILE_NAMES } from "./knowledge";
 import { DEFAULT_PROMPTS } from "./promptStore";
+import { CAREER_JOURNEY_FIELDS } from "./careerJourneyProjection";
 
 export interface PromptAiConfig {
   /** null = inherit the global AI default (server/aiDefaults.ts). */
   modelOverride: { provider: AIProviderId; model: string } | null;
   /** null = include this prompt's default knowledge-file set (all pipeline files, or the Builder file for Builder-stage prompts) — see knowledgePreamble.ts. */
   includedKnowledge: string[] | null;
+  /** null = send the whole Career Journey (today's default behavior); otherwise only these top-level sections — see careerJourneyProjection.ts. Not every prompt honors this (a couple already send a hand-picked slim projection in server.ts and aren't wired to it). */
+  careerJourneyFields: string[] | null;
 }
 
 export type PromptAiConfigMap = Record<string, PromptAiConfig>;
 
 function emptyConfig(): PromptAiConfig {
-  return { modelOverride: null, includedKnowledge: null };
+  return { modelOverride: null, includedKnowledge: null, careerJourneyFields: null };
 }
 
 // Same 30s cache pattern as featureFlags.ts/aiDefaults.ts.
@@ -83,7 +86,19 @@ export function validatePromptAiConfigUpdate(id: string, input: unknown): void {
     }
   }
 
-  const allowedKeys = new Set(["modelOverride", "includedKnowledge"]);
+  if ("careerJourneyFields" in updates && updates.careerJourneyFields !== null) {
+    const fields = updates.careerJourneyFields;
+    if (!Array.isArray(fields) || !fields.every((f) => typeof f === "string")) {
+      throw new Error("careerJourneyFields must be an array of strings or null.");
+    }
+    for (const f of fields) {
+      if (!(CAREER_JOURNEY_FIELDS as readonly string[]).includes(f)) {
+        throw new Error(`Unknown Career Journey field "${f}".`);
+      }
+    }
+  }
+
+  const allowedKeys = new Set(["modelOverride", "includedKnowledge", "careerJourneyFields"]);
   for (const key of Object.keys(updates)) {
     if (!allowedKeys.has(key)) {
       throw new Error(`Unknown prompt-AI-config field "${key}".`);

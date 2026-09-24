@@ -1,4 +1,6 @@
+import type { App } from "firebase-admin/app";
 import type { AIProviderId } from "./types";
+import { getContextWindowOverrideFor } from "../modelContextWindows";
 
 /**
  * Static context-window sizes (input tokens) for cloud models, sourced from
@@ -60,4 +62,31 @@ export async function getContextWindow(provider: AIProviderId, model: string, ol
     return getOllamaContextWindow(ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://localhost:11434", model);
   }
   return CLOUD_CONTEXT_WINDOWS[model] ?? CLOUD_DEFAULT_CONTEXT_WINDOW[provider];
+}
+
+export interface ResolvedContextWindow {
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  source: "admin" | "builtin";
+}
+
+/**
+ * Override-aware entry point: an admin-set value (server/modelContextWindows.ts)
+ * beats the static table/live Ollama introspection this file falls back to.
+ * Callers that don't need admin overrides (there are none left — even the
+ * contextSize estimator wants overrides honored) can still call
+ * getContextWindow directly for the raw built-in figure.
+ */
+export async function resolveContextWindow(
+  app: App | null,
+  provider: AIProviderId,
+  model: string,
+  ollamaBaseUrl?: string
+): Promise<ResolvedContextWindow> {
+  const override = await getContextWindowOverrideFor(app, provider, model);
+  if (override) {
+    return { contextWindow: override.contextWindow, maxOutputTokens: override.maxOutputTokens ?? null, source: "admin" };
+  }
+  const contextWindow = await getContextWindow(provider, model, ollamaBaseUrl);
+  return { contextWindow, maxOutputTokens: null, source: "builtin" };
 }

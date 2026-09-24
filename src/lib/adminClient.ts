@@ -1,7 +1,7 @@
 import { authHeaders } from './aiClient';
 import { AllowedModelsConfig } from '../types/aiModels';
 import { Ticket, TicketMessage, TicketStatus, TicketTriageType } from '../types/support';
-import { PlanId } from '../types/billing';
+import { PlanId, AIProviderId } from '../types/billing';
 import { FeatureFlags } from '../types/featureFlags';
 
 export type { FeatureFlags };
@@ -108,6 +108,33 @@ export const getFeatureFlags = (): Promise<FeatureFlags> => adminGet('/api/admin
 export const saveFeatureFlags = (updates: Partial<FeatureFlags>): Promise<FeatureFlags> => adminPost('/api/admin/featureFlags', updates);
 
 export const saveAllowedModels = (config: AllowedModelsConfig): Promise<void> => adminPost('/api/admin/allowedModels', config);
+
+export interface ContextWindowOverride {
+  contextWindow: number;
+  maxOutputTokens?: number;
+  updatedAt: string;
+}
+
+export interface ResolvedContextWindow {
+  provider: AIProviderId;
+  model: string;
+  builtin: number | null;
+  override: ContextWindowOverride | null;
+  effective: number | null;
+}
+
+export const resolveContextWindows = (models: { provider: AIProviderId; model: string }[]): Promise<ResolvedContextWindow[]> =>
+  adminPost('/api/admin/context-windows/resolve', { models });
+
+export const saveContextWindowOverride = (
+  provider: AIProviderId,
+  model: string,
+  updates: { contextWindow: number; maxOutputTokens?: number | null }
+): Promise<ContextWindowOverride> =>
+  adminPost(`/api/admin/context-windows/${encodeURIComponent(provider)}/${encodeURIComponent(model)}`, updates);
+
+export const clearContextWindowOverride = (provider: AIProviderId, model: string): Promise<{ ok: boolean }> =>
+  adminDelete(`/api/admin/context-windows/${encodeURIComponent(provider)}/${encodeURIComponent(model)}`);
 
 export const listAdminUsers = (): Promise<AdminUserRow[]> => adminGet('/api/admin/users');
 export const getUserDetail = (uid: string): Promise<AdminUserDetail> => adminGet(`/api/admin/users/${uid}/detail`);

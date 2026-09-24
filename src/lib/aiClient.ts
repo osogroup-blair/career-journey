@@ -195,11 +195,17 @@ export interface AdminPromptConfig {
   version: number;
   modelOverride: { provider: AIProviderId; model: string } | null;
   includedKnowledge: string[] | null;
+  careerJourneyFields: string[] | null;
 }
 
 export interface AiDefaults {
   provider: AIProviderId;
   model: string;
+}
+
+export interface CareerJourneyFieldBreakdown {
+  field: string;
+  tokens: number;
 }
 
 export interface PromptContextSize {
@@ -209,6 +215,9 @@ export interface PromptContextSize {
   knowledgeFiles: string[];
   provider: AIProviderId;
   model: string;
+  careerJourneyFields: string[] | null;
+  careerJourneyBreakdown: CareerJourneyFieldBreakdown[];
+  hasCareerJourney: boolean;
 }
 
 export async function getAdminPrompts(): Promise<Record<string, AdminPromptConfig>> {
@@ -231,8 +240,8 @@ export async function restoreAdminPromptDefault(id: string): Promise<AdminPrompt
 
 export async function saveAdminPromptAiConfig(
   id: string,
-  updates: { modelOverride?: { provider: AIProviderId; model: string } | null; includedKnowledge?: string[] | null }
-): Promise<{ modelOverride: { provider: AIProviderId; model: string } | null; includedKnowledge: string[] | null }> {
+  updates: { modelOverride?: { provider: AIProviderId; model: string } | null; includedKnowledge?: string[] | null; careerJourneyFields?: string[] | null }
+): Promise<{ modelOverride: { provider: AIProviderId; model: string } | null; includedKnowledge: string[] | null; careerJourneyFields: string[] | null }> {
   const res = await apiPost(`/api/admin/prompts/${id}/aiConfig`, updates);
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
@@ -240,12 +249,13 @@ export async function saveAdminPromptAiConfig(
 
 export async function getAdminPromptContextSize(
   id: string,
-  draft: { provider?: AIProviderId; model?: string; knowledge?: string[] | null }
+  draft: { provider?: AIProviderId; model?: string; knowledge?: string[] | null; careerJourneyFields?: string[] | null }
 ): Promise<PromptContextSize> {
   const params = new URLSearchParams();
   if (draft.provider) params.set('provider', draft.provider);
   if (draft.model) params.set('model', draft.model);
   if (draft.knowledge !== undefined) params.set('knowledge', (draft.knowledge ?? []).join(','));
+  if (draft.careerJourneyFields !== undefined) params.set('careerJourneyFields', (draft.careerJourneyFields ?? []).join(','));
   const res = await fetch(`/api/admin/prompts/${id}/contextSize?${params.toString()}`, { headers: await authHeaders() });
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
@@ -254,8 +264,8 @@ export async function getAdminPromptContextSize(
 export async function testRunAdminPrompt(
   id: string,
   template: string,
-  draft?: { provider?: AIProviderId; model?: string; knowledge?: string[] | null }
-): Promise<{ output: any; usage?: any; provider?: AIProviderId; model?: string }> {
+  draft?: { provider?: AIProviderId; model?: string; knowledge?: string[] | null; careerJourneyFields?: string[] | null }
+): Promise<{ request?: string; output: any; usage?: any; provider?: AIProviderId; model?: string }> {
   const res = await apiPost(`/api/admin/prompts/${id}/testRun`, { template, ...draft });
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Test run failed');
   return await res.json();
@@ -277,6 +287,45 @@ export async function getAdminKnowledgeFiles(): Promise<string[]> {
   const res = await fetch('/api/admin/knowledgeFiles', { headers: await authHeaders() });
   if (!res.ok) throw new Error(await errorMessage(res));
   return (await res.json()).files;
+}
+
+export interface AdminSkillConfig {
+  filename: string;
+  label: string;
+  family: 'pipeline' | 'builder' | 'custom';
+  content: string;
+  isCustom: boolean;
+  updatedAt: string | null;
+  version: number;
+}
+
+export async function getAdminSkills(): Promise<Record<string, AdminSkillConfig>> {
+  const res = await fetch('/api/admin/skills', { headers: await authHeaders() });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function saveAdminSkill(filename: string, content: string): Promise<AdminSkillConfig> {
+  const res = await apiPost(`/api/admin/skills/${encodeURIComponent(filename)}`, { content });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function restoreAdminSkillDefault(filename: string): Promise<AdminSkillConfig> {
+  const res = await apiPost(`/api/admin/skills/${encodeURIComponent(filename)}/restore`, {});
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function createAdminSkill(filename: string, label: string, content: string): Promise<AdminSkillConfig> {
+  const res = await apiPost('/api/admin/skills', { filename, label, content });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function deleteAdminSkill(filename: string): Promise<void> {
+  const res = await fetch(`/api/admin/skills/${encodeURIComponent(filename)}`, { method: 'DELETE', headers: await authHeaders() });
+  if (!res.ok) throw new Error(await errorMessage(res));
 }
 
 export async function buildJourneyChat(

@@ -14,12 +14,20 @@ import { getDefaultFeatureMatrix } from "./src/types/featureFlags";
 import { getAiDefaults, setAiDefaults, validateAiDefaultsUpdate } from "./server/aiDefaults";
 import { getPromptAiConfigFor, setPromptAiConfigFor, validatePromptAiConfigUpdate, getPromptAiConfigMap } from "./server/promptAiConfig";
 import { resolveModelForPrompt } from "./server/ai/resolveModelForPrompt";
+import { projectCareerJourney, CAREER_JOURNEY_FIELDS, applyCareerJourneyExtractor } from "./server/careerJourneyProjection";
 import { createLegacyGenAI, type LegacyGenAI } from "./server/ai/legacyGenAIShim";
 import { LEGACY_RESPONSE_SCHEMAS } from "./server/ai/legacySchemas";
 import { buildKnowledgePreamble, buildKnowledgePreambleFromFiles, resolveKnowledgeSelection } from "./server/ai/knowledgePreamble";
 import { ALL_KNOWLEDGE_FILE_NAMES } from "./server/knowledge";
-import { getContextWindow } from "./server/ai/contextWindows";
-import { SAMPLE_INPUTS, renderSampleContents } from "./server/ai/promptSampleInputs";
+import { getContextWindow, resolveContextWindow } from "./server/ai/contextWindows";
+import {
+  getContextWindowOverrides,
+  setContextWindowOverride,
+  clearContextWindowOverride,
+  validateContextWindowUpdate,
+  overrideKey,
+} from "./server/modelContextWindows";
+import { SAMPLE_INPUTS, renderSampleContents, getSampleCareerJourney } from "./server/ai/promptSampleInputs";
 import { countTokens } from "gpt-tokenizer";
 import {
   createTicket,
@@ -120,6 +128,17 @@ async function getLegacyClientForPrompt(promptId: string): Promise<{ client: Leg
     legacyClients.set(key, client);
   }
   return { client, resolved };
+}
+
+/**
+ * Narrows a Career Journey down to a prompt's admin-configured
+ * careerJourneyFields selection (server/promptAiConfig.ts) before it's woven
+ * into that prompt's contents — null selection (the default) sends
+ * everything, unchanged from before this existed.
+ */
+async function projectCareerJourneyForPrompt(promptId: string, careerJourney: any): Promise<any> {
+  const cfg = await getPromptAiConfigFor(getAdminApp(), promptId);
+  return projectCareerJourney(careerJourney, cfg.careerJourneyFields);
 }
 
 /**
@@ -1062,6 +1081,7 @@ async function startServer() {
         ...cfg,
         modelOverride: promptAiConfigs[id]?.modelOverride ?? null,
         includedKnowledge: promptAiConfigs[id]?.includedKnowledge ?? null,
+        careerJourneyFields: promptAiConfigs[id]?.careerJourneyFields ?? null,
       };
     }
     res.json(withAiConfig);
@@ -1129,6 +1149,9 @@ async function startServer() {
       const modelParam = req.query.model as string | undefined;
       const knowledgeParam = typeof req.query.knowledge === "string" ? (req.query.knowledge as string) : undefined;
       const knowledgeOverride = knowledgeParam === undefined ? undefined : knowledgeParam === "" ? [] : knowledgeParam.split(",");
+      const careerJourneyFieldsParam = typeof req.query.careerJourneyFields === "string" ? (req.query.careerJourneyFields as string) : undefined;
+      const careerJourneyFieldsOverride =
+        careerJourneyFieldsParam === undefined ? undefined : careerJourneyFieldsParam === "" ? [] : careerJourneyFieldsParam.split(",");
 
       const resolved = providerParam && modelParam
         ? { provider: providerParam as AIProviderId, model: modelParam }
@@ -1137,14 +1160,36 @@ async function startServer() {
       const knowledgeFiles = await resolveKnowledgeSelection(adminApp, id, knowledgeOverride);
       const preamble = buildKnowledgePreambleFromFiles(id, knowledgeFiles);
 
+      const careerJourneyFields =
+        careerJourneyFieldsOverride ?? (await getPromptAiConfigFor(adminApp, id)).careerJourneyFields;
+
+      const sampleCareerJourney = getSampleCareerJourney(id);
+      const projectedSampleCareerJourney = sampleCareerJourney ? projectCareerJourney(sampleCareerJourney, careerJourneyFields) : null;
+      const careerJourneyBreakdown = sampleCareerJourney
+        ? CAREER_JOURNEY_FIELDS
+            .filter((f) => f in sampleCareerJourney && (!careerJourneyFields || careerJourneyFields.includes(f)))
+            .map((f) => ({ field: f, tokens: countTokens(JSON.stringify(sampleCareerJourney[f])) }))
+        : [];
+
       const template = getActivePrompt(id);
-      const sampleText = renderSampleContents(id, preamble, template);
+      const previewCareerJourney = sampleCareerJourney ? applyCareerJourneyExtractor(id, projectedSampleCareerJourney) : null;
+      const sampleText = renderSampleContents(id, preamble, template, sampleCareerJourney ? { careerJourney: previewCareerJourney } : undefined);
       const estimatedTokens = countTokens(sampleText);
-      const contextWindow = await getContextWindow(resolved.provider, resolved.model);
+      const { contextWindow } = await resolveContextWindow(adminApp, resolved.provider, resolved.model);
       const ratio = contextWindow ? estimatedTokens / contextWindow : null;
       const warningLevel = ratio === null ? "unknown" : ratio > 0.9 ? "over" : ratio > 0.7 ? "near" : "ok";
 
-      res.json({ estimatedTokens, contextWindow, warningLevel, knowledgeFiles, provider: resolved.provider, model: resolved.model });
+      res.json({
+        estimatedTokens,
+        contextWindow,
+        warningLevel,
+        knowledgeFiles,
+        provider: resolved.provider,
+        model: resolved.model,
+        careerJourneyFields,
+        careerJourneyBreakdown,
+        hasCareerJourney: !!sampleCareerJourney,
+      });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -1159,11 +1204,12 @@ async function startServer() {
   app.post("/api/admin/prompts/:id/testRun", async (req, res) => {
     try {
       const { id } = req.params;
-      const { template, provider, model, knowledge } = req.body as {
+      const { template, provider, model, knowledge, careerJourneyFields } = req.body as {
         template: string;
         provider?: AIProviderId;
         model?: string;
         knowledge?: string[] | null;
+        careerJourneyFields?: string[] | null;
       };
       if (!(id in DEFAULT_PROMPTS)) return res.status(404).json({ error: `Unknown prompt "${id}"` });
 
@@ -1172,9 +1218,15 @@ async function startServer() {
       const knowledgeFiles = await resolveKnowledgeSelection(adminApp, id, knowledge === undefined ? undefined : knowledge);
       const preamble = buildKnowledgePreambleFromFiles(id, knowledgeFiles);
 
+      const resolvedCareerJourneyFields =
+        careerJourneyFields !== undefined ? careerJourneyFields : (await getPromptAiConfigFor(adminApp, id)).careerJourneyFields;
+      const sampleCareerJourney = getSampleCareerJourney(id);
+      const projectedSampleCareerJourney = sampleCareerJourney ? projectCareerJourney(sampleCareerJourney, resolvedCareerJourneyFields) : null;
+      const previewCareerJourney = sampleCareerJourney ? applyCareerJourneyExtractor(id, projectedSampleCareerJourney) : null;
+
       const client = createLegacyGenAI(resolved.provider, resolved.model);
       const schema = LEGACY_RESPONSE_SCHEMAS[id];
-      const contents = renderSampleContents(id, preamble, template);
+      const contents = renderSampleContents(id, preamble, template, sampleCareerJourney ? { careerJourney: previewCareerJourney } : undefined);
       const response = await client.models.generateContent({
         model: resolved.model,
         contents,
@@ -1182,7 +1234,10 @@ async function startServer() {
       });
 
       const output = schema ? JSON.parse(response.text!) : response.text;
-      res.json({ output, usage: response.usageMetadata, provider: resolved.provider, model: resolved.model });
+      // The exact string sent to the model — surfaced verbatim in the admin UI
+      // so "Test Run" shows the real request/response pair, not just the
+      // parsed output.
+      res.json({ request: contents, output, usage: response.usageMetadata, provider: resolved.provider, model: resolved.model });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -1226,6 +1281,83 @@ async function startServer() {
     }
   });
 
+  // Context-window config: the built-in figure (static table or, for Ollama,
+  // live /api/show introspection — server/ai/contextWindows.ts) versus any
+  // admin override (server/modelContextWindows.ts), resolved together so the
+  // admin page can show both and label which one is actually in effect.
+  app.post("/api/admin/context-windows/resolve", async (req, res) => {
+    try {
+      const { models } = req.body as { models: { provider: AIProviderId; model: string }[] };
+      if (!Array.isArray(models)) return res.status(400).json({ error: "models must be an array" });
+      const adminApp = getAdminApp();
+      const overrides = await getContextWindowOverrides(adminApp);
+
+      const results = await Promise.all(
+        models.map(async ({ provider, model }) => {
+          const builtin = await getContextWindow(provider, model);
+          const override = overrides[overrideKey(provider, model)] ?? null;
+          return {
+            provider,
+            model,
+            builtin,
+            override,
+            effective: override?.contextWindow ?? builtin,
+          };
+        })
+      );
+
+      res.json(results);
+    } catch (e: any) {
+      console.error("resolve context windows failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/context-windows/:provider/:model", async (req, res) => {
+    const { provider, model } = req.params;
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const parsed = validateContextWindowUpdate(req.body);
+      const actorUid = (req as any).uid || "admin";
+      const updated = await setContextWindowOverride(adminApp, provider, model, parsed);
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: "platform",
+        action: "update_model_context_window",
+        details: { provider, model, updates: parsed },
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/admin/context-windows/:provider/:model", async (req, res) => {
+    const { provider, model } = req.params;
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      await clearContextWindowOverride(adminApp, provider, model);
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: "platform",
+        action: "update_model_context_window",
+        details: { provider, model, cleared: true },
+      });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/admin/knowledgeFiles", (req, res) => {
     res.json({ files: ALL_KNOWLEDGE_FILE_NAMES });
   });
@@ -1263,6 +1395,7 @@ ${jdText}`,
   app.post("/api/ai/keywords", async (req, res) => {
     try {
       const { parse, careerJourney, jdSegments } = req.body;
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("keywords", careerJourney);
       const client = await getAIClientForRequest(req, "keywords");
       const { data, usage, model } = await client.generateStructured({
         systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "keywords")}${getActivePrompt('keywords')}`,
@@ -1273,7 +1406,7 @@ JD Segments (cite these ids in jdRefs):
 ${JSON.stringify(jdSegments || [], null, 2)}
 
 Candidate Career Journey Context (cite real ids from here in evidenceRefs):
-${JSON.stringify(careerJourney || {}, null, 2)}
+${JSON.stringify(projectedCareerJourney || {}, null, 2)}
 `,
         schema: KeywordsResponseSchema,
       });
@@ -1296,6 +1429,7 @@ ${JSON.stringify(careerJourney || {}, null, 2)}
         return res.json([]);
       }
 
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("clarifyQuestions", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("clarifyQuestions");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "clarifyQuestions");
       const response = await client.models.generateContent({
@@ -1307,7 +1441,7 @@ List of Gap Keywords and their ATS status:
 ${JSON.stringify(nonEvidenced, null, 2)}
 
 Candidate Master Career Journey Roles:
-${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organization: r.organization, title: r.title })), null, 2)}`,
+${JSON.stringify(applyCareerJourneyExtractor("clarifyQuestions", projectedCareerJourney), null, 2)}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: LEGACY_RESPONSE_SCHEMAS.clarifyQuestions as any,
@@ -1327,6 +1461,7 @@ ${JSON.stringify((careerJourney?.roles || []).map((r: any) => ({ id: r.id, organ
   app.post("/api/ai/fitScore", async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, gateClarifications, jdSegments } = req.body;
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("fitScore", careerJourney);
       const client = await getAIClientForRequest(req, "fitScore");
       const { data, usage, model } = await client.generateStructured({
         systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "fitScore")}${getActivePrompt('fitScore')}`,
@@ -1335,7 +1470,7 @@ ${JSON.stringify(parse)}
 JD Segments (cite ids from here in jdRefs when a gap or lead-with point traces to specific JD text):
 ${JSON.stringify(jdSegments || [])}
 Career Journey (cite real ids from here in evidenceRefs when a lead-with point traces to a specific deliverable/achievement/skill):
-${JSON.stringify(careerJourney)}
+${JSON.stringify(projectedCareerJourney)}
 Extra Context Entries:
 ${JSON.stringify(contextEntries)}
 Candidate Custom Gate & Fit Clarifications (if any, where they explain and prove how they meet uncertain/failing requirements):
@@ -1354,6 +1489,7 @@ Generate an objective fit analysis. If the candidate has provided convincing exp
   app.post("/api/ai/auditGates", async (req, res) => {
     try {
       const { parse, careerJourney, gateClarifications, jdSegments } = req.body;
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("auditGates", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("auditGates");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "auditGates");
       const response = await client.models.generateContent({
@@ -1368,7 +1504,7 @@ JD Segments (cite ids from here in jdRefs where a gate's requirement text traces
 ${JSON.stringify(jdSegments || [], null, 2)}
 
 Candidate 'Career Journey' History (roles, initiatives, skills, dates, etc. — cite real ids from here in evidenceRefs):
-${JSON.stringify(careerJourney || {}, null, 2)}
+${JSON.stringify(projectedCareerJourney || {}, null, 2)}
 
 Active Candidate Clarifications / Proofs (if any, keyed by the gate category or requirement):
 ${JSON.stringify(gateClarifications || {}, null, 2)}`,
@@ -1522,6 +1658,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
   app.post("/api/ai/liteScan", requireAnyPaidPlan, async (req, res) => {
     try {
       const { jdText, careerJourney, archiveLearnings } = req.body;
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("liteScan", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("liteScan");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "liteScan");
       const response = await client.models.generateContent({
@@ -1533,7 +1670,7 @@ Job Description:
 ${jdText}
 
 Candidate Career Journey:
-${JSON.stringify(careerJourney || {}, null, 2)}
+${JSON.stringify(projectedCareerJourney || {}, null, 2)}
 ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these — if this posting resembles a pattern that's previously led to rejection or a bad fit, reflect that in matchScore/verdict/topGaps rather than scoring on keyword overlap alone):\n${archiveLearnings}\n` : ''}`,
         config: {
           responseMimeType: "application/json",
@@ -1663,6 +1800,9 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
       const { careerJourney, contextEntries } = req.body;
       const nextIds = computeNextIds(careerJourney);
       const nextVersion = computeNextVersion(careerJourney?.meta?.version);
+      // Only the prompt text is narrowed — applyCareerJourneyDelta below still
+      // needs the real, full careerJourney to merge the returned delta into.
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("patchJourney", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("patchJourney");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "patchJourney");
       const response = await client.models.generateContent({
@@ -1671,7 +1811,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
 ${getActivePrompt('patchJourney')}
 
 Existing Career Journey:
-${JSON.stringify(careerJourney, null, 2)}
+${JSON.stringify(projectedCareerJourney, null, 2)}
 
 New Context Entries (key is Keyword ID, value is Context Object):
 ${JSON.stringify(contextEntries, null, 2)}`,
@@ -1710,6 +1850,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
   app.post("/api/ai/resumeStrategy", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { parse, careerJourney, contextEntries, remediation } = req.body as { parse: any; careerJourney: any; contextEntries: any; remediation?: string[] };
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("resumeStrategy", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("resumeStrategy");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "resumeStrategy");
       const response = await client.models.generateContent({
@@ -1722,7 +1863,7 @@ Generate a Resume Strategy for this job posting based on candidate's context.
 Job Parse:
 ${JSON.stringify(parse)}
 Career Journey:
-${JSON.stringify(careerJourney)}
+${JSON.stringify(projectedCareerJourney)}
 Extra Context Entries:
 ${JSON.stringify(contextEntries)}
 
@@ -1747,6 +1888,7 @@ Output a detailed strategy.`,
   app.post("/api/ai/generateResume", requireFeature("tailored_resume"), async (req, res) => {
     try {
       const { careerJourney, strategy, parse, remediation } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[] };
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("generateResume", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("generateResume");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "generateResume");
       const response = await client.models.generateContent({
@@ -1756,7 +1898,7 @@ ${getActivePrompt('generateResume')}
 ${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed keyword gate. These keywords are missing and must be truthfully worked into the summary, skills, or a role bullet if any honest evidence supports them (do not fabricate experience for a keyword that has none): ${remediation.join(', ')}\n` : ''}
 
 Career Journey:
-${JSON.stringify(careerJourney, null, 2)}
+${JSON.stringify(projectedCareerJourney, null, 2)}
 
 Resume Strategy:
 ${JSON.stringify(strategy, null, 2)}
@@ -1780,6 +1922,7 @@ ${JSON.stringify(parse, null, 2)}`,
   app.post("/api/ai/coverLetter", requireFeature("cover_letter"), async (req, res) => {
     try {
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("coverLetter", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("coverLetter");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "coverLetter");
       const response = await client.models.generateContent({
@@ -1791,7 +1934,7 @@ Job Parse:
 ${JSON.stringify(parse, null, 2)}
 
 Career Journey:
-${JSON.stringify(careerJourney, null, 2)}
+${JSON.stringify(projectedCareerJourney, null, 2)}
 
 Fit Analysis (reuse, do not re-derive):
 ${JSON.stringify(fitAnalysis || {}, null, 2)}
@@ -1824,6 +1967,7 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       };
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Assistant"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("applicationAssistant", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("applicationAssistant");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "applicationAssistant");
       const response = await client.models.generateContent({
@@ -1841,7 +1985,7 @@ Fit Analysis:
 ${JSON.stringify(fitAnalysis || {}, null, 2)}
 
 Career Journey:
-${JSON.stringify(careerJourney, null, 2)}
+${JSON.stringify(projectedCareerJourney, null, 2)}
 
 Conversation so far:
 ${history}
@@ -1859,6 +2003,7 @@ Candidate's latest message: "${latest}"`,
   app.post("/api/ai/generateFormAnswers", async (req, res) => {
     try {
       const { fields, parse, careerJourney, resume } = req.body as { fields: { id: string; label: string; fieldType: string; options?: string[] }[]; parse: any; careerJourney: any; resume: any };
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("generateFormAnswers", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("generateFormAnswers");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "generateFormAnswers");
       const response = await client.models.generateContent({
@@ -1876,7 +2021,7 @@ Tailored Resume:
 ${JSON.stringify(resume || {}, null, 2)}
 
 Career Journey:
-${JSON.stringify(careerJourney, null, 2)}`,
+${JSON.stringify(projectedCareerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
@@ -1897,6 +2042,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
   app.post("/api/ai/interviewPrep", requireFeature("interview_prep"), async (req, res) => {
     try {
       const { round, parse, fitAnalysis, careerJourney } = req.body as { round: any; parse: any; fitAnalysis: any; careerJourney: any };
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("interviewPrep", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("interviewPrep");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrep");
       const response = await client.models.generateContent({
@@ -1914,7 +2060,7 @@ Fit Analysis (known gaps and strengths for this role):
 ${JSON.stringify(fitAnalysis || {}, null, 2)}
 
 Career Journey:
-${JSON.stringify(careerJourney, null, 2)}`,
+${JSON.stringify(projectedCareerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: LEGACY_RESPONSE_SCHEMAS.interviewPrep as any,
@@ -1938,6 +2084,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
       };
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Coach"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("interviewPrepChat", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("interviewPrepChat");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrepChat");
       const response = await client.models.generateContent({
@@ -1950,7 +2097,7 @@ ${JSON.stringify(round, null, 2)}
 Job Parse:
 ${JSON.stringify(parse, null, 2)}
 Career Journey:
-${JSON.stringify(careerJourney, null, 2)}
+${JSON.stringify(projectedCareerJourney, null, 2)}
 
 Conversation so far:
 ${history}
@@ -1968,6 +2115,7 @@ Candidate's latest message: "${latest}"`,
   app.post("/api/ai/offerGuidance", requireFeature("offer_comparison"), async (req, res) => {
     try {
       const { offer, parse, careerJourney } = req.body as { offer: any; parse: any; careerJourney: any };
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("offerGuidance", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("offerGuidance");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "offerGuidance");
       const response = await client.models.generateContent({
@@ -1980,7 +2128,7 @@ ${JSON.stringify(offer, null, 2)}
 Job Parse:
 ${JSON.stringify(parse, null, 2)}
 Career Journey (for leverage/market positioning context):
-${JSON.stringify(careerJourney, null, 2)}`,
+${JSON.stringify(projectedCareerJourney, null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
@@ -1998,6 +2146,7 @@ ${JSON.stringify(careerJourney, null, 2)}`,
   app.post("/api/ai/compareOffers", requireFeature("offer_comparison"), async (req, res) => {
     try {
       const { offers, careerJourney } = req.body as { offers: { jobId: string; companyName: string; roleTitle: string; offer: any }[]; careerJourney: any };
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("compareOffers", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("compareOffers");
       const preamble = await buildKnowledgePreamble(getAdminApp(), "compareOffers");
       const response = await client.models.generateContent({
@@ -2008,7 +2157,7 @@ ${getActivePrompt('compareOffers')}
 Offers:
 ${JSON.stringify(offers, null, 2)}
 Career Journey (positioning/preferences context):
-${JSON.stringify(careerJourney?.person?.positioning || {}, null, 2)}`,
+${JSON.stringify(applyCareerJourneyExtractor("compareOffers", projectedCareerJourney), null, 2)}`,
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },

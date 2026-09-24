@@ -373,6 +373,32 @@ export const CareerJourneySchema = z
   })
   .passthrough();
 
+/**
+ * Top-level CareerJourneySchema section names — kept in sync by hand with
+ * server/careerJourneyProjection.ts's identical list (that file can't import
+ * from here since it needs to stay importable from a plain server bundle).
+ * Drives the admin "which parts of the Career Journey does this prompt see"
+ * field-selector on the AI Prompts page.
+ */
+export const CAREER_JOURNEY_TOP_LEVEL_FIELDS = [
+  'meta',
+  'person',
+  'education',
+  'certifications',
+  'capabilities',
+  'roles',
+  'achievements',
+  'skills_index',
+  'vocabularies',
+  'links',
+  'application_artifacts',
+  'interview_answers',
+  'methodologies',
+  'customer_engagements',
+  'functions',
+  'deliverables',
+] as const;
+
 export type CareerJourney = z.infer<typeof CareerJourneySchema>;
 export type Person = z.infer<typeof PersonSchema>;
 export type Role = z.infer<typeof RoleSchema>;

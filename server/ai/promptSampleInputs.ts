@@ -135,11 +135,19 @@ export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
  * Renders sample variables as a labeled JSON block appended after the prompt
  * template — a deliberately generic stand-in for each production route's own
  * bespoke contents-string assembly (see the module doc above for why).
+ * `overrides` lets a caller substitute one variable (e.g. a Career-Journey-
+ * field-projected version of `careerJourney`, for the contextSize estimator)
+ * without duplicating the rest of that prompt's sample fixture.
  */
-export function renderSampleContents(promptId: string, preamble: string, template: string): string {
-  const vars = SAMPLE_INPUTS[promptId] || {};
+export function renderSampleContents(promptId: string, preamble: string, template: string, overrides?: Record<string, unknown>): string {
+  const vars = { ...(SAMPLE_INPUTS[promptId] || {}), ...(overrides || {}) };
   const varsBlock = Object.entries(vars)
     .map(([key, value]) => `${key}:\n${JSON.stringify(value, null, 2)}`)
     .join("\n\n");
   return `${preamble}\n${template}\n\nSample input for this test run:\n\n${varsBlock}`;
+}
+
+/** The sample Career Journey object for a prompt, if its fixture includes one — used by the contextSize estimator to preview a careerJourneyFields selection. */
+export function getSampleCareerJourney(promptId: string): any {
+  return SAMPLE_INPUTS[promptId]?.careerJourney ?? null;
 }

@@ -14,6 +14,7 @@ import {
 import { dataStore } from '../data';
 import { AllowedModelsConfig } from '../types/aiModels';
 import { AIProviderId } from '../types/billing';
+import { CAREER_JOURNEY_TOP_LEVEL_FIELDS } from '../types/careerJourney';
 import { PlayCircle, RotateCcw, Save, Sparkles, AlertTriangle } from 'lucide-react';
 
 const PROVIDERS: AIProviderId[] = ['ollama', 'gemini', 'openai', 'anthropic'];
@@ -31,12 +32,13 @@ export default function AdminPrompts() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [modelDrafts, setModelDrafts] = useState<Record<string, ModelDraft>>({});
   const [knowledgeDrafts, setKnowledgeDrafts] = useState<Record<string, string[] | null>>({});
+  const [careerJourneyDrafts, setCareerJourneyDrafts] = useState<Record<string, string[] | null>>({});
   const [models, setModels] = useState<AllowedModelsConfig>(emptyModelsConfig());
   const [knowledgeFiles, setKnowledgeFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [testRunId, setTestRunId] = useState<string | null>(null);
-  const [testRunOutput, setTestRunOutput] = useState<Record<string, { output: any; usage?: any; provider?: string; model?: string }>>({});
+  const [testRunOutput, setTestRunOutput] = useState<Record<string, { request?: string; output: any; usage?: any; provider?: string; model?: string }>>({});
   const [contextSizes, setContextSizes] = useState<Record<string, PromptContextSize | 'loading' | null>>({});
   const toast = useToast();
   const contextSizeTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -48,6 +50,7 @@ export default function AdminPrompts() {
         setDrafts(Object.fromEntries(Object.entries(p).map(([id, cfg]) => [id, cfg.template])));
         setModelDrafts(Object.fromEntries(Object.entries(p).map(([id, cfg]) => [id, cfg.modelOverride])));
         setKnowledgeDrafts(Object.fromEntries(Object.entries(p).map(([id, cfg]) => [id, cfg.includedKnowledge])));
+        setCareerJourneyDrafts(Object.fromEntries(Object.entries(p).map(([id, cfg]) => [id, cfg.careerJourneyFields])));
         setModels({ ...emptyModelsConfig(), ...m });
         setKnowledgeFiles(files);
       })
@@ -74,6 +77,7 @@ export default function AdminPrompts() {
           provider: draft?.provider,
           model: draft?.model,
           knowledge: knowledgeDrafts[id] ?? undefined,
+          careerJourneyFields: careerJourneyDrafts[id] ?? undefined,
         });
         setContextSizes((prev) => ({ ...prev, [id]: size }));
       } catch (e: any) {
@@ -103,17 +107,31 @@ export default function AdminPrompts() {
     scheduleContextSize(id);
   };
 
+  const toggleCareerJourneyField = (id: string, field: string, allFields: string[]) => {
+    setCareerJourneyDrafts((prev) => {
+      const current = prev[id] ?? allFields;
+      const next = current.includes(field) ? current.filter((f) => f !== field) : [...current, field];
+      return { ...prev, [id]: next };
+    });
+    scheduleContextSize(id);
+  };
+
   const isModelDirty = (id: string) => JSON.stringify(modelDrafts[id] ?? null) !== JSON.stringify(prompts[id]?.modelOverride ?? null);
   const isKnowledgeDirty = (id: string) => JSON.stringify(knowledgeDrafts[id] ?? null) !== JSON.stringify(prompts[id]?.includedKnowledge ?? null);
+  const isCareerJourneyDirty = (id: string) => JSON.stringify(careerJourneyDrafts[id] ?? null) !== JSON.stringify(prompts[id]?.careerJourneyFields ?? null);
 
   const save = async (id: string) => {
     setSavingId(id);
     try {
       const saved = await saveAdminPrompt(id, drafts[id]);
-      const aiConfigChanged = isModelDirty(id) || isKnowledgeDirty(id);
+      const aiConfigChanged = isModelDirty(id) || isKnowledgeDirty(id) || isCareerJourneyDirty(id);
       const aiConfig = aiConfigChanged
-        ? await saveAdminPromptAiConfig(id, { modelOverride: modelDrafts[id] ?? null, includedKnowledge: knowledgeDrafts[id] ?? null })
-        : { modelOverride: prompts[id].modelOverride, includedKnowledge: prompts[id].includedKnowledge };
+        ? await saveAdminPromptAiConfig(id, {
+            modelOverride: modelDrafts[id] ?? null,
+            includedKnowledge: knowledgeDrafts[id] ?? null,
+            careerJourneyFields: careerJourneyDrafts[id] ?? null,
+          })
+        : { modelOverride: prompts[id].modelOverride, includedKnowledge: prompts[id].includedKnowledge, careerJourneyFields: prompts[id].careerJourneyFields };
       setPrompts((prev) => ({
         ...prev,
         [id]: { ...prev[id], template: saved.template, updatedAt: saved.updatedAt, version: saved.version, ...aiConfig },
@@ -145,6 +163,7 @@ export default function AdminPrompts() {
         provider: draft?.provider,
         model: draft?.model,
         knowledge: knowledgeDrafts[id] ?? undefined,
+        careerJourneyFields: careerJourneyDrafts[id] ?? undefined,
       });
       setTestRunOutput((prev) => ({ ...prev, [id]: result }));
     } catch (e: any) {
@@ -161,7 +180,7 @@ export default function AdminPrompts() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Admin — AI Prompts</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Every prompt driving the job pipeline, editable directly — nothing here is a black box. Template edits apply immediately to live requests; model and knowledge-file choices need Save.
+          Every prompt driving the job pipeline, editable directly — nothing here is a black box. Template edits apply immediately to live requests; model, knowledge-file, and Career-Journey-section choices need Save. Token counts next to each Career Journey section are estimated against this prompt's sample data, not a specific user's real journey.
         </p>
       </div>
 
@@ -170,12 +189,16 @@ export default function AdminPrompts() {
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 border-b border-slate-200 pb-2">{stage}</h2>
           {stagePrompts.map((p) => {
             const isTemplateDirty = drafts[p.id] !== p.template;
-            const isDirty = isTemplateDirty || isModelDirty(p.id) || isKnowledgeDirty(p.id);
+            const isDirty = isTemplateDirty || isModelDirty(p.id) || isKnowledgeDirty(p.id) || isCareerJourneyDirty(p.id);
             const modelDraft = modelDrafts[p.id] ?? null;
             const knowledgeDraft = knowledgeDrafts[p.id] ?? knowledgeFiles;
             const size = contextSizes[p.id];
             const runResult = testRunOutput[p.id];
             const modelsForProvider = modelDraft ? models[modelDraft.provider] || [] : [];
+            const showCareerJourneyFields = size && size !== 'loading' && size.hasCareerJourney;
+            const careerJourneyDraft = careerJourneyDrafts[p.id] ?? [...CAREER_JOURNEY_TOP_LEVEL_FIELDS];
+            const totalCareerJourneyTokens =
+              size && size !== 'loading' ? size.careerJourneyBreakdown.reduce((sum, b) => sum + b.tokens, 0) : 0;
 
             return (
               <Card key={p.id}>
@@ -267,6 +290,36 @@ export default function AdminPrompts() {
                     </div>
                   </div>
 
+                  {showCareerJourneyFields && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                          Career Journey sections sent to this prompt
+                        </label>
+                        {totalCareerJourneyTokens > 0 && (
+                          <span className="text-[10px] text-slate-400">~{totalCareerJourneyTokens.toLocaleString()} tokens (sample data)</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-x-3 gap-y-1">
+                        {CAREER_JOURNEY_TOP_LEVEL_FIELDS.map((field) => {
+                          const breakdown = size && size !== 'loading' ? size.careerJourneyBreakdown.find((b) => b.field === field) : undefined;
+                          return (
+                            <label key={field} className="flex items-center gap-1 text-[10px] text-slate-500">
+                              <input
+                                type="checkbox"
+                                checked={careerJourneyDraft.includes(field)}
+                                onChange={() => toggleCareerJourneyField(p.id, field, [...CAREER_JOURNEY_TOP_LEVEL_FIELDS])}
+                                className="w-3 h-3"
+                              />
+                              <span className="truncate">{field}</span>
+                              {breakdown && <span className="text-slate-400">({breakdown.tokens})</span>}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-slate-400">
                       {p.updatedAt ? `Last edited ${new Date(p.updatedAt).toLocaleString()}` : 'Using built-in default'}
@@ -297,6 +350,13 @@ export default function AdminPrompts() {
                           <span className="text-slate-400">{PROVIDER_LABEL[runResult.provider as AIProviderId] || runResult.provider} · {runResult.model}</span>
                         )}
                       </div>
+                      {runResult.request && (
+                        <details className="mb-2 pb-2 border-b border-slate-700">
+                          <summary className="cursor-pointer text-slate-400 hover:text-slate-300 select-none">Request sent (exact contents string)</summary>
+                          <pre className="whitespace-pre-wrap mt-1.5 text-slate-300">{runResult.request}</pre>
+                        </details>
+                      )}
+                      <div className="text-slate-400 mb-1">Response</div>
                       <pre className="whitespace-pre-wrap">{JSON.stringify(runResult.output, null, 2)}</pre>
                       {runResult.usage && (
                         <div className="mt-2 pt-2 border-t border-slate-700 text-slate-400">
