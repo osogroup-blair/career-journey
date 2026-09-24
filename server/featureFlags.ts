@@ -75,6 +75,77 @@ export async function setFeatureFlags(app: App, updates: Partial<FeatureFlags>):
   return getFeatureFlags(app);
 }
 
+const NUMERIC_FIELDS = ["freeLifetimeLimit", "proMonthlyLimit", "byomBurstPerMinute", "byomDailyLimit"] as const;
+const VALID_PLAN_IDS: PlanId[] = ["free", "pro_monthly", "byom_monthly", "byom_yearly"];
+
+/**
+ * Guards the one Firestore doc that isFeatureEnabled/getFeatureFlags blindly
+ * spreads over the defaults on every request's flag resolution — unlike the
+ * plan-update route (server.ts's /api/admin/users/:uid/plan), this write path
+ * previously trusted req.body's shape entirely. Throws a message safe to
+ * surface directly to the admin UI as a 400.
+ */
+export function validateFeatureFlagsUpdate(input: unknown): void {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("Feature flags update must be an object.");
+  }
+  const updates = input as Record<string, unknown>;
+
+  for (const field of NUMERIC_FIELDS) {
+    if (field in updates) {
+      const value = updates[field];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new Error(`${field} must be a non-negative number.`);
+      }
+    }
+  }
+
+  if ("killSwitches" in updates) {
+    const killSwitches = updates.killSwitches;
+    if (typeof killSwitches !== "object" || killSwitches === null || Array.isArray(killSwitches)) {
+      throw new Error("killSwitches must be an object.");
+    }
+    for (const [key, value] of Object.entries(killSwitches as Record<string, unknown>)) {
+      if (key !== "matches" && key !== "aiPipeline") {
+        throw new Error(`Unknown kill switch "${key}".`);
+      }
+      if (typeof value !== "boolean") {
+        throw new Error(`killSwitches.${key} must be a boolean.`);
+      }
+    }
+  }
+
+  if ("features" in updates) {
+    const features = updates.features;
+    if (typeof features !== "object" || features === null || Array.isArray(features)) {
+      throw new Error("features must be an object.");
+    }
+    for (const [featureKey, perPlan] of Object.entries(features as Record<string, unknown>)) {
+      if (!(featureKey in FEATURE_METADATA)) {
+        throw new Error(`Unknown feature "${featureKey}".`);
+      }
+      if (typeof perPlan !== "object" || perPlan === null || Array.isArray(perPlan)) {
+        throw new Error(`features.${featureKey} must be an object.`);
+      }
+      for (const [plan, enabled] of Object.entries(perPlan as Record<string, unknown>)) {
+        if (!VALID_PLAN_IDS.includes(plan as PlanId)) {
+          throw new Error(`Unknown plan "${plan}" for feature "${featureKey}".`);
+        }
+        if (typeof enabled !== "boolean") {
+          throw new Error(`features.${featureKey}.${plan} must be a boolean.`);
+        }
+      }
+    }
+  }
+
+  const allowedKeys = new Set<string>([...NUMERIC_FIELDS, "killSwitches", "features"]);
+  for (const key of Object.keys(updates)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Unknown feature-flags field "${key}".`);
+    }
+  }
+}
+
 /**
  * Checks if a specific feature is enabled for a user.
  * 

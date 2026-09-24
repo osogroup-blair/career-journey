@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store';
+import FeatureGate from '../components/FeatureGate';
 import { Button, Card, CardHeader, CardTitle, CardContent, Textarea } from '../components/ui';
 import { computeJourneyGaps, computeJourneyCompleteness, JourneyGap } from '../lib/careerJourneyGaps';
 import { refineFromInterviewAnswer } from '../lib/aiClient';
@@ -14,7 +15,7 @@ type ProposedUpdate = {
   summary: string;
 };
 
-export default function StrengthenJourney() {
+function StrengthenJourneyInner() {
   const careerJourney = useStore((state) => state.careerJourney);
   const updateAchievement = useStore((state) => state.updateAchievement);
   const updateRole = useStore((state) => state.updateRole);
@@ -171,6 +172,14 @@ export default function StrengthenJourney() {
         </Card>
       )}
     </div>
+  );
+}
+
+export default function StrengthenJourney() {
+  return (
+    <FeatureGate feature="strengthen_journey">
+      <StrengthenJourneyInner />
+    </FeatureGate>
   );
 }
 

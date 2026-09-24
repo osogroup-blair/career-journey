@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams } from 'react-router-dom';
+import FeatureGate from '../components/FeatureGate';
 import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge, useToast } from '../components/ui';
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../components/ResumeTemplates';
 import { ApplicationFormField } from '../types';
@@ -10,7 +11,7 @@ import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles } from 'lucide-rea
 type Tab = 'resume' | 'cover-letter' | 'assistant' | 'form';
 type TemplateType = 'classic' | 'modern' | 'executive';
 
-export default function TailoredApplicationStage() {
+function TailoredApplicationStageInner() {
   const { id } = useParams();
   const job = useStore((s) => s.jobs[id || '']);
   const updateJob = useStore((s) => s.updateJob);
@@ -76,6 +77,14 @@ export default function TailoredApplicationStage() {
       {tab === 'assistant' && <AssistantTab job={job} />}
       {tab === 'form' && <FormTab job={job} updateJob={updateJob} />}
     </div>
+  );
+}
+
+export default function TailoredApplicationStage() {
+  return (
+    <FeatureGate feature="tailored_resume">
+      <TailoredApplicationStageInner />
+    </FeatureGate>
   );
 }
 

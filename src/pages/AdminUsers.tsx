@@ -1099,6 +1099,12 @@ export default function AdminUsers() {
                         ? 'Password Reset Sent'
                         : log.action === 'delete_user'
                         ? 'Account Deleted'
+                        : log.action === 'triage_ticket'
+                        ? 'Ticket Triaged'
+                        : log.action === 'update_feature_flags'
+                        ? 'Feature Flags Updated'
+                        : log.action === 'update_allowed_models'
+                        ? 'Allowed Models Updated'
                         : log.action;
 
                     const actionColor =

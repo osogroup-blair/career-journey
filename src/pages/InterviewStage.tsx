@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
+import FeatureGate from '../components/FeatureGate';
 import { Button, LoadingButton, Card, CardHeader, CardTitle, CardContent, Input, Label, Textarea, Badge } from '../components/ui';
 import { InterviewRound } from '../types';
 import { generateId } from '../lib/utils';
@@ -9,7 +10,7 @@ import { CalendarPlus, Trash2, Sparkles, Send, ArrowRight } from 'lucide-react';
 const FORMATS: NonNullable<InterviewRound['format']>[] = ['Phone', 'Video', 'Onsite', 'Take-home'];
 const OUTCOMES: InterviewRound['outcome'][] = ['Scheduled', 'Completed', 'Passed', 'Rejected'];
 
-export default function InterviewStage() {
+function InterviewStageInner() {
   const { id } = useParams();
   const job = useStore((s) => s.jobs[id || '']);
   const updateJob = useStore((s) => s.updateJob);
@@ -70,6 +71,14 @@ export default function InterviewStage() {
         />
       ))}
     </div>
+  );
+}
+
+export default function InterviewStage() {
+  return (
+    <FeatureGate feature="interview_prep">
+      <InterviewStageInner />
+    </FeatureGate>
   );
 }
 

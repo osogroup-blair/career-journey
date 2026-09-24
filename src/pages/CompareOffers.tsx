@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
+import FeatureGate from '../components/FeatureGate';
 import { Button, LoadingButton, Card, CardHeader, CardTitle, CardContent } from '../components/ui';
 import { compareOffers as compareOffersApi } from '../lib/aiClient';
 import { Sparkles } from 'lucide-react';
 
-export default function CompareOffers() {
+function CompareOffersInner() {
   const jobs = useStore((s) => s.jobs);
   const careerJourney = useStore((s) => s.careerJourney);
   const offerJobs = useMemo(() => Object.values(jobs).filter((j) => j.stage === 'Offer' && j.offer), [jobs]);
@@ -85,5 +86,13 @@ export default function CompareOffers() {
         </>
       )}
     </div>
+  );
+}
+
+export default function CompareOffers() {
+  return (
+    <FeatureGate feature="offer_comparison">
+      <CompareOffersInner />
+    </FeatureGate>
   );
 }

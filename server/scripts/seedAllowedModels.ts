@@ -28,6 +28,10 @@ const SEED: AllowedModelsConfig = {
     { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 (balanced, default)', enabled: true },
     { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (cost-efficient)', enabled: true },
   ],
+  ollama: [
+    { id: 'qwen3:14b', label: 'Qwen3 14B (balanced, default)', enabled: true },
+    { id: 'qwen2.5-coder:14b', label: 'Qwen2.5 Coder 14B', enabled: true },
+  ],
 };
 
 /** Idempotent — safe to re-run; overwrites the whole doc with SEED above. */

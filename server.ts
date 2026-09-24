@@ -31,9 +31,10 @@ import {
 import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketPriority } from "./src/types/support";
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
+import { createOllamaGenAI } from "./server/ai/ollamaPlatformClient";
 import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
 import { isByomPlan, AIProviderId, PlanId, BillingState } from "./src/types/billing";
-import { getFeatureFlags, setFeatureFlags } from "./server/featureFlags";
+import { getFeatureFlags, setFeatureFlags, validateFeatureFlagsUpdate } from "./server/featureFlags";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import type { AllowedModelsConfig } from "./src/types/aiModels";
@@ -61,7 +62,13 @@ async function trackUsage(
   const uid = (req as any).uid as string | undefined;
   if (!adminApp || !uid) return;
 
-  const isByom = Boolean(req.headers["x-byom-key"]);
+  // Derived from the account's actual plan, not the mere presence of the
+  // X-BYOM-Key header — src/lib/aiClient.ts attaches that header to every
+  // request once any key is ever saved, regardless of plan, and most routes
+  // above (everything except keywords/fitScore) always use the platform
+  // Gemini client directly and never even read the header.
+  const billing = await getBillingState(adminApp, uid);
+  const isByom = isByomPlan(billing.plan);
   const promptTokens = (usageMetadata as any)?.promptTokenCount ?? (usageMetadata as any)?.promptTokens ?? 0;
   const completionTokens = (usageMetadata as any)?.candidatesTokenCount ?? (usageMetadata as any)?.completionTokens ?? 0;
   const totalTokens = (usageMetadata as any)?.totalTokenCount ?? (usageMetadata as any)?.totalTokens ?? (promptTokens + completionTokens);
@@ -90,9 +97,22 @@ ${FULL_KNOWLEDGE}
 ---
 `;
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+// Defaults to the local Ollama server — a local model costs nothing to run
+// and keeps this data off any third-party API — for every one of the direct
+// generateContent() call sites below that predate the provider-agnostic
+// StructuredAIClient abstraction (server/ai/*). Set AI_PLATFORM_PROVIDER=gemini
+// to switch back to the real Gemini SDK without touching any call site.
+// Typed `any`: createOllamaGenAI only implements the narrow
+// `.models.generateContent(...)` slice of GoogleGenAI's surface that these
+// call sites actually use.
+const AI_PLATFORM_PROVIDER = (process.env.AI_PLATFORM_PROVIDER || "ollama").toLowerCase();
+const ai: any =
+  AI_PLATFORM_PROVIDER === "gemini"
+    ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+    : createOllamaGenAI(
+        process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+        process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b"
+      );
 
 /**
  * Deterministic, non-AI segmentation of raw JD text into paragraph/bullet
@@ -263,19 +283,19 @@ async function startServer() {
       return;
     }
     try {
-      const { type, title, description, context, screenshotPath } = req.body as {
+      const { type, title, description, context, screenshotBase64 } = req.body as {
         type: TicketType;
         title: string;
         description: string;
         context: Omit<TicketContext, "timestamp">;
-        screenshotPath?: string;
+        screenshotBase64?: string;
       };
       if (!title?.trim() || !description?.trim()) {
         res.status(400).json({ error: "title and description are required" });
         return;
       }
       const email = (await getAuth(adminApp).getUser(uid)).email || null;
-      const ticket = await createTicket(adminApp, uid, email, { type, title, description, context, screenshotPath });
+      const ticket = await createTicket(adminApp, uid, email, { type, title, description, context, screenshotBase64 });
       res.json(ticket);
     } catch (e: any) {
       if (e instanceof TicketRateLimitError) {
@@ -447,13 +467,23 @@ async function startServer() {
       return;
     }
     try {
+      const actorUid = (req as any).uid || "admin";
       const { status, triageType, priority, adminNotes } = req.body as {
         status?: TicketStatus;
         triageType?: TicketTriageType;
         priority?: TicketPriority;
         adminNotes?: string;
       };
-      res.json(await updateTicket(adminApp, req.params.id, { status, triageType, priority, adminNotes }));
+      const ticket = await updateTicket(adminApp, req.params.id, { status, triageType, priority, adminNotes });
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: ticket.uid,
+        action: "triage_ticket",
+        details: { ticketId: ticket.id, status, triageType, priority, adminNotes },
+      });
+
+      res.json(ticket);
     } catch (e: any) {
       if (e instanceof TicketNotFoundError) {
         res.status(404).json({ error: e.message });
@@ -524,7 +554,22 @@ async function startServer() {
       return;
     }
     try {
+      validateFeatureFlagsUpdate(req.body);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
       const updated = await setFeatureFlags(adminApp, req.body);
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: "platform",
+        action: "update_feature_flags",
+        details: { updates: req.body },
+      });
+
       res.json(updated);
     } catch (e: any) {
       console.error("setFeatureFlags failed", e);
@@ -539,8 +584,17 @@ async function startServer() {
       return;
     }
     try {
+      const actorUid = (req as any).uid || "admin";
       const config = req.body as AllowedModelsConfig;
       await getFirestore(adminApp).collection("config").doc("allowedModels").set(config);
+
+      await logAdminAction(adminApp, {
+        actorUid,
+        targetUid: "platform",
+        action: "update_allowed_models",
+        details: { config },
+      });
+
       res.json({ ok: true });
     } catch (e: any) {
       console.error("save allowedModels failed", e);
@@ -786,7 +840,7 @@ async function startServer() {
         return;
       }
       const resetLink = await getAuth(adminApp).generatePasswordResetLink(user.email);
-      if (isEmailConfigured) {
+      if (isEmailConfigured()) {
         await sendEmail({
           to: user.email,
           subject: "Password Reset Request - Career Journey",
@@ -909,13 +963,17 @@ async function startServer() {
 
       if (targetType === "free" || targetType === "all") {
         updates.freeAiActionsUsed = 0;
+        updates.freeAiTokensUsed = 0;
       }
       if (targetType === "pro_monthly" || targetType === "all") {
         updates.proMonthlyAiActionsUsed = 0;
         updates.proMonthlyPeriodStart = new Date().toISOString();
+        updates.proMonthlyAiTokensUsed = 0;
       }
       if (targetType === "all") {
         updates.byomDailyActionsUsed = 0;
+        updates.byomDailyTokensUsed = 0;
+        updates.lifetimeAiTokensUsed = 0;
       }
 
       await setBillingFields(adminApp, req.params.uid, updates);

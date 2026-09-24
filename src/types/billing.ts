@@ -11,7 +11,7 @@ export type PlanId = 'free' | 'pro_monthly' | 'byom_monthly' | 'byom_yearly';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing' | 'incomplete';
 
 /** Canonical home for this type — server/ai/types.ts re-exports it rather than defining its own copy. */
-export type AIProviderId = 'gemini' | 'openai' | 'anthropic';
+export type AIProviderId = 'gemini' | 'openai' | 'anthropic' | 'ollama';
 
 export interface BillingState {
   plan: PlanId;

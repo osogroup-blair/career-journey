@@ -12,6 +12,7 @@ const PROVIDER_LABEL: Record<AIProviderId, string> = {
   gemini: 'Gemini',
   openai: 'OpenAI',
   anthropic: 'Anthropic',
+  ollama: 'Local (Ollama)',
 };
 
 export default function Settings() {
@@ -47,23 +48,24 @@ export default function Settings() {
   const onByomPlan = isByomPlan(billing.plan);
 
   const handleTestAndSave = async () => {
-    if (!apiKey.trim()) {
+    if (provider !== 'ollama' && !apiKey.trim()) {
       toast.error('Enter an API key first.');
       return;
     }
     setBusy(true);
     try {
-      const result = await validateByomKey(provider, apiKey.trim(), model);
+      const secretOrUrl = provider === 'ollama' ? apiKey.trim() || 'http://localhost:11434' : apiKey.trim();
+      const result = await validateByomKey(provider, secretOrUrl, model);
       if (!result.valid) {
         toast.error(result.error || 'That key did not validate — check it and try again.');
         return;
       }
       await saveByomSettings(provider, model);
-      const value: StoredByomKey = { provider, apiKey: apiKey.trim(), model };
+      const value: StoredByomKey = { provider, apiKey: secretOrUrl, model };
       setStoredByomKey(value);
       setStored(value);
       setApiKey('');
-      toast.success(`${PROVIDER_LABEL[provider]} key verified and saved to this browser.`);
+      toast.success(`${PROVIDER_LABEL[provider]} verified and saved to this browser.`);
     } catch (err: any) {
       toast.error(err?.message || 'Could not validate key.');
     } finally {
@@ -132,7 +134,7 @@ export default function Settings() {
                     onChange={(e) => setProvider(e.target.value as AIProviderId)}
                     className="w-full h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
                   >
-                    {(['gemini', 'openai', 'anthropic'] as AIProviderId[]).map((p) => (
+                    {(['gemini', 'openai', 'anthropic', 'ollama'] as AIProviderId[]).map((p) => (
                       <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>
                     ))}
                   </select>
@@ -153,15 +155,20 @@ export default function Settings() {
               </div>
 
               <div>
-                <Label htmlFor="byom-key">API key</Label>
+                <Label htmlFor="byom-key">{provider === 'ollama' ? 'Local server URL' : 'API key'}</Label>
                 <Input
                   id="byom-key"
-                  type="password"
+                  type={provider === 'ollama' ? 'text' : 'password'}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={`Paste your ${PROVIDER_LABEL[provider]} API key`}
+                  placeholder={provider === 'ollama' ? 'http://localhost:11434' : `Paste your ${PROVIDER_LABEL[provider]} API key`}
                   autoComplete="off"
                 />
+                {provider === 'ollama' && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    The address of your own Ollama server. It must be reachable from wherever this app's backend runs.
+                  </p>
+                )}
               </div>
 
               <Button onClick={handleTestAndSave} disabled={busy} className="w-full">

@@ -6,22 +6,25 @@ import { AIProviderId } from '../types/billing';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, useToast } from '../components/ui';
 import { Loader2, Trash2, Plus, Cpu } from 'lucide-react';
 
-const PROVIDERS: AIProviderId[] = ['gemini', 'openai', 'anthropic'];
-const PROVIDER_LABEL: Record<AIProviderId, string> = { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic' };
+const PROVIDERS: AIProviderId[] = ['gemini', 'openai', 'anthropic', 'ollama'];
+const PROVIDER_LABEL: Record<AIProviderId, string> = { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic', ollama: 'Local (Ollama)' };
 
 function emptyConfig(): AllowedModelsConfig {
-  return { gemini: [], openai: [], anthropic: [] };
+  return { gemini: [], openai: [], anthropic: [], ollama: [] };
 }
 
 export default function AdminModels() {
   const toast = useToast();
   const [config, setConfig] = useState<AllowedModelsConfig | null>(null);
   const [saving, setSaving] = useState(false);
-  const [draftId, setDraftId] = useState<Record<AIProviderId, string>>({ gemini: '', openai: '', anthropic: '' });
-  const [draftLabel, setDraftLabel] = useState<Record<AIProviderId, string>>({ gemini: '', openai: '', anthropic: '' });
+  const [draftId, setDraftId] = useState<Record<AIProviderId, string>>({ gemini: '', openai: '', anthropic: '', ollama: '' });
+  const [draftLabel, setDraftLabel] = useState<Record<AIProviderId, string>>({ gemini: '', openai: '', anthropic: '', ollama: '' });
 
   useEffect(() => {
-    dataStore.getAllowedModels().then((c) => setConfig(c || emptyConfig()));
+    // Merge over emptyConfig() rather than trusting the stored doc's shape —
+    // a doc saved before a provider (e.g. "ollama") existed won't have that
+    // key, and config[provider].map(...) below would throw on undefined.
+    dataStore.getAllowedModels().then((c) => setConfig({ ...emptyConfig(), ...c }));
   }, []);
 
   if (!config) {

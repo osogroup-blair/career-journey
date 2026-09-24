@@ -60,13 +60,25 @@ function withinBurstLimit(uid: string, limit: number): boolean {
  * behavior of this middleware).
  */
 export async function requireWithinAiQuota(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const app = getAdminApp();
+
   if ((req as any).isAdmin) {
+    // Emergency kill switches override everyone, even admins (see
+    // featureFlags.ts's isFeatureEnabled doc comment) — admins otherwise skip
+    // checkAndConsumeAiQuota entirely below, which is the only other place
+    // this route group's aiPipeline kill switch gets checked.
+    if (app) {
+      const flags = await getFeatureFlags(app);
+      if (flags.killSwitches.aiPipeline) {
+        res.status(503).json({ error: "AI features are temporarily disabled — try again shortly." });
+        return;
+      }
+    }
     next();
     return;
   }
 
   const uid = (req as any).uid as string | undefined;
-  const app = getAdminApp();
 
   if (!uid || !app) {
     const key = uid || "anonymous";

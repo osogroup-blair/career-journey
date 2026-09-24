@@ -3,6 +3,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { getBillingState } from "./billing";
 import { sendEmail } from "./email";
+import { generateId } from "../src/lib/utils";
 import type { Ticket, TicketContext, TicketMessage, TicketStatus, TicketTriageType, TicketType } from "../src/types/support";
 
 function appUrl(): string {
@@ -109,6 +110,22 @@ export class TicketAccessError extends Error {
 }
 
 /**
+ * Uploads a ticket screenshot via the Admin SDK, which bypasses Storage
+ * security rules entirely — necessary because storage.rules documents that
+ * it isn't deployed yet (no authenticated Firebase CLI in this environment),
+ * so a direct client-to-Storage upload would fail. The client sends the
+ * captured screenshot as base64 in the createTicket body instead of
+ * uploading it itself; this is the only place that base64 payload is
+ * decoded and written.
+ */
+async function uploadScreenshot(app: App, uid: string, base64: string): Promise<string> {
+  const path = `ticketScreenshots/${uid}/${generateId()}.png`;
+  const buffer = Buffer.from(base64, "base64");
+  await getStorage(app).bucket().file(path).save(buffer, { contentType: "image/png" });
+  return path;
+}
+
+/**
  * Creates a ticket on behalf of an authenticated user. userEmail/userPlan are
  * snapshotted server-side (via the Admin SDK's own record of the account and
  * the existing billing state) rather than trusted from the client, even
@@ -125,7 +142,7 @@ export async function createTicket(
     title: string;
     description: string;
     context: Omit<TicketContext, "timestamp">;
-    screenshotPath?: string;
+    screenshotBase64?: string;
   }
 ): Promise<Ticket> {
   await requireWithinDailyTicketLimit(app, uid);
@@ -134,13 +151,9 @@ export async function createTicket(
   const now = new Date().toISOString();
   const ref = ticketsCollection(app).doc();
 
-  let screenshotPath: string | undefined;
-  if (input.screenshotPath) {
-    if (!input.screenshotPath.startsWith(`ticketScreenshots/${uid}/`)) {
-      throw new TicketAccessError();
-    }
-    screenshotPath = input.screenshotPath;
-  }
+  const screenshotPath = input.screenshotBase64
+    ? await uploadScreenshot(app, uid, input.screenshotBase64)
+    : undefined;
 
   const ticket: Ticket = {
     id: ref.id,

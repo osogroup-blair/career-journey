@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useParams } from 'react-router-dom';
+import FeatureGate from '../components/FeatureGate';
 import { Button, LoadingButton, Card, CardHeader, CardTitle, CardContent, Input, Label, Textarea, useToast } from '../components/ui';
 import { OfferDetails, ArchiveReason } from '../types';
 import { AlertTriangle, HelpCircle, TrendingUp, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
-export default function OfferStage() {
+function OfferStageInner() {
   const { id } = useParams();
   const job = useStore((s) => s.jobs[id || '']);
   const updateJob = useStore((s) => s.updateJob);
@@ -134,5 +135,13 @@ export default function OfferStage() {
         <Button onClick={acceptOffer}><CheckCircle2 className="w-4 h-4 mr-2" /> Accept Offer</Button>
       </div>
     </div>
+  );
+}
+
+export default function OfferStage() {
+  return (
+    <FeatureGate feature="offer_comparison">
+      <OfferStageInner />
+    </FeatureGate>
   );
 }

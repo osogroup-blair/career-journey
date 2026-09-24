@@ -16,7 +16,10 @@ export interface AdminAuditLog {
     | 'send_reset'
     | 'delete_user'
     | 'grant_admin'
-    | 'revoke_admin';
+    | 'revoke_admin'
+    | 'triage_ticket'
+    | 'update_feature_flags'
+    | 'update_allowed_models';
   details: Record<string, any>;
   timestamp: string;
 }
