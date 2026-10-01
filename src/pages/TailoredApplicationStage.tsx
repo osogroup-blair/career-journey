@@ -6,6 +6,7 @@ import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../components/ResumeTemplates';
 import { ApplicationFormField } from '../types';
 import { generateId, formatContactLine, nameSlug } from '../lib/utils';
+import { downloadExport } from '../lib/exportClient';
 import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles } from 'lucide-react';
 
 type Tab = 'resume' | 'cover-letter' | 'assistant' | 'form';
@@ -93,28 +94,22 @@ export default function TailoredApplicationStage() {
 function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
   const careerJourney = useStore((s) => s.careerJourney);
   const [template, setTemplate] = useState<TemplateType>('classic');
-  const [isDownloading, setIsDownloading] = useState(false);
+  const toast = useToast();
+  const [downloading, setDownloading] = useState<'pdf' | 'docx' | null>(null);
 
-  const downloadDocx = async () => {
-    setIsDownloading(true);
+  const download = async (ext: 'pdf' | 'docx') => {
+    setDownloading(ext);
     try {
-      const res = await fetch('/api/export/resume.docx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resume: job.resume, strategy: job.resumeStrategy, companyName: job.companyName, roleTitle: job.roleTitle }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${nameSlug(job.resume?.name, 'Resume')}_Resume_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
+      await downloadExport(
+        `/api/export/resume.${ext}`,
+        { resume: job.resume, strategy: job.resumeStrategy, companyName: job.companyName, roleTitle: job.roleTitle },
+        `${nameSlug(job.resume?.name, 'Resume')}_Resume_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.${ext}`
+      );
+    } catch (e: any) {
       console.error(e);
+      toast.error(`Couldn't download the ${ext.toUpperCase()}: ${e.message}`);
     } finally {
-      setIsDownloading(false);
+      setDownloading(null);
     }
   };
 
@@ -136,8 +131,11 @@ function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
           <Button variant="outline" size="sm" onClick={onRegenerate} disabled={isRegenerating}>
             {isRegenerating ? 'Regenerating…' : 'Regenerate'}
           </Button>
-          <Button variant="outline" size="sm" onClick={downloadDocx} disabled={isDownloading}>
-            <Download className="w-3.5 h-3.5 mr-1.5" /> {isDownloading ? 'Preparing…' : 'Download .docx'}
+          <Button variant="outline" size="sm" onClick={() => download('docx')} disabled={downloading !== null}>
+            <Download className="w-3.5 h-3.5 mr-1.5" /> {downloading === 'docx' ? 'Preparing…' : 'Download .docx'}
+          </Button>
+          <Button size="sm" onClick={() => download('pdf')} disabled={downloading !== null}>
+            <Download className="w-3.5 h-3.5 mr-1.5" /> {downloading === 'pdf' ? 'Preparing…' : 'Download PDF'}
           </Button>
         </div>
       </div>
@@ -160,8 +158,9 @@ function CoverLetterTab({ job, updateJob }: any) {
   const careerJourney = useStore((s) => s.careerJourney);
   const runGenerateCoverLetter = useStore((s) => s.runGenerateCoverLetter);
   const isBusy = useStore((s) => Object.values(s.activeAiTasks).some((t) => t.jobId === job.id && t.kind === 'coverLetter'));
+  const toast = useToast();
   const [content, setContent] = useState(job.coverLetter?.content || '');
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloading, setDownloading] = useState<'pdf' | 'docx' | null>(null);
 
   // Local draft mirrors the store so AI-generated/regenerated content actually
   // shows up — a bare useState(job.coverLetter?.content) initializer only runs
@@ -174,32 +173,27 @@ function CoverLetterTab({ job, updateJob }: any) {
     updateJob(job.id, { coverLetter: { content, wordCount: countWords(content), approvalStatus: job.coverLetter?.approvalStatus || 'Draft' } });
   };
 
-  const downloadDocx = async () => {
+  const download = async (ext: 'pdf' | 'docx') => {
     if (!job.coverLetter) return;
-    setIsDownloading(true);
+    setDownloading(ext);
     try {
       const candidateName = careerJourney?.person?.name || '';
-      const res = await fetch('/api/export/coverLetter.docx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await downloadExport(
+        `/api/export/coverLetter.${ext}`,
+        {
           coverLetter: { ...job.coverLetter, content },
           companyName: job.companyName,
           roleTitle: job.roleTitle,
           candidateName,
           candidateContactInfo: formatContactLine(careerJourney?.person),
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${nameSlug(candidateName, 'CoverLetter')}_CoverLetter_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
+        },
+        `${nameSlug(candidateName, 'CoverLetter')}_CoverLetter_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.${ext}`
+      );
+    } catch (e: any) {
+      console.error(e);
+      toast.error(`Couldn't download the ${ext.toUpperCase()}: ${e.message}`);
     } finally {
-      setIsDownloading(false);
+      setDownloading(null);
     }
   };
 
@@ -238,8 +232,11 @@ function CoverLetterTab({ job, updateJob }: any) {
         </CardContent>
       </Card>
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={downloadDocx} disabled={!content || isDownloading}>
-          <Download className="w-4 h-4 mr-2" /> Download .docx
+        <Button variant="outline" onClick={() => download('docx')} disabled={!content || downloading !== null}>
+          <Download className="w-4 h-4 mr-2" /> {downloading === 'docx' ? 'Preparing…' : 'Download .docx'}
+        </Button>
+        <Button variant="outline" onClick={() => download('pdf')} disabled={!content || downloading !== null}>
+          <Download className="w-4 h-4 mr-2" /> {downloading === 'pdf' ? 'Preparing…' : 'Download PDF'}
         </Button>
         <Button onClick={() => updateJob(job.id, { coverLetter: { content, wordCount: countWords(content), approvalStatus: 'Approved' } })} disabled={!content}>
           {job.coverLetter?.approvalStatus === 'Approved' ? 'Approved' : 'Mark as Approved'}

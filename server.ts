@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/careerJourneyVersioning";
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
+import { buildResumePdf, buildCoverLetterPdf } from "./server/pdfBuilder";
 import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebaseAdmin";
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
@@ -2413,37 +2414,62 @@ User's answer: ${answer}`,
     }
   });
 
-  app.post("/api/export/resume.docx", async (req, res) => {
-    try {
-      const { resume, strategy, companyName, roleTitle } = req.body;
-      const buffer = await buildResumeDocx(resume, strategy);
-      const roleSlug = String(roleTitle || "Role").replace(/[^a-zA-Z0-9]+/g, "");
-      const companySlug = String(companyName || "Company").replace(/[^a-zA-Z0-9]+/g, "");
-      const nameSlug = String(resume?.name || "Resume").replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]+/g, "");
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      res.setHeader("Content-Disposition", `attachment; filename="${nameSlug}_Resume_${companySlug}_${roleSlug}.docx"`);
-      res.send(buffer);
-    } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: e.message });
-    }
-  });
+  const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const slug = (v: unknown, fallback: string) => String(v || fallback).replace(/[^a-zA-Z0-9]+/g, "");
+  const nameSlugOf = (v: unknown, fallback: string) => String(v || fallback).trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]+/g, "") || fallback;
 
-  app.post("/api/export/coverLetter.docx", async (req, res) => {
-    try {
-      const { coverLetter, companyName, roleTitle, candidateName, candidateContactInfo } = req.body;
-      const buffer = await buildCoverLetterDocx(coverLetter, { name: candidateName, contactInfo: candidateContactInfo });
-      const roleSlug = String(roleTitle || "Role").replace(/[^a-zA-Z0-9]+/g, "");
-      const companySlug = String(companyName || "Company").replace(/[^a-zA-Z0-9]+/g, "");
-      const nameSlug = String(candidateName || "CoverLetter").replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]+/g, "");
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      res.setHeader("Content-Disposition", `attachment; filename="${nameSlug}_CoverLetter_${companySlug}_${roleSlug}.docx"`);
-      res.send(buffer);
-    } catch (e: any) {
-      console.error(e);
-      res.status(500).json({ error: e.message });
-    }
-  });
+  const sendExport = (res: express.Response, buffer: Buffer, mime: string, filename: string) => {
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(buffer);
+  };
+
+  const resumeExport = (build: (resume: any, strategy: any) => Promise<Buffer>, ext: "docx" | "pdf") =>
+    async (req: express.Request, res: express.Response) => {
+      try {
+        const { resume, strategy, companyName, roleTitle } = req.body;
+        if (!resume) {
+          res.status(400).json({ error: "Missing resume" });
+          return;
+        }
+        const buffer = await build(resume, strategy);
+        sendExport(
+          res,
+          buffer,
+          ext === "pdf" ? "application/pdf" : DOCX_MIME,
+          `${nameSlugOf(resume.name, "Resume")}_Resume_${slug(companyName, "Company")}_${slug(roleTitle, "Role")}.${ext}`
+        );
+      } catch (e: any) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+      }
+    };
+
+  const coverLetterExport = (build: (cl: any, candidate: any) => Promise<Buffer>, ext: "docx" | "pdf") =>
+    async (req: express.Request, res: express.Response) => {
+      try {
+        const { coverLetter, companyName, roleTitle, candidateName, candidateContactInfo } = req.body;
+        if (!coverLetter) {
+          res.status(400).json({ error: "Missing cover letter" });
+          return;
+        }
+        const buffer = await build(coverLetter, { name: candidateName, contactInfo: candidateContactInfo });
+        sendExport(
+          res,
+          buffer,
+          ext === "pdf" ? "application/pdf" : DOCX_MIME,
+          `${nameSlugOf(candidateName, "CoverLetter")}_CoverLetter_${slug(companyName, "Company")}_${slug(roleTitle, "Role")}.${ext}`
+        );
+      } catch (e: any) {
+        console.error(e);
+        res.status(500).json({ error: e.message });
+      }
+    };
+
+  app.post("/api/export/resume.docx", resumeExport(buildResumeDocx, "docx"));
+  app.post("/api/export/resume.pdf", resumeExport(buildResumePdf, "pdf"));
+  app.post("/api/export/coverLetter.docx", coverLetterExport(buildCoverLetterDocx, "docx"));
+  app.post("/api/export/coverLetter.pdf", coverLetterExport(buildCoverLetterPdf, "pdf"));
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
