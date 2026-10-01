@@ -102,7 +102,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
     try {
       await downloadExport(
         `/api/export/resume.${ext}`,
-        { resume: job.resume, strategy: job.resumeStrategy, companyName: job.companyName, roleTitle: job.roleTitle },
+        { resume: job.resume, strategy: job.resumeStrategy, template, companyName: job.companyName, roleTitle: job.roleTitle },
         `${nameSlug(job.resume?.name, 'Resume')}_Resume_${job.companyName.replace(/\s+/g, '')}_${job.roleTitle.replace(/\s+/g, '')}.${ext}`
       );
     } catch (e: any) {

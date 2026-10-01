@@ -23,6 +23,15 @@ export default defineConfig(() => {
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion()),
     },
+    build: {
+      rollupOptions: {
+        // print.html is the headless-Chromium entry for PDF export (see server/pdfRenderer.ts).
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+          print: path.resolve(__dirname, 'print.html'),
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

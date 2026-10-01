@@ -7,6 +7,7 @@ import { computeNextIds, computeNextVersion, versionChangesKey } from "./server/
 import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
 import { buildResumePdf, buildCoverLetterPdf } from "./server/pdfBuilder";
+import { renderResumePdf, RESUME_TEMPLATES, ResumeTemplateId } from "./server/pdfRenderer";
 import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebaseAdmin";
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
@@ -2424,7 +2425,10 @@ User's answer: ${answer}`,
     res.send(buffer);
   };
 
-  const resumeExport = (build: (resume: any, strategy: any) => Promise<Buffer>, ext: "docx" | "pdf") =>
+  type ResumeBuildInput = { resume: any; strategy: any; template: ResumeTemplateId; roleTitle: string };
+  type ResumeBuilt = { buffer: Buffer; renderer?: string };
+
+  const resumeExport = (build: (input: ResumeBuildInput) => Promise<ResumeBuilt>, ext: "docx" | "pdf") =>
     async (req: express.Request, res: express.Response) => {
       try {
         const { resume, strategy, companyName, roleTitle } = req.body;
@@ -2432,7 +2436,9 @@ User's answer: ${answer}`,
           res.status(400).json({ error: "Missing resume" });
           return;
         }
-        const buffer = await build(resume, strategy);
+        const template: ResumeTemplateId = RESUME_TEMPLATES.includes(req.body.template) ? req.body.template : "classic";
+        const { buffer, renderer } = await build({ resume, strategy, template, roleTitle: String(roleTitle || "") });
+        if (renderer) res.setHeader("X-Export-Renderer", renderer);
         sendExport(
           res,
           buffer,
@@ -2444,6 +2450,20 @@ User's answer: ${answer}`,
         res.status(500).json({ error: e.message });
       }
     };
+
+  // Same fallback the Tailored Application page uses for its header tagline.
+  const taglineFor = ({ strategy, roleTitle }: ResumeBuildInput) => strategy?.headerTagline || roleTitle || undefined;
+
+  const buildResumePdfExport = async (input: ResumeBuildInput): Promise<ResumeBuilt> => {
+    try {
+      const buffer = await renderResumePdf(`http://127.0.0.1:${PORT}`, { resume: input.resume, tagline: taglineFor(input), template: input.template });
+      return { buffer, renderer: "chromium" };
+    } catch (e: any) {
+      // No Chrome on this host (or it failed): still deliver a PDF, just not pixel-matched to the on-screen template.
+      console.warn(`Chromium PDF render failed, using basic PDF layout instead: ${e.message}`);
+      return { buffer: await buildResumePdf(input.resume, input.strategy), renderer: "fallback" };
+    }
+  };
 
   const coverLetterExport = (build: (cl: any, candidate: any) => Promise<Buffer>, ext: "docx" | "pdf") =>
     async (req: express.Request, res: express.Response) => {
@@ -2466,8 +2486,8 @@ User's answer: ${answer}`,
       }
     };
 
-  app.post("/api/export/resume.docx", resumeExport(buildResumeDocx, "docx"));
-  app.post("/api/export/resume.pdf", resumeExport(buildResumePdf, "pdf"));
+  app.post("/api/export/resume.docx", resumeExport(async (i) => ({ buffer: await buildResumeDocx(i.resume, i.strategy, { template: i.template, tagline: taglineFor(i) }) }), "docx"));
+  app.post("/api/export/resume.pdf", resumeExport(buildResumePdfExport, "pdf"));
   app.post("/api/export/coverLetter.docx", coverLetterExport(buildCoverLetterDocx, "docx"));
   app.post("/api/export/coverLetter.pdf", coverLetterExport(buildCoverLetterPdf, "pdf"));
 

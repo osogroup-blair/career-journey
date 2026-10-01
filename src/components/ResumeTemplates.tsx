@@ -8,6 +8,8 @@ interface TemplateProps {
   tagline?: string;
   onUpdate: (newResume: GeneratedResume) => void;
   careerJourney?: any;
+  /** Render static text only (no contentEditable, no evidence chips) — used for PDF export. */
+  readOnly?: boolean;
 }
 
 /** A bullet generated before evidenceRefs existed is still a bare string in older persisted resumes — normalize on read so old data doesn't render "undefined". */
@@ -16,11 +18,12 @@ function normalizeBullet(b: string | { text: string; evidenceRefs?: any[] }): { 
 }
 
 /** Shared bullet renderer for all three templates — editable text plus an EvidenceTrace chip when the bullet cites real Career Journey evidence. Kept in one place so the three templates don't drift. */
-function BulletList({ bullets, onChange, className, careerJourney }: {
+function BulletList({ bullets, onChange, className, careerJourney, readOnly }: {
   bullets: (string | { text: string; evidenceRefs?: any[] })[];
   onChange: (index: number, text: string) => void;
   className?: string;
   careerJourney?: any;
+  readOnly?: boolean;
 }) {
   return (
     <>
@@ -30,9 +33,9 @@ function BulletList({ bullets, onChange, className, careerJourney }: {
           <li key={bi} className={className}>
             <span className="inline-flex items-start gap-1.5 w-full">
               <span className="flex-1">
-                <EditableText multiline value={b.text} onChange={(v) => onChange(bi, v)} />
+                <EditableText multiline readOnly={readOnly} value={b.text} onChange={(v) => onChange(bi, v)} />
               </span>
-              {b.evidenceRefs && b.evidenceRefs.length > 0 && (
+              {!readOnly && b.evidenceRefs && b.evidenceRefs.length > 0 && (
                 <EvidenceTrace evidenceRefs={b.evidenceRefs} careerJourney={careerJourney} />
               )}
             </span>
@@ -43,12 +46,12 @@ function BulletList({ bullets, onChange, className, careerJourney }: {
   );
 }
 
-export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney }) => {
+export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney, readOnly }) => {
   return (
     <div className="text-black font-sans leading-relaxed">
       {/* Header */}
       <div className="text-center mb-6">
-        <EditableText 
+        <EditableText readOnly={readOnly} 
           tagName="h1"
           value={resume.name} 
           onChange={(v) => onUpdate({...resume, name: v})}
@@ -60,7 +63,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
           </h2>
         )}
         <div className="text-[13px] text-slate-600 flex justify-center gap-3 mt-2 font-medium">
-          <EditableText
+          <EditableText readOnly={readOnly}
             value={resume.contactInfo}
             onChange={(v) => onUpdate({...resume, contactInfo: v})}
           />
@@ -70,7 +73,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
       {/* Summary */}
       <div className="mb-5">
         <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Executive Summary</h3>
-        <EditableText
+        <EditableText readOnly={readOnly}
           tagName="p"
           multiline
           value={resume.summary}
@@ -114,6 +117,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
               </div>
               <ul className="list-disc pl-5 mt-1.5 space-y-1 text-[13px] text-slate-800">
                 <BulletList
+                  readOnly={readOnly}
                   bullets={exp.bullets}
                   className="leading-snug"
                   careerJourney={careerJourney}
@@ -148,13 +152,13 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
   );
 };
 
-export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney }) => {
+export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney, readOnly }) => {
   return (
     <div className="text-zinc-800 font-sans leading-relaxed">
       {/* Header */}
       <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between border-b pb-4 border-zinc-300">
         <div>
-          <EditableText
+          <EditableText readOnly={readOnly}
             tagName="h1"
             value={resume.name}
             onChange={(v) => onUpdate({...resume, name: v})}
@@ -167,7 +171,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
           )}
         </div>
         <div className="text-[13px] text-zinc-500 font-medium text-right mt-4 md:mt-0 max-w-[200px]">
-          <EditableText
+          <EditableText readOnly={readOnly}
              multiline
              value={resume.contactInfo}
              onChange={(v) => onUpdate({...resume, contactInfo: v})}
@@ -177,7 +181,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
 
       {/* Summary */}
       <div className="mb-6">
-        <EditableText
+        <EditableText readOnly={readOnly}
           tagName="p"
           multiline
           value={resume.summary}
@@ -222,6 +226,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
               </div>
               <ul className="list-disc pl-4 space-y-1.5 text-[13px] text-zinc-700">
                 <BulletList
+                  readOnly={readOnly}
                   bullets={exp.bullets}
                   className="leading-relaxed"
                   careerJourney={careerJourney}
@@ -257,12 +262,12 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
   );
 };
 
-export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney }) => {
+export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney, readOnly }) => {
   return (
     <div className="text-gray-900 font-serif leading-relaxed">
       {/* Header */}
       <div className="text-center mb-6">
-        <EditableText
+        <EditableText readOnly={readOnly}
           tagName="h1"
           value={resume.name}
           onChange={(v) => onUpdate({...resume, name: v})}
@@ -275,7 +280,7 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
           </h2>
         )}
         <div className="text-[12px] text-gray-600 flex justify-center mt-2 font-sans">
-          <EditableText
+          <EditableText readOnly={readOnly}
             value={resume.contactInfo}
             onChange={(v) => onUpdate({...resume, contactInfo: v})}
           />
@@ -284,7 +289,7 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
 
       {/* Summary */}
       <div className="mb-6">
-        <EditableText
+        <EditableText readOnly={readOnly}
           tagName="p"
           multiline
           value={resume.summary}
@@ -331,6 +336,7 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
               </div>
               <ul className="list-disc pl-5 space-y-1 text-[13px] text-gray-800">
                 <BulletList
+                  readOnly={readOnly}
                   bullets={exp.bullets}
                   className="leading-normal"
                   careerJourney={careerJourney}

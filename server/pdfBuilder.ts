@@ -139,12 +139,7 @@ export async function buildResumePdf(resume: GeneratedResume, strategy?: ResumeS
   sectionHeader(doc, "Executive Summary");
   doc.font(REGULAR).fontSize(BODY_SIZE).fillColor(INK).text(toWinAnsi(resume.summary), x, doc.y, { width: w });
 
-  if (strategy?.selectedOutcomes?.length) {
-    sectionHeader(doc, "Selected Executive Outcomes");
-    strategy.selectedOutcomes.forEach((o) => bullet(doc, toWinAnsi(o)));
-  }
-
-  sectionHeader(doc, "Core Skills & Domains");
+  sectionHeader(doc, "Core Competencies");
   (resume.skills || []).forEach((s) => {
     ensureSpace(doc, BODY_SIZE * 2);
     doc.font(BOLD).fontSize(BODY_SIZE).fillColor(INK).text(`${toWinAnsi(s.category)}: `, x, doc.y, { continued: true, width: w });

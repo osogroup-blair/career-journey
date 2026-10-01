@@ -114,7 +114,7 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 **Admin** — `/api/admin/tickets*` (list/get/update/reply/screenshot), `/api/admin/featureFlags` (get/set), `/api/admin/allowedModels` (set), `/api/admin/users` (list + plan override + quota reset + comp toggle), `GET /api/admin/users/:uid/detail`, `POST /api/admin/users/:uid/status` (suspend/reactivate), `POST /api/admin/users/:uid/send-reset`, `DELETE /api/admin/users/:uid`, `GET /api/admin/audit-logs`, `/api/admin/prompts*` (list/save/restore/test-run).
 **AI pipeline** — `parse`, `keywords`, `clarifyQuestions`, `fitScore`, `auditGates`, `liteScan` (also individually gated by `requireAnyPaidPlan`), `patchJourney`, `resumeStrategy`, `generateResume`, `coverLetter`, `applicationAssistant`, `generateFormAnswers`, `interviewPrep`, `interviewPrepChat`, `offerGuidance`, `compareOffers`, `buildJourneyFromResume`, `buildJourneyChat`, `refineFromInterviewAnswer`.
 **Sources** — `fetchCompanyJobs` (Greenhouse/Lever board scrape), `fetchJobFromUrl` (structured board parse with generic-HTML fallback).
-**Export** — `resume.docx`, `coverLetter.docx` (streamed via `server/docxBuilder.ts`).
+**Export** — `resume.docx`, `resume.pdf`, `coverLetter.docx`, `coverLetter.pdf`. The resume PDF is printed by headless Chrome from `/print.html` (`src/print/main.tsx`, the same `ResumeTemplates.tsx` components the Tailored Application page shows) via `server/pdfRenderer.ts`, falling back to `server/pdfBuilder.ts` if no Chrome is found (`CHROME_PATH`). The resume `.docx` is a per-template hand-built approximation in `server/docxBuilder.ts` — mirror any template change there. The request carries `template` (`classic|modern|executive`).
 **Health** — `GET /api/health`.
 
 ### Supporting modules
@@ -124,7 +124,8 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 - **`server/knowledge.ts`** — loads `server/knowledge/*.md` once at process startup into `FULL_KNOWLEDGE` (six files, prepended as system prompt to most `/api/ai/*` calls) and `CAREER_JOURNEY_BUILDER_KNOWLEDGE` (one file, used only by the three Builder endpoints). These `.md` files are the job-pipeline AI's own prompt content — not developer docs — and are provider-agnostic already (no hardcoded references to Gemini/OpenAI/Anthropic).
 - **`server/rateLimiter.ts`** — `requireWithinAiQuota`: falls back to a flat in-memory daily cap for unauthenticated/no-admin-app requests; for authenticated BYOM users, layers an in-memory per-minute burst check on top of the Firestore-backed quota transaction in `billing.ts`.
 - **`server/email.ts`** — thin Nodemailer wrapper for Gmail SMTP ticket notifications (`SMTP_USER`, `SMTP_PASS`), separate from Firebase Auth's built-in mailer (which can only send fixed verification/reset templates). Never throws; no-ops (logs only) if `SMTP_USER` or `SMTP_PASS` is unset.
-- **`server/docxBuilder.ts`** — builds resume/cover-letter `.docx` binaries with the `docx` package.
+- **`server/docxBuilder.ts`** — builds resume (three templates) and cover-letter `.docx` binaries with the `docx` package.
+- **`server/pdfRenderer.ts`** / **`server/pdfBuilder.ts`** — resume PDF via headless Chrome (matches the screen) / basic pdfkit fallback and cover-letter PDF.
 
 ### `server/scripts/`
 

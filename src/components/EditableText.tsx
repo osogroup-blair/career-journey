@@ -6,6 +6,8 @@ interface EditableTextProps {
   className?: string;
   multiline?: boolean;
   tagName?: React.ElementType;
+  /** Plain static text with no editing affordances — used by the print/PDF entry. */
+  readOnly?: boolean;
 }
 
 export const EditableText: React.FC<EditableTextProps> = ({ 
@@ -13,7 +15,8 @@ export const EditableText: React.FC<EditableTextProps> = ({
   onChange, 
   className = "", 
   multiline = false,
-  tagName: Tag = 'span'
+  tagName: Tag = 'span',
+  readOnly = false
 }) => {
   const elRef = useRef<HTMLElement>(null);
 
@@ -35,6 +38,10 @@ export const EditableText: React.FC<EditableTextProps> = ({
       elRef.current?.blur();
     }
   };
+
+  if (readOnly) {
+    return <Tag className={className} style={{ whiteSpace: multiline ? 'pre-wrap' : 'normal' }}>{value}</Tag>;
+  }
 
   return (
     <Tag
