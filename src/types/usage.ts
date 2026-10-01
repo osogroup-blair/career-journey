@@ -10,6 +10,10 @@ export interface AiUsageLog {
   completionTokens: number;
   totalTokens: number;
   isByom?: boolean;
+  /** Oso only: the physical model behind the alias in `model`, when the router reports it. */
+  actualModel?: string;
+  /** Oso only: the router request id (see Oso Operations > Requests). */
+  requestId?: string;
 }
 
 export interface UserAiUsageSummary {

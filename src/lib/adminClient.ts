@@ -1,5 +1,5 @@
 import { authHeaders } from './aiClient';
-import { AllowedModelsConfig } from '../types/aiModels';
+import { AllowedModelsConfig, AllowedModel } from '../types/aiModels';
 import { Ticket, TicketMessage, TicketStatus, TicketTriageType } from '../types/support';
 import { PlanId, AIProviderId } from '../types/billing';
 import { FeatureFlags } from '../types/featureFlags';
@@ -106,6 +106,17 @@ export interface AdminAuditLog {
 
 export const getFeatureFlags = (): Promise<FeatureFlags> => adminGet('/api/admin/featureFlags');
 export const saveFeatureFlags = (updates: Partial<FeatureFlags>): Promise<FeatureFlags> => adminPost('/api/admin/featureFlags', updates);
+
+export interface OsoStatus {
+  configured: boolean;
+  baseUrl: string;
+  dataClassification: string;
+  health: { ok: boolean; version?: string; gitSha?: string; error?: string };
+  models: { ok: boolean; count?: number; error?: string };
+}
+
+export const getOsoStatus = (): Promise<OsoStatus> => adminGet('/api/admin/oso/status');
+export const syncOsoModels = (): Promise<{ oso: AllowedModel[] }> => adminPost('/api/admin/allowedModels/syncOso', {});
 
 export const saveAllowedModels = (config: AllowedModelsConfig): Promise<void> => adminPost('/api/admin/allowedModels', config);
 

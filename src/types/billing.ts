@@ -11,7 +11,15 @@ export type PlanId = 'free' | 'pro_monthly' | 'byom_monthly' | 'byom_yearly';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing' | 'incomplete';
 
 /** Canonical home for this type — server/ai/types.ts re-exports it rather than defining its own copy. */
-export type AIProviderId = 'gemini' | 'openai' | 'anthropic' | 'ollama';
+export type AIProviderId = 'oso' | 'gemini' | 'openai' | 'anthropic' | 'ollama';
+
+/** Providers the platform itself pays for / hosts. "oso" is the Oso Model Router (a platform credential, never user-supplied). */
+export const PLATFORM_PROVIDERS: AIProviderId[] = ['oso', 'ollama'];
+
+/** Providers a user may bring their own key/URL for. Deliberately excludes "oso" — see server/ai/getAIClient.ts. */
+export const BYOM_PROVIDERS: AIProviderId[] = ['gemini', 'openai', 'anthropic', 'ollama'];
+
+export const isByomProvider = (p: unknown): p is AIProviderId => BYOM_PROVIDERS.includes(p as AIProviderId);
 
 export interface BillingState {
   plan: PlanId;

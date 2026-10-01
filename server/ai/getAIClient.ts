@@ -4,30 +4,21 @@ import { GeminiClient } from "./geminiClient";
 import { OpenAIClient } from "./openaiClient";
 import { AnthropicClient } from "./anthropicClient";
 import { OllamaClient } from "./ollamaClient";
+import { OsoClient, OSO_DEFAULT_ALIAS } from "./osoClient";
+import { platformProvider } from "./platformProvider";
 import { getAdminApp } from "../firebaseAdmin";
 import { getBillingState } from "../billing";
-import { isByomPlan } from "../../src/types/billing";
+import { isByomPlan, isByomProvider } from "../../src/types/billing";
 import { resolveModelForPrompt } from "./resolveModelForPrompt";
 
 const platformClients = new Map<string, StructuredAIClient>();
 
 /**
- * Env-only fallback provider, used when there's no admin config doc to read
- * (local dev without Firebase) or no providerOverride is given. Defaults to
- * "ollama" — a local model costs nothing to run and keeps user data off any
- * third-party API — but can be switched via env var without a code change.
- */
-function platformProvider(): "ollama" | "gemini" {
-  return (process.env.AI_PLATFORM_PROVIDER || "ollama").toLowerCase() === "gemini" ? "gemini" : "ollama";
-}
-
-/**
  * `providerOverride`/`model` let a caller that already resolved an admin's
  * per-prompt or global AI-defaults config (resolveModelForPrompt) hand this
- * function the real provider/model to use, instead of falling back to the
- * env-var-only platformProvider() — the only way admin config for OpenAI/
- * Anthropic platform defaults can ever take effect, since env vars alone
- * only distinguish "ollama" vs "gemini".
+ * function the real provider/model to use. Platform traffic goes through the
+ * Oso Model Router (or local Ollama); the direct Gemini/OpenAI/Anthropic
+ * clients are BYOM-only (buildProviderClient).
  */
 function getPlatformClient(model?: string, providerOverride?: AIProviderId): StructuredAIClient {
   const provider = providerOverride || platformProvider();
@@ -36,25 +27,16 @@ function getPlatformClient(model?: string, providerOverride?: AIProviderId): Str
   if (client) return client;
 
   switch (provider) {
+    case "oso":
+      client = new OsoClient(model || process.env.OSO_DEFAULT_MODEL || OSO_DEFAULT_ALIAS);
+      break;
     case "ollama": {
       const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
       client = new OllamaClient(baseUrl, model || process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b");
       break;
     }
-    case "openai": {
-      if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
-      client = new OpenAIClient(process.env.OPENAI_API_KEY, model);
-      break;
-    }
-    case "anthropic": {
-      if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
-      client = new AnthropicClient(process.env.ANTHROPIC_API_KEY, model);
-      break;
-    }
-    default: {
-      if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured");
-      client = new GeminiClient(process.env.GEMINI_API_KEY, model || "gemini-3.5-flash-lite");
-    }
+    default:
+      throw new Error(`Platform AI provider "${provider}" is no longer supported — platform traffic goes through Oso. Update the AI default in Admin > AI Defaults.`);
   }
   platformClients.set(cacheKey, client);
   return client;
@@ -78,6 +60,9 @@ export function buildProviderClient(provider: AIProviderId, apiKey: string, mode
       return new AnthropicClient(apiKey, model);
     case "ollama":
       return new OllamaClient(apiKey, model);
+    default:
+      // "oso" is the platform's own credential — never constructible from user-supplied input.
+      throw new MissingByomKeyError(`"${provider}" is not a supported bring-your-own-model provider.`);
   }
 }
 
@@ -105,6 +90,9 @@ export async function getAIClientForRequest(req: Request, promptId: string): Pro
   const billing = await getBillingState(app, uid);
 
   const requestedProvider = req.header("X-BYOM-Provider") as AIProviderId | undefined;
+  if (requestedProvider && !isByomProvider(requestedProvider)) {
+    throw new MissingByomKeyError(`"${requestedProvider}" is not a supported bring-your-own-model provider.`);
+  }
   if (requestedProvider === "ollama") {
     // Local models are free to run and cost the platform nothing, so they're
     // available regardless of plan — unlike cloud BYOM, which stays gated to
@@ -121,6 +109,9 @@ export async function getAIClientForRequest(req: Request, promptId: string): Pro
   const apiKey = req.header("X-BYOM-Key");
   const provider = (req.header("X-BYOM-Provider") || billing.byomProvider) as AIProviderId | undefined;
   const model = req.header("X-BYOM-Model") || billing.byomModel;
+  if (provider && !isByomProvider(provider)) {
+    throw new MissingByomKeyError(`"${provider}" is not a supported bring-your-own-model provider.`);
+  }
 
   if (!apiKey || !provider) {
     throw new MissingByomKeyError(

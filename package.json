@@ -13,6 +13,8 @@
     "seed:demo": "tsx server/scripts/seedDemo.ts",
     "set:admin": "tsx server/scripts/setAdmin.ts",
     "verify:ai": "tsx server/scripts/verifyAiProviders.ts",
+    "verify:oso": "tsx server/scripts/verifyOso.ts",
+    "migrate:oso": "tsx server/scripts/migrateAiConfigToOso.ts",
     "seed:allowedModels": "tsx server/scripts/seedAllowedModels.ts",
     "backlog:pull": "tsx server/scripts/pullBacklog.ts",
     "cleanup:users": "tsx server/scripts/cleanupUsers.ts"

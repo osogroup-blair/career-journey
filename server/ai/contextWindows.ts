@@ -1,6 +1,7 @@
 import type { App } from "firebase-admin/app";
 import type { AIProviderId } from "./types";
 import { getContextWindowOverrideFor } from "../modelContextWindows";
+import { fetchOsoModels, isOsoConfigured } from "./osoClient";
 
 /**
  * Static context-window sizes (input tokens) for cloud models, sourced from
@@ -20,7 +21,7 @@ const CLOUD_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-fable-5-1": 200_000,
 };
 
-const CLOUD_DEFAULT_CONTEXT_WINDOW: Record<Exclude<AIProviderId, "ollama">, number> = {
+const CLOUD_DEFAULT_CONTEXT_WINDOW: Record<Exclude<AIProviderId, "ollama" | "oso">, number> = {
   gemini: 1_000_000,
   openai: 400_000,
   anthropic: 200_000,
@@ -57,7 +58,28 @@ export async function getOllamaContextWindow(baseUrl: string, model: string): Pr
   }
 }
 
+const OSO_MODELS_TTL_MS = 10 * 60_000;
+let osoModelsCache: { byId: Map<string, { contextLength: number | null; maxOutputTokens: number | null }>; expiresAt: number } | null = null;
+
+/** Oso's GET /v1/models reports each alias's context_length / max_output_tokens (smallest across its enabled targets). */
+export async function getOsoModelLimits(model: string): Promise<{ contextLength: number | null; maxOutputTokens: number | null } | null> {
+  if (!isOsoConfigured()) return null;
+  const now = Date.now();
+  if (!osoModelsCache || now >= osoModelsCache.expiresAt) {
+    try {
+      osoModelsCache = {
+        byId: new Map((await fetchOsoModels()).map((m) => [m.id, { contextLength: m.contextLength, maxOutputTokens: m.maxOutputTokens }])),
+        expiresAt: now + OSO_MODELS_TTL_MS,
+      };
+    } catch {
+      return null;
+    }
+  }
+  return osoModelsCache.byId.get(model) ?? null;
+}
+
 export async function getContextWindow(provider: AIProviderId, model: string, ollamaBaseUrl?: string): Promise<number | null> {
+  if (provider === "oso") return (await getOsoModelLimits(model))?.contextLength ?? null;
   if (provider === "ollama") {
     return getOllamaContextWindow(ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://localhost:11434", model);
   }
@@ -88,5 +110,6 @@ export async function resolveContextWindow(
     return { contextWindow: override.contextWindow, maxOutputTokens: override.maxOutputTokens ?? null, source: "admin" };
   }
   const contextWindow = await getContextWindow(provider, model, ollamaBaseUrl);
-  return { contextWindow, maxOutputTokens: null, source: "builtin" };
+  const maxOutputTokens = provider === "oso" ? (await getOsoModelLimits(model))?.maxOutputTokens ?? null : null;
+  return { contextWindow, maxOutputTokens, source: "builtin" };
 }

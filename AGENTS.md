@@ -6,17 +6,18 @@ You're working in **Career Journey**, a job-search/resume SaaS: React 19 + Expre
 
 - One Express process (`server.ts`) serves the API and, via Vite middleware in dev, the SPA. `npm run dev` starts everything.
 - The app runs with **zero external services configured** by default — local-only storage, no auth, no billing. Every cloud feature (Firestore, Stripe, admin, email) is additive and gated behind env vars in `.env.example`; the app degrades gracefully without them (see the table below).
-- Three AI providers exist, but the provider-agnostic abstraction (`server/ai/`) only covers 2 of ~19 AI endpoints. Assume any endpoint you touch is still on the old hand-written-Gemini-schema pattern unless you check `server/ai/schemas.ts` first. See [ARCHITECTURE.md § AI provider abstraction](ARCHITECTURE.md#ai-provider-abstraction) before changing anything AI-related.
+- Platform AI goes through the **Oso Model Router** (`server/ai/osoClient.ts`; local Ollama is the no-credentials fallback). BYOM users can bring Gemini/OpenAI/Anthropic/Ollama, but the provider-agnostic Zod abstraction (`server/ai/`) only covers 2 of ~19 AI endpoints. Assume any endpoint you touch is still on the hand-written-Gemini-schema pattern (`legacyGenAIShim.ts`) unless you check `server/ai/schemas.ts` first. See [ARCHITECTURE.md § AI provider abstraction](ARCHITECTURE.md#ai-provider-abstraction) before changing anything AI-related.
 - Automated tests exist via Vitest (`npm test` / `npx vitest run`, configured in `vitest.config.ts`), covering `server/support.ts` access-control and rate limiting. `npm run lint` is `tsc --noEmit`. When adding features, run tests and exercise changes live on the dev server.
 
 ## What env vars unlock what
 
 | You want to work on | You need |
 |---|---|
-| Job pipeline / Career Journey / resume generation, local-only | Nothing but `GEMINI_API_KEY` |
+| Job pipeline / Career Journey / resume generation, local-only | `OSO_AI_API_KEY` (or nothing at all — falls back to a local Ollama model) |
 | Multi-account, Firestore persistence, admin | `VITE_FIREBASE_*` + `FIREBASE_SERVICE_ACCOUNT_JSON` |
 | Billing / plan gating / Upgrade page | The Firebase vars above **and** `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*` (`stripe listen --forward-to localhost:47293/api/billing/webhook` for local webhook delivery) |
-| BYOM (multi-provider AI) | An `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` for `npm run verify:ai`; real BYOM keys come from the user at runtime, never from env vars |
+| Oso router (`npm run verify:oso`, admin router status / model sync) | `OSO_AI_API_KEY`, optionally `OSO_ROUTER_URL`, `OSO_DATA_CLASSIFICATION` (default empty = no `routing` object sent; if set, must not exceed the Oso client's ceiling) |
+| BYOM (multi-provider AI) | A `GEMINI_API_KEY`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY` for `npm run verify:ai`; real BYOM keys come from the user at runtime, never from env vars |
 | Support ticket email notifications | `SMTP_USER` + `SMTP_PASS` + `SUPPORT_NOTIFY_EMAIL` (optional — the ticket loop works without email) |
 
 Full list with defaults in `.env.example` — it's the actual source of truth, read it directly rather than trusting a paraphrase.
@@ -55,7 +56,7 @@ This repo carries hand-written planning docs at the root (`payment-system-plan.m
 See [ARCHITECTURE.md § Known inconsistencies / incomplete migrations](ARCHITECTURE.md#known-inconsistencies--incomplete-migrations) for the full list with file references. Highlights:
 
 1. `adminNotes`-leak-style bugs are the kind of thing this codebase has shipped before (found and fixed once already) — when touching `server/support.ts` or any user-facing read path, double check nothing internal-only leaks into a response.
-2. The AI provider migration (17 of 19 endpoints still hardcoded to Gemini) is the single largest piece of unfinished work, and the riskiest to rush — the payment plan doc explicitly deferred it rather than migrate blind without real provider credentials to test against. If you pick this up, verify each provider for real (`npm run verify:ai`), not just against Gemini.
+2. The AI provider migration (17 of 19 endpoints still on the legacy Gemini-schema shim, and therefore not BYOM-aware) is the single largest piece of unfinished work, and the riskiest to rush — the payment plan doc explicitly deferred it rather than migrate blind without real provider credentials to test against. If you pick this up, verify each provider for real (`npm run verify:ai`), not just against Gemini.
 3. Test coverage is growing — Vitest is configured (`vitest.config.ts`, `server/__tests__/support.test.ts`) covering support access control and rate limits (`npm test`). Further test expansion (e.g. `server/billing.ts` quota transactions) remains high value.
 
 ## Verifying your work

@@ -1,6 +1,7 @@
 import type { App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import type { AIProviderId } from "./ai/types";
+import { PLATFORM_PROVIDERS } from "../src/types/billing";
 import { getAllKnowledgeFileNames } from "./knowledge";
 import { DEFAULT_PROMPTS } from "./promptStore";
 import { CAREER_JOURNEY_FIELDS } from "./careerJourneyProjection";
@@ -49,7 +50,7 @@ export function _resetPromptAiConfigCache(): void {
   cache = null;
 }
 
-const VALID_PROVIDERS: AIProviderId[] = ["gemini", "openai", "anthropic", "ollama"];
+const VALID_PROVIDERS: AIProviderId[] = PLATFORM_PROVIDERS;
 
 export function validatePromptAiConfigUpdate(id: string, input: unknown): void {
   if (!(id in DEFAULT_PROMPTS)) {

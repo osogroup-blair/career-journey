@@ -1,6 +1,9 @@
 import type { App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import type { AIProviderId } from "./ai/types";
+import { PLATFORM_PROVIDERS } from "../src/types/billing";
+import { platformProvider } from "./ai/platformProvider";
+import { OSO_DEFAULT_ALIAS } from "./ai/osoClient";
 
 export interface AiDefaults {
   provider: AIProviderId;
@@ -14,12 +17,12 @@ export interface AiDefaults {
  * exactly as it did before this file existed.
  */
 export function defaultAiDefaults(): AiDefaults {
-  const provider = (process.env.AI_PLATFORM_PROVIDER || "ollama").toLowerCase() === "gemini" ? "gemini" : "ollama";
+  const provider = platformProvider();
   const model =
-    provider === "ollama"
-      ? process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b"
-      : "gemini-3.5-flash-lite";
-  return { provider: provider as AIProviderId, model };
+    provider === "oso"
+      ? process.env.OSO_DEFAULT_MODEL || OSO_DEFAULT_ALIAS
+      : process.env.OLLAMA_DEFAULT_MODEL || "qwen3:14b";
+  return { provider, model };
 }
 
 // Same 30s staleness window as featureFlags.ts — cheap enough to read on every
@@ -48,7 +51,7 @@ export function _resetAiDefaultsCache(): void {
   cache = null;
 }
 
-const VALID_PROVIDERS: AIProviderId[] = ["gemini", "openai", "anthropic", "ollama"];
+const VALID_PROVIDERS: AIProviderId[] = PLATFORM_PROVIDERS;
 
 export function validateAiDefaultsUpdate(input: unknown): void {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {

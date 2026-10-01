@@ -12,6 +12,18 @@ dotenv.config();
 // this is exactly what the Phase 5 admin "Models" tab exists to keep current
 // without needing this script again.
 const SEED: AllowedModelsConfig = {
+  // Platform-only: the Oso router's aliases (each falls back through open-weight
+  // then closed models). The admin "Sync from Oso" button keeps this current.
+  oso: [
+    { id: 'oso/general', label: 'oso/general (balanced, default)', enabled: true },
+    { id: 'oso/fast', label: 'oso/fast (low latency / cost)', enabled: true },
+    { id: 'oso/reasoning', label: 'oso/reasoning (multi-step analysis)', enabled: true },
+    { id: 'oso/code', label: 'oso/code', enabled: true },
+    { id: 'oso/code-high', label: 'oso/code-high', enabled: true },
+    { id: 'oso/vision', label: 'oso/vision', enabled: true },
+    { id: 'oso/general-vision', label: 'oso/general-vision', enabled: true },
+    { id: 'oso/frontier', label: 'oso/frontier (strongest, largest context)', enabled: true },
+  ],
   gemini: [
     { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (flagship)', enabled: true },
     { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (balanced, default)', enabled: true },

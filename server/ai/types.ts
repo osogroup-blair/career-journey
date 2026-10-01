@@ -13,6 +13,10 @@ export interface StructuredAIResult<T> {
   data: T;
   usage: TokenUsage;
   model: string;
+  /** Oso only: the physical model that actually answered (x-oso-actual-model), when the router reports it. */
+  actualModel?: string;
+  /** Oso only: the router's x-request-id, for cross-referencing its Request Logs. */
+  requestId?: string;
 }
 
 export interface GenerateStructuredParams<T> {

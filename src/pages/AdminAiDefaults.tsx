@@ -1,21 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dataStore } from '../data';
 import { getAdminAiDefaults, saveAdminAiDefaults, AiDefaults } from '../lib/aiClient';
+import { getOsoStatus, OsoStatus } from '../lib/adminClient';
 import { AllowedModelsConfig } from '../types/aiModels';
-import { AIProviderId } from '../types/billing';
+import { AIProviderId, PLATFORM_PROVIDERS } from '../types/billing';
 import { Button, Card, CardHeader, CardTitle, CardContent, useToast } from '../components/ui';
 import { Loader2, Cpu, Save } from 'lucide-react';
 
-const PROVIDERS: AIProviderId[] = ['ollama', 'gemini', 'openai', 'anthropic'];
-const PROVIDER_LABEL: Record<AIProviderId, string> = { ollama: 'Local (Ollama)', gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic' };
+const PROVIDERS: AIProviderId[] = PLATFORM_PROVIDERS;
+const PROVIDER_LABEL: Record<AIProviderId, string> = { oso: 'Oso Model Router', ollama: 'Local (Ollama)', gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic' };
 
 function emptyModelsConfig(): AllowedModelsConfig {
-  return { gemini: [], openai: [], anthropic: [], ollama: [] };
+  return { oso: [], gemini: [], openai: [], anthropic: [], ollama: [] };
 }
 
 export default function AdminAiDefaults() {
   const toast = useToast();
   const [defaults, setDefaults] = useState<AiDefaults | null>(null);
+  const [osoStatus, setOsoStatus] = useState<OsoStatus | null>(null);
   const [initial, setInitial] = useState<AiDefaults | null>(null);
   const [models, setModels] = useState<AllowedModelsConfig>(emptyModelsConfig());
   const [saving, setSaving] = useState(false);
@@ -28,6 +30,10 @@ export default function AdminAiDefaults() {
         setModels({ ...emptyModelsConfig(), ...m });
       })
       .catch((e) => toast.error(e.message));
+  }, []);
+
+  useEffect(() => {
+    getOsoStatus().then(setOsoStatus).catch(() => setOsoStatus(null));
   }, []);
 
   const isDirty = useMemo(() => JSON.stringify(defaults) !== JSON.stringify(initial), [defaults, initial]);
@@ -65,6 +71,26 @@ export default function AdminAiDefaults() {
           The provider/model every AI endpoint uses unless a prompt on the AI Prompts page has its own override. Takes effect immediately, no redeploy needed.
         </p>
       </div>
+
+      {osoStatus && (
+        <Card>
+          <CardHeader className="bg-slate-50 border-b">
+            <CardTitle className="text-base">Oso Model Router</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 text-sm space-y-1">
+            <div>
+              Router: <span className={osoStatus.health.ok ? 'text-emerald-700' : 'text-red-700'}>{osoStatus.health.ok ? `healthy — v${osoStatus.health.version} (${osoStatus.health.gitSha})` : `unreachable${osoStatus.health.error ? ` — ${osoStatus.health.error}` : ''}`}</span>
+              <span className="text-slate-400"> · {osoStatus.baseUrl}</span>
+            </div>
+            <div>
+              API key: {osoStatus.configured
+                ? <span className={osoStatus.models.ok ? 'text-emerald-700' : 'text-red-700'}>{osoStatus.models.ok ? `valid — ${osoStatus.models.count} aliases available` : `rejected — ${osoStatus.models.error}`}</span>
+                : <span className="text-amber-700">OSO_AI_API_KEY is not set on the server</span>}
+            </div>
+            <div>Data classification sent: {osoStatus.dataClassification ? <span className="font-mono">{osoStatus.dataClassification}</span> : <span className="text-slate-500">none (router defaults apply)</span>}</div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="bg-slate-50 border-b">
@@ -119,9 +145,9 @@ export default function AdminAiDefaults() {
             </div>
           </div>
 
-          {defaults.provider !== 'ollama' && (
+          {defaults.provider === 'oso' && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              This spends the platform's own {PROVIDER_LABEL[defaults.provider]} API key (from server env vars), not any user's BYOM key — every request that falls back to the global default will use it.
+              Requests go through the Oso Model Router using the platform's OSO_AI_API_KEY (server env), not any user's BYOM key. Use an <code>oso/*</code> alias (e.g. <code>oso/general</code>) to get automatic provider fallback — a direct model name such as <code>claude-sonnet-5-5</code> is called with no fallback.
             </p>
           )}
 

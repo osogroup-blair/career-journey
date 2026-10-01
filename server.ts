@@ -54,8 +54,9 @@ import {
 import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketPriority } from "./src/types/support";
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
+import { OsoRouterError, fetchOsoModels, fetchOsoStatus, isOsoConfigured } from "./server/ai/osoClient";
 import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
-import { isByomPlan, AIProviderId, PlanId, BillingState } from "./src/types/billing";
+import { isByomPlan, isByomProvider, AIProviderId, PlanId, BillingState } from "./src/types/billing";
 import { getFeatureFlags, setFeatureFlags, validateFeatureFlagsUpdate } from "./server/featureFlags";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
@@ -70,6 +71,20 @@ function handleAiRouteError(e: any, res: express.Response) {
     res.status(400).json({ error: e.message });
     return;
   }
+  if (e instanceof OsoRouterError) {
+    // Log the router's request id so it can be looked up in Oso's Request Logs,
+    // but never forward the upstream message to end users.
+    console.error(`Oso router error ${e.code} (HTTP ${e.status}, request ${e.requestId || "n/a"})`);
+    if (e.code === "rate_limited" || e.status === 429) {
+      if (e.retryAfter) res.setHeader("Retry-After", String(e.retryAfter));
+      res.status(429).json({ error: "The AI service is busy. Please try again shortly." });
+    } else if (e.code === "budget_exceeded" || e.code === "DATA_POLICY_VIOLATION" || e.code === "classification_not_permitted") {
+      res.status(503).json({ error: "AI is temporarily unavailable. Please try again later." });
+    } else {
+      res.status(502).json({ error: "The AI service returned an error. Please try again." });
+    }
+    return;
+  }
   res.status(500).json({ error: e.message });
 }
 
@@ -78,7 +93,8 @@ async function trackUsage(
   endpoint: string,
   model: string,
   usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | { promptTokens?: number; completionTokens?: number; totalTokens?: number },
-  provider: string = "gemini"
+  provider: string = "gemini",
+  meta?: { actualModel?: string; requestId?: string }
 ) {
   const adminApp = getAdminApp();
   const uid = (req as any).uid as string | undefined;
@@ -104,6 +120,8 @@ async function trackUsage(
       completionTokens,
       totalTokens,
       isByom,
+      ...(meta?.actualModel ? { actualModel: meta.actualModel } : {}),
+      ...(meta?.requestId ? { requestId: meta.requestId } : {}),
     });
   } catch (err) {
     console.error(`Failed to record AI usage for ${endpoint}:`, err);
@@ -267,6 +285,10 @@ async function startServer() {
     }
     try {
       const { provider, model } = req.body as { provider: AIProviderId; model: string };
+      if (!isByomProvider(provider)) {
+        res.status(400).json({ error: `"${provider}" is not a supported bring-your-own-model provider.` });
+        return;
+      }
       const billing = await getBillingState(adminApp, uid);
       if (!isByomPlan(billing.plan)) {
         res.status(403).json({ error: "BYOM settings require a BYOM plan." });
@@ -289,6 +311,10 @@ async function startServer() {
       const { provider, apiKey, model } = req.body as { provider: AIProviderId; apiKey: string; model?: string };
       if (!provider || !apiKey) {
         res.status(400).json({ valid: false, error: "provider and apiKey are required" });
+        return;
+      }
+      if (!isByomProvider(provider)) {
+        res.status(400).json({ valid: false, error: `"${provider}" is not a supported bring-your-own-model provider.` });
         return;
       }
       const client = buildProviderClient(provider, apiKey, model);
@@ -607,6 +633,40 @@ async function startServer() {
       res.json(updated);
     } catch (e: any) {
       console.error("setFeatureFlags failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Pulls the aliases this key may call from the Oso router and upserts them as
+  // the "oso" entry of config/allowedModels, leaving every other provider's list alone.
+  app.post("/api/admin/allowedModels/syncOso", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    if (!isOsoConfigured()) {
+      res.status(400).json({ error: "OSO_AI_API_KEY is not configured on the server." });
+      return;
+    }
+    try {
+      const actorUid = (req as any).uid || "admin";
+      const models = (await fetchOsoModels())
+        .filter((m) => !m.capabilities.includes("embedding"))
+        .map((m) => ({ id: m.id, label: `${m.id}${m.contextLength ? ` (${Math.round(m.contextLength / 1000)}K context)` : ""}`, enabled: true }));
+      await getFirestore(adminApp).collection("config").doc("allowedModels").set({ oso: models }, { merge: true });
+      await logAdminAction(adminApp, { actorUid, targetUid: "platform", action: "update_allowed_models", details: { syncedFrom: "oso", count: models.length } });
+      res.json({ oso: models });
+    } catch (e: any) {
+      console.error("syncOso failed", e);
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/admin/oso/status", async (_req, res) => {
+    try {
+      res.json(await fetchOsoStatus());
+    } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
@@ -1244,7 +1304,7 @@ async function startServer() {
       // The exact string sent to the model — surfaced verbatim in the admin UI
       // so "Test Run" shows the real request/response pair, not just the
       // parsed output.
-      res.json({ request: contents, output, usage: response.usageMetadata, provider: resolved.provider, model: resolved.model });
+      res.json({ request: contents, output, usage: response.usageMetadata, provider: resolved.provider, model: resolved.model, actualModel: response.actualModel });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
@@ -1460,7 +1520,7 @@ ${jdText}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.parse as any,
         }
       });
-      await trackUsage(req, "parse", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "parse", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json({ ...JSON.parse(response.text!), jdSegments: segmentJdText(jdText) });
     } catch (e: any) {
       console.error(e);
@@ -1475,7 +1535,7 @@ ${jdText}`,
       const { parse, careerJourney, jdSegments } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("keywords", careerJourney);
       const client = await getAIClientForRequest(req, "keywords");
-      const { data, usage, model } = await client.generateStructured({
+      const { data, usage, model, actualModel, requestId } = await client.generateStructured({
         systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "keywords")}${getActivePrompt('keywords')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse, null, 2)}
@@ -1488,7 +1548,7 @@ ${JSON.stringify(projectedCareerJourney || {}, null, 2)}
 `,
         schema: KeywordsResponseSchema,
       });
-      await trackUsage(req, "keywords", model, usage, client.provider);
+      await trackUsage(req, "keywords", model, usage, client.provider, { actualModel, requestId });
       res.json(data);
     } catch (e: any) {
       handleAiRouteError(e, res);
@@ -1526,7 +1586,7 @@ ${JSON.stringify(applyCareerJourneyExtractor("clarifyQuestions", projectedCareer
         }
       });
 
-      await trackUsage(req, "clarifyQuestions", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "clarifyQuestions", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1541,7 +1601,7 @@ ${JSON.stringify(applyCareerJourneyExtractor("clarifyQuestions", projectedCareer
       const { parse, careerJourney, contextEntries, gateClarifications, jdSegments } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("fitScore", careerJourney);
       const client = await getAIClientForRequest(req, "fitScore");
-      const { data, usage, model } = await client.generateStructured({
+      const { data, usage, model, actualModel, requestId } = await client.generateStructured({
         systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "fitScore")}${getActivePrompt('fitScore')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse)}
@@ -1557,7 +1617,7 @@ ${JSON.stringify(gateClarifications || {})}
 Generate an objective fit analysis. If the candidate has provided convincing explanations and objective proofs, factor them into upgrading the relevant dimension ratings ('Strong' | 'Moderate') and adjust the rationale and overallVerdict accordingly. For each leadWith/gaps entry, cite real evidenceRefs/jdRefs ids where applicable — leave them empty rather than inventing an id.`,
         schema: FitAnalysisSchema,
       });
-      await trackUsage(req, "fitScore", model, usage, client.provider);
+      await trackUsage(req, "fitScore", model, usage, client.provider, { actualModel, requestId });
       res.json(data);
     } catch (e: any) {
       handleAiRouteError(e, res);
@@ -1591,7 +1651,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.auditGates as any,
         }
       });
-      await trackUsage(req, "auditGates", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "auditGates", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1755,7 +1815,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
           responseSchema: LEGACY_RESPONSE_SCHEMAS.liteScan as any,
         }
       });
-      await trackUsage(req, "liteScan", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "liteScan", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1899,7 +1959,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
         },
       });
       const delta = JSON.parse(response.text!);
-      await trackUsage(req, "patchJourney", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "patchJourney", resolved.model, response.usageMetadata, resolved.provider, response);
       const { updatedCareerJourney, summary: deltaSummary } = applyCareerJourneyDelta(careerJourney, delta, nextIds);
 
       updatedCareerJourney.meta = updatedCareerJourney.meta || {};
@@ -1951,7 +2011,7 @@ Output a detailed strategy.`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.resumeStrategy as any,
         }
       });
-      await trackUsage(req, "resumeStrategy", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "resumeStrategy", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -1989,7 +2049,7 @@ ${JSON.stringify(parse, null, 2)}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.generateResume as any,
         }
       });
-      await trackUsage(req, "generateResume", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "generateResume", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2029,7 +2089,7 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       });
       const result = JSON.parse(response.text!);
       result.approvalStatus = "Draft";
-      await trackUsage(req, "coverLetter", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "coverLetter", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(result);
     } catch (e: any) {
       console.error(e);
@@ -2070,7 +2130,7 @@ ${history}
 
 Candidate's latest message: "${latest}"`,
       });
-      await trackUsage(req, "applicationAssistant", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "applicationAssistant", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json({ reply: response.text });
     } catch (e: any) {
       console.error(e);
@@ -2109,7 +2169,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       const { answers } = JSON.parse(response.text!);
       const byId: Record<string, string> = {};
       for (const a of answers) byId[a.fieldId] = a.answer;
-      await trackUsage(req, "generateFormAnswers", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "generateFormAnswers", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json({ answers: byId });
     } catch (e: any) {
       console.error(e);
@@ -2146,7 +2206,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       });
       const result = JSON.parse(response.text!);
       result.generatedAt = new Date().toISOString();
-      await trackUsage(req, "interviewPrep", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "interviewPrep", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(result);
     } catch (e: any) {
       console.error(e);
@@ -2182,7 +2242,7 @@ ${history}
 
 Candidate's latest message: "${latest}"`,
       });
-      await trackUsage(req, "interviewPrepChat", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "interviewPrepChat", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json({ reply: response.text });
     } catch (e: any) {
       console.error(e);
@@ -2213,7 +2273,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.offerGuidance as any,
         }
       });
-      await trackUsage(req, "offerGuidance", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "offerGuidance", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2242,7 +2302,7 @@ ${JSON.stringify(applyCareerJourneyExtractor("compareOffers", projectedCareerJou
           responseSchema: LEGACY_RESPONSE_SCHEMAS.compareOffers as any,
         }
       });
-      await trackUsage(req, "compareOffers", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "compareOffers", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2275,7 +2335,7 @@ ${resumeText}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.buildJourneyFromResume as any,
         },
       });
-      await trackUsage(req, "buildJourneyFromResume", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "buildJourneyFromResume", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2312,7 +2372,7 @@ ${transcriptText}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.buildJourneyChat as any,
         },
       });
-      await trackUsage(req, "buildJourneyChat", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "buildJourneyChat", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);
@@ -2345,7 +2405,7 @@ User's answer: ${answer}`,
           responseSchema: LEGACY_RESPONSE_SCHEMAS.refineFromInterviewAnswer as any,
         },
       });
-      await trackUsage(req, "refineFromInterviewAnswer", resolved.model, response.usageMetadata, resolved.provider);
+      await trackUsage(req, "refineFromInterviewAnswer", resolved.model, response.usageMetadata, resolved.provider, response);
       res.json(JSON.parse(response.text!));
     } catch (e: any) {
       console.error(e);

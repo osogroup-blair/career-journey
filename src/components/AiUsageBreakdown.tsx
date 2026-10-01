@@ -142,7 +142,12 @@ export const AiUsageBreakdown: React.FC<AiUsageBreakdownProps> = ({ adminTargetU
                       <td className="py-2.5 px-3 font-medium text-slate-800">
                         {log.featureName || log.endpoint}
                       </td>
-                      <td className="py-2.5 px-3">{getModelBadge(log.model)}</td>
+                      <td className="py-2.5 px-3">
+                        {getModelBadge(log.model)}
+                        {log.actualModel && log.actualModel !== log.model && (
+                          <div className="text-[10px] text-slate-400 mt-0.5" title={log.requestId ? `Oso request ${log.requestId}` : undefined}>→ {log.actualModel}</div>
+                        )}
+                      </td>
                       <td className="py-2.5 px-3 text-right text-slate-500 font-mono">
                         {formatNumber(log.promptTokens)}
                       </td>

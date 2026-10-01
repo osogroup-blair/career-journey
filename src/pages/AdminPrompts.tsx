@@ -13,16 +13,16 @@ import {
 } from '../lib/aiClient';
 import { dataStore } from '../data';
 import { AllowedModelsConfig } from '../types/aiModels';
-import { AIProviderId } from '../types/billing';
+import { AIProviderId, PLATFORM_PROVIDERS } from '../types/billing';
 import { CAREER_JOURNEY_TOP_LEVEL_FIELDS } from '../types/careerJourney';
 import { PlayCircle, RotateCcw, Save, Sparkles, AlertTriangle } from 'lucide-react';
 
-const PROVIDERS: AIProviderId[] = ['ollama', 'gemini', 'openai', 'anthropic'];
-const PROVIDER_LABEL: Record<AIProviderId, string> = { ollama: 'Local (Ollama)', gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic' };
+const PROVIDERS: AIProviderId[] = PLATFORM_PROVIDERS;
+const PROVIDER_LABEL: Record<AIProviderId, string> = { oso: 'Oso Model Router', ollama: 'Local (Ollama)', gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic' };
 const DEFAULT_OPTION = '__default__';
 
 function emptyModelsConfig(): AllowedModelsConfig {
-  return { gemini: [], openai: [], anthropic: [], ollama: [] };
+  return { oso: [], gemini: [], openai: [], anthropic: [], ollama: [] };
 }
 
 type ModelDraft = { provider: AIProviderId; model: string } | null;

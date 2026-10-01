@@ -254,6 +254,8 @@ export async function recordAiUsage(
     completionTokens: log.completionTokens || 0,
     totalTokens,
     isByom: log.isByom || false,
+    ...(log.actualModel ? { actualModel: log.actualModel } : {}),
+    ...(log.requestId ? { requestId: log.requestId } : {}),
   };
 
   // Add the log entry asynchronously

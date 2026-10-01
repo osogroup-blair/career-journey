@@ -6,17 +6,18 @@ import {
   saveContextWindowOverride,
   clearContextWindowOverride,
   ResolvedContextWindow,
+  syncOsoModels,
 } from '../lib/adminClient';
 import { AllowedModelsConfig, AllowedModel } from '../types/aiModels';
-import { AIProviderId } from '../types/billing';
+import { AIProviderId, PLATFORM_PROVIDERS } from '../types/billing';
 import { Button, LoadingButton, Card, CardHeader, CardTitle, CardContent, Input, useToast } from '../components/ui';
 import { Loader2, Trash2, Plus, Cpu, RotateCcw } from 'lucide-react';
 
-const PROVIDERS: AIProviderId[] = ['gemini', 'openai', 'anthropic', 'ollama'];
-const PROVIDER_LABEL: Record<AIProviderId, string> = { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic', ollama: 'Local (Ollama)' };
+const PROVIDERS: AIProviderId[] = ['oso', 'ollama', 'gemini', 'openai', 'anthropic'];
+const PROVIDER_LABEL: Record<AIProviderId, string> = { oso: 'Oso Model Router', ollama: 'Local (Ollama)', gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic' };
 
 function emptyConfig(): AllowedModelsConfig {
-  return { gemini: [], openai: [], anthropic: [], ollama: [] };
+  return { oso: [], gemini: [], openai: [], anthropic: [], ollama: [] };
 }
 
 function windowKey(provider: AIProviderId, model: string): string {
@@ -27,11 +28,12 @@ export default function AdminModels() {
   const toast = useToast();
   const [config, setConfig] = useState<AllowedModelsConfig | null>(null);
   const [saving, setSaving] = useState(false);
-  const [draftId, setDraftId] = useState<Record<AIProviderId, string>>({ gemini: '', openai: '', anthropic: '', ollama: '' });
-  const [draftLabel, setDraftLabel] = useState<Record<AIProviderId, string>>({ gemini: '', openai: '', anthropic: '', ollama: '' });
+  const [draftId, setDraftId] = useState<Record<AIProviderId, string>>({ oso: '', gemini: '', openai: '', anthropic: '', ollama: '' });
+  const [draftLabel, setDraftLabel] = useState<Record<AIProviderId, string>>({ oso: '', gemini: '', openai: '', anthropic: '', ollama: '' });
   const [windows, setWindows] = useState<Record<string, ResolvedContextWindow>>({});
   const [windowDrafts, setWindowDrafts] = useState<Record<string, { contextWindow: string; maxOutputTokens: string }>>({});
   const [savingWindowKey, setSavingWindowKey] = useState<string | null>(null);
+  const [syncingOso, setSyncingOso] = useState(false);
 
   useEffect(() => {
     // Merge over emptyConfig() rather than trusting the stored doc's shape —
@@ -151,16 +153,38 @@ export default function AdminModels() {
     }
   };
 
+  const handleSyncOso = async () => {
+    setSyncingOso(true);
+    try {
+      const { oso } = await syncOsoModels();
+      setConfig((prev) => (prev ? { ...prev, oso } : prev));
+      toast.success(`Synced ${oso.length} models from the Oso router.`);
+    } catch (e: any) {
+      toast.error('Sync failed: ' + e.message);
+    } finally {
+      setSyncingOso(false);
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 space-y-6">
       <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-        <Cpu className="w-5 h-5 text-brand-500" /> BYOM Allowed Models
+        <Cpu className="w-5 h-5 text-brand-500" /> Allowed Models
       </h1>
-      <p className="text-sm text-slate-500">Controls what shows up in every BYOM user's model picker (Settings page).</p>
+      <p className="text-sm text-slate-500">Controls what shows up in every BYOM user's model picker (Settings page) and in the admin platform-model pickers. The Oso list is platform-only and is synced from the router.</p>
 
       {PROVIDERS.map((provider) => (
         <Card key={provider}>
-          <CardHeader><CardTitle>{PROVIDER_LABEL[provider]}</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>{PROVIDER_LABEL[provider]}</CardTitle>
+              {provider === 'oso' && (
+                <LoadingButton size="sm" variant="outline" loading={syncingOso} onClick={handleSyncOso}>
+                  <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Sync from Oso
+                </LoadingButton>
+              )}
+            </div>
+          </CardHeader>
           <CardContent className="space-y-3">
             {config[provider].map((m) => {
               const key = windowKey(provider, m.id);

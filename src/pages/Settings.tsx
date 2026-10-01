@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { dataStore } from '../data';
 import { AllowedModelsConfig } from '../types/aiModels';
-import { AIProviderId, isByomPlan } from '../types/billing';
+import { AIProviderId, BYOM_PROVIDERS, isByomPlan } from '../types/billing';
 import { getStoredByomKey, setStoredByomKey, clearStoredByomKey, maskKey, StoredByomKey } from '../lib/byomKeyStorage';
 import { validateByomKey, saveByomSettings } from '../lib/billingClient';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, Label, useToast } from '../components/ui';
@@ -13,6 +13,7 @@ const PROVIDER_LABEL: Record<AIProviderId, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   ollama: 'Local (Ollama)',
+  oso: 'Oso Model Router',
 };
 
 export default function Settings() {
@@ -134,7 +135,7 @@ export default function Settings() {
                     onChange={(e) => setProvider(e.target.value as AIProviderId)}
                     className="w-full h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
                   >
-                    {(['gemini', 'openai', 'anthropic', 'ollama'] as AIProviderId[]).map((p) => (
+                    {BYOM_PROVIDERS.map((p) => (
                       <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>
                     ))}
                   </select>

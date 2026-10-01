@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "oso": {
+      "type": "http",
+      "url": "https://models.oso.group/mcp",
+      "headers": { "Authorization": "Bearer ${OSO_AI_API_KEY}" }
+    }
+  }
+}
