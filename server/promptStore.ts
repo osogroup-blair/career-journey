@@ -110,6 +110,19 @@ Combine the candidate's existing CareerJourney data with the newly generated tai
 6. Each bullet is an object with "text" and "evidenceRefs" fields, not a bare string. Populate "evidenceRefs" with the real Career Journey item id(s) (deliverable.id or achievement.id) that bullet is based on — never invent an id, only cite ids that literally appear in the Career Journey below. If a bullet is a truthful synthesis of the role's general scope rather than one specific deliverable/achievement, leave evidenceRefs empty rather than guessing an id.
 7. Return a strict JSON object of the GeneratedResume.`,
   },
+  scoreResume: {
+    label: "Resume Score",
+    description: "Stage 7 — scores the finished tailored resume against the JD (keyword gate, role-identity gate, ats_tactics.md 100-point rubric) and suggests truthful fixes.",
+    stage: "Tailored Application",
+    template: `You are running Stage 7 (Keyword scoring gate) of JD_pipeline_SKILL.md on the candidate's finished tailored resume, then scoring it with the transparent 100-point rubric in ats_tactics.md. Score exactly what a parser would read: the resume JSON below, not an imagined layout.
+
+1. Keyword gate: a literal keyword-coverage pass has already been computed and is supplied below — reuse its numbers as the baseline and only adjust where the resume clearly covers a keyword with a synonym or acronym/long-form pair the literal check missed. List every top-critical skill still absent in missingCriticalSkills.
+2. Seniority / role-identity gate: read the tagline, summary, first outcomes and first skills rows as an ATS-generated candidate profile. In roleIdentity.readsAs, say in a few words what a recruiter would think this candidate is; set aligned=false if that identity doesn't match the JD's target role family.
+3. Rubric: return one criteria entry per row of the ats_tactics.md rubric (Non-negotiable requirements coverage 15, Skills and tools match 20, Job title and function alignment 10, Experience years and relevance 15, Education and certifications 10, File type and parseability 10, Section headings and chronology 10, Acronyms and synonym handling 5, Metrics and evidence quality 5), each with its weight, the points earned (0..weight) and a one-line note. Assume parseability is good — the app always exports a single-column, text-layer DOCX/PDF. overallScore is the sum of points earned; band is the matching ats_tactics.md score band with its estimated pass probability.
+4. Suggestions: concrete, specific edits (which section, what to change) that would raise the score. Only suggest adding a keyword or claim when the Career Journey below contains real evidence for it — name that evidence in the suggestion. Keywords with no supporting evidence go in honestGaps instead; never suggest fabricating an employer, metric, title, tool, or credential.
+
+Be direct and brief. Do not rewrite the resume.`,
+  },
   coverLetter: {
     label: "Cover Letter",
     description: "Stage 9 — drafts the cover letter body, governed by the cover-letter and voice skill files.",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../store';
 import { useParams } from 'react-router-dom';
 import FeatureGate from '../components/FeatureGate';
@@ -7,6 +7,8 @@ import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../component
 import { ApplicationFormField } from '../types';
 import { generateId, formatContactLine, nameSlug } from '../lib/utils';
 import { downloadExport } from '../lib/exportClient';
+import { scoreResumeKeywords, resumeFingerprint } from '../lib/resumeScore';
+import ResumeScorePanel from '../components/ResumeScorePanel';
 import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles } from 'lucide-react';
 
 type Tab = 'resume' | 'cover-letter' | 'assistant' | 'form';
@@ -17,6 +19,7 @@ function TailoredApplicationStageInner() {
   const job = useStore((s) => s.jobs[id || '']);
   const updateJob = useStore((s) => s.updateJob);
   const runGenerateTailoredApplication = useStore((s) => s.runGenerateTailoredApplication);
+  const runScoreResume = useStore((s) => s.runScoreResume);
   const activeAiTasks = useStore((s) => s.activeAiTasks);
 
   const [tab, setTab] = useState<Tab>('resume');
@@ -53,7 +56,7 @@ function TailoredApplicationStageInner() {
   ];
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Tailored Application</h2>
         <p className="text-sm text-slate-500">{job.companyName} — {job.roleTitle}. Make minor adjustments, draft the cover letter, and prep your application.</p>
@@ -73,7 +76,16 @@ function TailoredApplicationStageInner() {
         ))}
       </div>
 
-      {tab === 'resume' && <ResumeTab job={job} updateJob={updateJob} isRegenerating={isBusy('generateTailoredApplication')} onRegenerate={() => runGenerateTailoredApplication(job.id)} />}
+      {tab === 'resume' && (
+        <ResumeTab
+          job={job}
+          updateJob={updateJob}
+          isRegenerating={isBusy('generateTailoredApplication')}
+          onRegenerate={(remediation?: string[]) => runGenerateTailoredApplication(job.id, remediation)}
+          isScoring={isBusy('scoreResume')}
+          onAiScore={() => runScoreResume(job.id)}
+        />
+      )}
       {tab === 'cover-letter' && <CoverLetterTab job={job} updateJob={updateJob} />}
       {tab === 'assistant' && <AssistantTab job={job} />}
       {tab === 'form' && <FormTab job={job} updateJob={updateJob} />}
@@ -91,11 +103,27 @@ export default function TailoredApplicationStage() {
 
 // ---------------------------------------------------------------------------
 
-function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
+function ResumeTab({ job, updateJob, isRegenerating, onRegenerate, isScoring, onAiScore }: any) {
   const careerJourney = useStore((s) => s.careerJourney);
   const [template, setTemplate] = useState<TemplateType>('classic');
   const toast = useToast();
   const [downloading, setDownloading] = useState<'pdf' | 'docx' | null>(null);
+  const tagline = job.resumeStrategy?.headerTagline || job.roleTitle;
+  const coverage = useMemo(() => scoreResumeKeywords(job.resume, tagline, job.keywords, job.parse), [job.resume, tagline, job.keywords, job.parse]);
+  const fingerprint = useMemo(() => resumeFingerprint(job.resume), [job.resume]);
+
+  // Shrink the 8.5in page to fit its column (the score panel sits beside it at xl+).
+  // CSS zoom, not transform, so layout and inline-edit hit-testing stay correct.
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [pageZoom, setPageZoom] = useState(1);
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const PAGE_WIDTH_PX = 816; // 8.5in at 96dpi
+    const observer = new ResizeObserver(([entry]) => setPageZoom(Math.min(1, entry.contentRect.width / PAGE_WIDTH_PX)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const download = async (ext: 'pdf' | 'docx') => {
     setDownloading(ext);
@@ -128,7 +156,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
           ))}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={onRegenerate} disabled={isRegenerating}>
+          <Button variant="outline" size="sm" onClick={() => onRegenerate()} disabled={isRegenerating}>
             {isRegenerating ? 'Regenerating…' : 'Regenerate'}
           </Button>
           <Button variant="outline" size="sm" onClick={() => download('docx')} disabled={downloading !== null}>
@@ -139,12 +167,25 @@ function ResumeTab({ job, updateJob, isRegenerating, onRegenerate }: any) {
           </Button>
         </div>
       </div>
-      <div className="bg-slate-200 rounded-xl p-8 overflow-auto">
-        <div className="bg-white shadow-xl max-w-[8.5in] w-[8.5in] p-[0.5in] mx-auto text-black font-sans leading-relaxed">
-          {template === 'classic' && <ClassicTemplate resume={job.resume} tagline={job.resumeStrategy?.headerTagline || job.roleTitle} onUpdate={(r: any) => updateJob(job.id, { resume: r })} careerJourney={careerJourney} />}
-          {template === 'modern' && <ModernTemplate resume={job.resume} tagline={job.resumeStrategy?.headerTagline || job.roleTitle} onUpdate={(r: any) => updateJob(job.id, { resume: r })} careerJourney={careerJourney} />}
-          {template === 'executive' && <ExecutiveTemplate resume={job.resume} tagline={job.resumeStrategy?.headerTagline || job.roleTitle} onUpdate={(r: any) => updateJob(job.id, { resume: r })} careerJourney={careerJourney} />}
+      <div className="flex flex-col xl:flex-row gap-6 items-start">
+        <div ref={previewRef} className="bg-slate-200 rounded-xl p-6 overflow-auto flex-1 min-w-0 w-full">
+          <div className="bg-white shadow-xl max-w-[8.5in] w-[8.5in] p-[0.5in] mx-auto text-black font-sans leading-relaxed" style={{ zoom: pageZoom }}>
+            {template === 'classic' && <ClassicTemplate resume={job.resume} tagline={tagline} onUpdate={(r: any) => updateJob(job.id, { resume: r })} careerJourney={careerJourney} />}
+            {template === 'modern' && <ModernTemplate resume={job.resume} tagline={tagline} onUpdate={(r: any) => updateJob(job.id, { resume: r })} careerJourney={careerJourney} />}
+            {template === 'executive' && <ExecutiveTemplate resume={job.resume} tagline={tagline} onUpdate={(r: any) => updateJob(job.id, { resume: r })} careerJourney={careerJourney} />}
+          </div>
         </div>
+        <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0">
+          <ResumeScorePanel
+            job={job}
+            coverage={coverage}
+            currentFingerprint={fingerprint}
+            isRebuilding={isRegenerating}
+            isScoring={isScoring}
+            onRebuild={(keywords: string[]) => onRegenerate(keywords)}
+            onAiScore={onAiScore}
+          />
+        </aside>
       </div>
     </div>
   );
@@ -207,7 +248,7 @@ function CoverLetterTab({ job, updateJob }: any) {
   }
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <div className="flex justify-between items-center">
         {job.coverLetter?.approvalStatus === 'Approved' && (
           <Badge variant="success" className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Approved</Badge>
@@ -259,7 +300,7 @@ function AssistantTab({ job }: any) {
   };
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <p className="text-sm text-slate-500">Ask anything about applying — screening questions, recruiter messages, how to phrase an answer — grounded in your Career Journey and this job.</p>
       <Card className="min-h-[400px] flex flex-col">
         <CardContent className="flex-1 pt-6 space-y-4 overflow-y-auto max-h-[500px]">
@@ -313,7 +354,7 @@ function FormTab({ job, updateJob }: any) {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="w-full space-y-6">
       <p className="text-sm text-slate-500">
         Recreate the real application form's fields here, then let AI draft grounded answers you can copy over — nothing here submits anywhere automatically.
       </p>

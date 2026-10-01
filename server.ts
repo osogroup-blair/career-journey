@@ -2059,6 +2059,56 @@ ${JSON.stringify(parse, null, 2)}`,
     }
   });
 
+  app.post("/api/ai/scoreResume", requireFeature("tailored_resume"), async (req, res) => {
+    try {
+      const { resume, strategy, parse, keywords, keywordCoverage, careerJourney } = req.body as {
+        resume: any; strategy: any; parse: any; keywords?: any[]; keywordCoverage?: any; careerJourney: any;
+      };
+      if (!resume || !parse) return res.status(400).json({ error: "A tailored resume and job parse are required." });
+      const keywordList = (keywords || []).map((k) => ({
+        phrase: k.phrase, category: k.category, jdImportance: k.jdImportance, evidenceStatus: k.evidenceStatus, isTopCritical: k.isTopCritical,
+      }));
+      const projectedCareerJourney = await projectCareerJourneyForPrompt("scoreResume", careerJourney);
+      const { client, resolved } = await getLegacyClientForPrompt("scoreResume");
+      const preamble = await buildKnowledgePreamble(getAdminApp(), "scoreResume");
+      const response = await client.models.generateContent({
+        model: resolved.model,
+        contents: `${preamble}
+${getActivePrompt('scoreResume')}
+
+Tailored Resume:
+${JSON.stringify(resume, null, 2)}
+
+Header Tagline:
+${strategy?.headerTagline || ""}
+
+Job Parse:
+${JSON.stringify(parse, null, 2)}
+
+JD Keyword Breakdown (from the Rating stage):
+${JSON.stringify(keywordList, null, 2)}
+
+Literal keyword coverage (already computed — reuse, adjust only for synonyms/acronyms):
+${JSON.stringify(keywordCoverage || {}, null, 2)}
+
+Career Journey (evidence source for suggestions):
+${JSON.stringify(projectedCareerJourney, null, 2)}`,
+        config: {
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 1024 },
+          responseSchema: LEGACY_RESPONSE_SCHEMAS.scoreResume as any,
+        }
+      });
+      const result = JSON.parse(response.text!);
+      result.scoredAt = new Date().toISOString();
+      await trackUsage(req, "scoreResume", resolved.model, response.usageMetadata, resolved.provider, response);
+      res.json(result);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/ai/coverLetter", requireFeature("cover_letter"), async (req, res) => {
     try {
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;

@@ -119,6 +119,7 @@ export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
   patchJourney: { careerJourney: SAMPLE_CAREER_JOURNEY, contextEntries: SAMPLE_CONTEXT_ENTRIES },
   resumeStrategy: { parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, contextEntries: [] },
   generateResume: { careerJourney: SAMPLE_CAREER_JOURNEY, strategy: SAMPLE_RESUME_STRATEGY, parse: SAMPLE_PARSE_RESULT },
+  scoreResume: { resume: SAMPLE_RESUME, strategy: SAMPLE_RESUME_STRATEGY, parse: SAMPLE_PARSE_RESULT, keywords: SAMPLE_KEYWORDS, keywordCoverage: { score: 67, threshold: 85, passed: false, missingKeywords: ["Backend architecture"] }, careerJourney: SAMPLE_CAREER_JOURNEY },
   coverLetter: { parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, fitAnalysis: SAMPLE_FIT_ANALYSIS, resumeStrategy: SAMPLE_RESUME_STRATEGY },
   applicationAssistant: { transcript: SAMPLE_TRANSCRIPT, parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, resume: SAMPLE_RESUME, fitAnalysis: SAMPLE_FIT_ANALYSIS },
   generateFormAnswers: { fields: SAMPLE_FIELDS, parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, resume: SAMPLE_RESUME },

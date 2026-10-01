@@ -290,6 +290,51 @@ export const GENERATE_RESUME_SCHEMA = {
   required: ["name", "contactInfo", "summary", "skills", "experience", "education"],
 };
 
+export const SCORE_RESUME_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    overallScore: { type: Type.NUMBER },
+    band: { type: Type.STRING },
+    criteria: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          criterion: { type: Type.STRING },
+          weight: { type: Type.NUMBER },
+          score: { type: Type.NUMBER },
+          note: { type: Type.STRING },
+        },
+        required: ["criterion", "weight", "score", "note"],
+      },
+    },
+    roleIdentity: {
+      type: Type.OBJECT,
+      properties: {
+        readsAs: { type: Type.STRING },
+        aligned: { type: Type.BOOLEAN },
+        note: { type: Type.STRING },
+      },
+      required: ["readsAs", "aligned", "note"],
+    },
+    missingCriticalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+    suggestions: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          area: { type: Type.STRING, enum: ["Tagline", "Summary", "Skills", "Experience", "Formatting"] },
+          suggestion: { type: Type.STRING },
+          keyword: { type: Type.STRING },
+        },
+        required: ["area", "suggestion"],
+      },
+    },
+    honestGaps: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ["overallScore", "band", "criteria", "roleIdentity", "missingCriticalSkills", "suggestions", "honestGaps"],
+};
+
 export const COVER_LETTER_SCHEMA = {
   type: Type.OBJECT,
   properties: {
@@ -496,6 +541,7 @@ export const LEGACY_RESPONSE_SCHEMAS: Record<string, object> = {
   patchJourney: PATCH_DELTA_SCHEMA,
   resumeStrategy: RESUME_STRATEGY_SCHEMA,
   generateResume: GENERATE_RESUME_SCHEMA,
+  scoreResume: SCORE_RESUME_SCHEMA,
   coverLetter: COVER_LETTER_SCHEMA,
   generateFormAnswers: GENERATE_FORM_ANSWERS_SCHEMA,
   interviewPrep: INTERVIEW_PREP_SCHEMA,

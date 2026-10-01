@@ -97,6 +97,8 @@ export interface JobAnalysis {
   resumeStrategy?: ResumeStrategy;
   keywordCoverage?: KeywordCoverage;
   resume?: GeneratedResume;
+  /** On-demand AI review of the tailored resume against the JD (Stage 7 gate + ats_tactics.md rubric). */
+  resumeAiScore?: ResumeAiScore;
   coverLetter?: CoverLetter;
 
   applicationAssistantTranscript?: { role: 'user' | 'assistant'; content: string }[];
@@ -257,6 +259,22 @@ export interface KeywordCoverage {
   secondaryKeywordCoverage: { phrase: string; present: boolean }[];
   missingKeywords: string[];
   unsupportedKeywords: string[];
+}
+
+export interface ResumeAiScore {
+  /** 0-100 per ats_tactics.md's transparent scoring rubric. */
+  overallScore: number;
+  /** The score band and its estimated pass probability, e.g. "75-84 (~65-79% pass)". */
+  band: string;
+  criteria: { criterion: string; weight: number; score: number; note: string }[];
+  roleIdentity: { readsAs: string; aligned: boolean; note: string };
+  missingCriticalSkills: string[];
+  suggestions: { area: 'Tagline' | 'Summary' | 'Skills' | 'Experience' | 'Formatting'; suggestion: string; keyword?: string }[];
+  /** Keywords the Career Journey has no evidence for — reported, never fabricated. */
+  honestGaps: string[];
+  scoredAt: string;
+  /** resumeFingerprint() of the resume that was scored — a mismatch means the score is stale. */
+  resumeFingerprint: string;
 }
 
 export type MatchStatus = 'New' | 'Promoted' | 'Dismissed';

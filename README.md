@@ -139,7 +139,7 @@ Intake ──► Parsed ──► Rating ──► Tailored Application ──�
 
 - **Frontend**: React 19, TypeScript, Vite, React Router (`HashRouter`), Tailwind CSS v4, Zustand (persisted via the `DataStore` abstraction), React Hook Form + Zod.
 - **Backend API**: single Express app (`server.ts`, ~1950 lines, ~44 routes) serving AI proxy endpoints, Stripe billing/webhooks, admin, and support-ticket APIs.
-- **AI Architecture**: a provider-agnostic client abstraction (`server/ai/`) drives Gemini, OpenAI, and Anthropic from one Zod schema per endpoint — but this migration is **partial**: only 2 of ~19 `/api/ai/*` endpoints (`keywords`, `fitScore`) go through it today; the rest still call the Gemini SDK directly with hand-written schemas. See [ARCHITECTURE.md](ARCHITECTURE.md#ai-provider-abstraction) for exactly which.
+- **AI Architecture**: a provider-agnostic client abstraction (`server/ai/`) drives Gemini, OpenAI, and Anthropic from one Zod schema per endpoint — but this migration is **partial**: only 2 of ~20 `/api/ai/*` endpoints (`keywords`, `fitScore`) go through it today; the rest still call the Gemini SDK directly with hand-written schemas. See [ARCHITECTURE.md](ARCHITECTURE.md#ai-provider-abstraction) for exactly which.
 - **Billing**: Stripe Checkout + Customer Portal + webhooks, entitlement state mirrored into Firestore (`users/{uid}/meta/billing`), never trusted from the client.
 - **Build System**: Vite for client assets, `esbuild` for server compilation into a single CJS bundle.
 
@@ -148,7 +148,7 @@ Intake ──► Parsed ──► Rating ──► Tailored Application ──�
 ## Project Structure
 
 ```
-server.ts                    # Express app: route registration + ~19 inline /api/ai/* handlers
+server.ts                    # Express app: route registration + ~20 inline /api/ai/* handlers
 server/
   ai/                        # Provider-agnostic AI client abstraction (gemini/openai/anthropic + zod schemas)
   billing.ts, stripe.ts      # Plan/quota model, Stripe Checkout/Portal/webhooks

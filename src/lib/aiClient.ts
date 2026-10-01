@@ -1,4 +1,4 @@
-import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, KeywordCoverage, CareerJourneyPatch, ExperienceContext, GeneratedResume, ClarificationQuestion, CoverLetter, JobMatchScanResult, SourcedJobPosting } from '../types';
+import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, KeywordCoverage, ResumeAiScore, CareerJourneyPatch, ExperienceContext, GeneratedResume, ClarificationQuestion, CoverLetter, JobMatchScanResult, SourcedJobPosting } from '../types';
 import { auth } from './firebase';
 import { getStoredByomKey } from './byomKeyStorage';
 import { AIProviderId } from '../types/billing';
@@ -87,6 +87,19 @@ export async function generateResumeStrategy(parse: JDParse, careerJourney: any,
 
 export async function generateFullResume(careerJourney: any, strategy: ResumeStrategy, parse: JDParse, remediation?: string[]): Promise<GeneratedResume> {
   const res = await apiPost('/api/ai/generateResume', { careerJourney, strategy, parse, remediation });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+export async function scoreResume(
+  resume: GeneratedResume,
+  strategy: ResumeStrategy | undefined,
+  parse: JDParse,
+  keywords: KeywordSignal[] | undefined,
+  keywordCoverage: KeywordCoverage,
+  careerJourney: any
+): Promise<Omit<ResumeAiScore, 'resumeFingerprint'>> {
+  const res = await apiPost('/api/ai/scoreResume', { resume, strategy, parse, keywords, keywordCoverage, careerJourney });
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
 }

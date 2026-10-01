@@ -10,6 +10,7 @@ import { normalizeCareerJourney } from './lib/careerJourneyNormalize';
 import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
 import { toastBridge } from './components/ui';
 import * as aiClient from './lib/aiClient';
+import { scoreResumeKeywords, resumeFingerprint } from './lib/resumeScore';
 
 const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
   excludedKeywords: [],
@@ -65,7 +66,8 @@ interface AppState {
   runKeywordExtraction: (jobId: string) => void;
   runClarifyQuestions: (jobId: string) => void;
   runPatchJourney: (jobId: string) => void;
-  runGenerateTailoredApplication: (jobId: string) => void;
+  runGenerateTailoredApplication: (jobId: string, remediation?: string[]) => void;
+  runScoreResume: (jobId: string) => void;
   runGenerateCoverLetter: (jobId: string) => void;
   runApplicationAssistantMessage: (jobId: string, message: string) => void;
   runGenerateFormAnswers: (jobId: string) => void;
@@ -300,14 +302,27 @@ export const useStore = create<AppState>((set, get) => {
       });
     },
 
-    runGenerateTailoredApplication: (jobId) => {
+    runGenerateTailoredApplication: (jobId, remediation) => {
       const job = get().jobs[jobId];
       if (!job || !job.parse || !job.ratingFinalizedAt) return;
-      get().runAiTask(jobId, 'generateTailoredApplication', 'Building tailored resume', async () => {
+      const label = remediation?.length ? 'Rebuilding resume with missing keywords' : 'Building tailored resume';
+      get().runAiTask(jobId, 'generateTailoredApplication', label, async () => {
         const careerJourney = get().careerJourney;
-        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {});
-        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!);
+        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, remediation);
+        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!, remediation);
         return { resumeStrategy, resume };
+      });
+    },
+
+    runScoreResume: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.resume) return;
+      const resume = job.resume;
+      const tagline = job.resumeStrategy?.headerTagline || job.roleTitle;
+      get().runAiTask(jobId, 'scoreResume', 'Scoring tailored resume', async () => {
+        const keywordCoverage = scoreResumeKeywords(resume, tagline, job.keywords, job.parse);
+        const result = await aiClient.scoreResume(resume, job.resumeStrategy, job.parse!, job.keywords, keywordCoverage, get().careerJourney);
+        return { resumeAiScore: { ...result, resumeFingerprint: resumeFingerprint(resume) } };
       });
     },
 
