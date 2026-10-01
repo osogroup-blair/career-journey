@@ -1,0 +1,26 @@
+# Secrets never go into the image: runtime env comes from `env_file` in
+# docker-compose.yml, and the public VITE_* values are passed as build args.
+.env*
+!.env.example
+
+node_modules
+dist
+build
+coverage
+*.log
+.git
+.claude
+.mcp.json
+backlog
+
+# Admin overrides live on a volume, not in the image (see docker-compose.yml).
+server/promptConfig
+server/knowledgeConfig
+
+# Only package-lock.json is used for the image install.
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+Dockerfile
+docker-compose.yml
+.dockerignore

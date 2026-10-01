@@ -214,6 +214,19 @@ npm run build
 npm start
 ```
 
+### Docker (self-hosted VM)
+
+`Dockerfile` + `docker-compose.yml` package the production build with headless Chromium for resume PDF export. From the repo root, with a filled-in `.env`:
+
+```bash
+APP_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
+```
+
+- The same `.env` feeds both the build (Compose passes the public `VITE_*` values as build args, since Vite inlines them into the client bundle) and the runtime (`env_file`). Change a `VITE_*` value → rebuild, not just restart.
+- Serves on port 47293; set `HOST_PORT` to map a different VM port. Put a TLS reverse proxy in front for a public URL, set `APP_URL` to that URL (Stripe redirects and support emails use it), and add the domain to Firebase Console → Authentication → Settings → Authorized domains.
+- Admin prompt/skill overrides (`server/promptConfig/`, `server/knowledgeConfig/`) persist on named volumes across rebuilds.
+- An Ollama on the VM itself is reachable at `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
+
 ### Other scripts
 
 ```bash

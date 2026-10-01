@@ -10,6 +10,8 @@ import pkg from './package.json';
 // ticket's context.appVersion (see src/types/support.ts) so triage knows
 // which build a report was filed against.
 function appVersion(): string {
+  // Docker builds have no .git in context; the Dockerfile passes APP_VERSION instead.
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
   try {
     return execSync('git rev-parse --short HEAD').toString().trim();
   } catch {

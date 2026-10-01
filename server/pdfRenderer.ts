@@ -57,8 +57,9 @@ function getBrowser(): Promise<Browser> {
     .launch({
       executablePath,
       headless: true,
-      // Containers usually run as root, where Chromium's sandbox refuses to start.
-      args: process.getuid?.() === 0 ? ["--no-sandbox", "--disable-setuid-sandbox"] : [],
+      // Chromium's sandbox refuses to start as root, and as non-root under Docker's default
+      // seccomp profile (no user namespaces) — the Dockerfile sets CHROME_NO_SANDBOX for the latter.
+      args: process.getuid?.() === 0 || process.env.CHROME_NO_SANDBOX === "true" ? ["--no-sandbox", "--disable-setuid-sandbox"] : [],
     })
     .then((browser) => {
       browser.on("disconnected", () => {
