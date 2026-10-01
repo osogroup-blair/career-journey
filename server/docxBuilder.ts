@@ -107,7 +107,8 @@ const bulletLevel = (left: number) => ({
 });
 
 function bulletPara(text: string, o: RunOpts, spacing: { after: number; line: number }, reference: string): Paragraph {
-  return new Paragraph({ numbering: { reference, level: 0 }, spacing: { after: spacing.after, line: spacing.line }, children: [run(text, o)] });
+  // keepLines: a bullet never splits across a page break (ats_tactics.md "page continuity").
+  return new Paragraph({ keepLines: true, numbering: { reference, level: 0 }, spacing: { after: spacing.after, line: spacing.line }, children: [run(text, o)] });
 }
 
 const bulletText = (b: any): string => (typeof b === "string" ? b : b?.text || "");
@@ -287,32 +288,47 @@ function modernChildren(resume: GeneratedResume, tagline?: string): (Paragraph |
 // ---------------------------------------------------------------------------
 // Executive
 
-function executiveSideBySide(label: string, content: Paragraph[]): Table {
+/**
+ * Executive's label-column layout as a borderless two-column table with one
+ * row per group of paragraphs (a role header + its first bullet, then each
+ * further bullet). Every row is `cantSplit`, so a page break can only fall
+ * between bullets: Word and LibreOffice don't reliably honour keepLines
+ * inside a single tall cell, which split bullets mid-sentence when the whole
+ * section was one row. The left cells' right border draws the vertical rule.
+ */
+function executiveSideBySide(label: string, groups: Paragraph[][]): Table {
   const leftW = Math.round(CONTENT_W * 0.25);
   const rightW = CONTENT_W - leftW;
+  const rule = { style: BorderStyle.SINGLE, size: 6, color: C.gray300 };
   return new Table({
     width: { size: CONTENT_W, type: WidthType.DXA },
     columnWidths: [leftW, rightW],
     layout: TableLayoutType.FIXED,
     borders: TableBorders.NONE,
-    rows: [
-      new TableRow({
-        children: [
-          new TableCell({
-            width: { size: leftW, type: WidthType.DXA },
-            borders: { ...NO_BORDERS, right: { style: BorderStyle.SINGLE, size: 6, color: C.gray300 } },
-            margins: { top: 0, bottom: 0, left: 0, right: 240 },
-            children: [new Paragraph({ spacing: { before: 60 }, children: [run(label, { px: 12, bold: true, caps: true, tracking: 0.1, color: C.gray900 })] })],
-          }),
-          new TableCell({
-            width: { size: rightW, type: WidthType.DXA },
-            borders: NO_BORDERS,
-            margins: { top: 0, bottom: 0, left: 240, right: 0 },
-            children: content,
-          }),
-        ],
-      }),
-    ],
+    rows: (groups.length ? groups : [[new Paragraph({ children: [] })]]).map(
+      (content, i) =>
+        new TableRow({
+          cantSplit: true,
+          children: [
+            new TableCell({
+              width: { size: leftW, type: WidthType.DXA },
+              borders: { ...NO_BORDERS, right: rule },
+              margins: { top: 0, bottom: 0, left: 0, right: 240 },
+              children: [
+                i === 0
+                  ? new Paragraph({ spacing: { before: 60 }, children: [run(label, { px: 12, bold: true, caps: true, tracking: 0.1, color: C.gray900 })] })
+                  : new Paragraph({ children: [] }),
+              ],
+            }),
+            new TableCell({
+              width: { size: rightW, type: WidthType.DXA },
+              borders: NO_BORDERS,
+              margins: { top: 0, bottom: 0, left: 240, right: 0 },
+              children: content,
+            }),
+          ],
+        })
+    ),
   });
 }
 
@@ -361,15 +377,18 @@ function executiveChildren(resume: GeneratedResume, tagline?: string): (Paragrap
     out.push(new Table({ width: { size: tableW, type: WidthType.DXA }, indent: { size: inset, type: WidthType.DXA }, columnWidths: [colW, colW], layout: TableLayoutType.FIXED, borders: TableBorders.NONE, rows }));
   }
 
-  const entries: Paragraph[] = [];
+  // One row group per bullet; the role header rides in the same group as the first bullet so it never ends a page.
+  const entries: Paragraph[][] = [];
   (resume.experience || []).forEach((exp, i) => {
+    const header: Paragraph[] = [];
     const company = exp.companyUrl
       ? link(exp.companyUrl, exp.company, { px: 15, font: SERIF, bold: true, color: C.gray900 })
       : run(exp.company, { px: 15, font: SERIF, bold: true, color: C.gray900 });
-    entries.push(splitLine([company], [run(exp.dates, { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 360 : 0 }));
-    if (exp.companyDescriptor) entries.push(new Paragraph({ keepNext: true, spacing: { after: 30 }, children: [run(exp.companyDescriptor, { px: 11, color: C.gray500 })] }));
-    entries.push(splitLine([run(exp.title, { px: 14, font: SERIF, italics: true, color: C.gray800 })], [run(exp.location || "", { px: 11, caps: true, tracking: 0.05, color: C.gray500 })], rightW, { after: 120 }));
-    (exp.bullets || []).forEach((b) => entries.push(bulletPara(bulletText(b), { px: 13, font: SERIF, color: C.gray800 }, { after: 60, line: lh(1.5) }, BULLETS.pl5)));
+    header.push(splitLine([company], [run(exp.dates, { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 360 : 0 }));
+    if (exp.companyDescriptor) header.push(new Paragraph({ keepNext: true, spacing: { after: 30 }, children: [run(exp.companyDescriptor, { px: 11, color: C.gray500 })] }));
+    header.push(splitLine([run(exp.title, { px: 14, font: SERIF, italics: true, color: C.gray800 })], [run(exp.location || "", { px: 11, caps: true, tracking: 0.05, color: C.gray500 })], rightW, { after: 120 }));
+    const bullets = (exp.bullets || []).map((b) => bulletPara(bulletText(b), { px: 13, font: SERIF, color: C.gray800 }, { after: 60, line: lh(1.5) }, BULLETS.pl5));
+    entries.push([...header, ...bullets.slice(0, 1)], ...bullets.slice(1).map((b) => [b]));
   });
   if (entries.length > 0) {
     out.push(spacer(360));
@@ -382,16 +401,15 @@ function executiveChildren(resume: GeneratedResume, tagline?: string): (Paragrap
       splitLine([run(e.company, { px: 13, font: SERIF, bold: true, color: C.gray900 }), run(` ${e.title}`, { px: 13, font: SERIF, italics: true, color: C.gray800 })], [run(e.dates, { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 90 : 0 }, false)
     );
     out.push(spacer(360));
-    out.push(executiveSideBySide("Earlier", rows));
+    out.push(executiveSideBySide("Earlier", rows.map((r) => [r])));
   }
 
-  const edu: Paragraph[] = [];
-  (resume.education || []).forEach((e, i) => {
-    edu.push(splitLine([run(e.institution, { px: 14, font: SERIF, bold: true, color: C.gray900 })], [run(e.graduationDate || "", { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 180 : 0 }));
-    edu.push(new Paragraph({ children: [run(e.degree, { px: 13, font: SERIF, italics: true, color: C.gray800 })] }));
-  });
+  const edu: Paragraph[][] = (resume.education || []).map((e, i) => [
+    splitLine([run(e.institution, { px: 14, font: SERIF, bold: true, color: C.gray900 })], [run(e.graduationDate || "", { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 180 : 0 }),
+    new Paragraph({ children: [run(e.degree, { px: 13, font: SERIF, italics: true, color: C.gray800 })] }),
+  ]);
   out.push(spacer(360));
-  out.push(executiveSideBySide("Education", edu.length ? edu : [new Paragraph({ children: [] })]));
+  out.push(executiveSideBySide("Education", edu));
   return out;
 }
 

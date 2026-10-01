@@ -13,7 +13,7 @@ import { downloadExport } from '../lib/exportClient';
 import { scoreResumeKeywords, resumeFingerprint } from '../lib/resumeScore';
 import { defaultBuildOptions, resolveExperienceRoleId } from '../lib/resumeBuild';
 import { condenseRole } from '../lib/resumeEdits';
-import { usePageEstimate, PAGE_CONTENT_HEIGHT_PX } from '../hooks/usePageEstimate';
+import { usePageEstimate } from '../hooks/usePageEstimate';
 import ResumeScorePanel from '../components/ResumeScorePanel';
 import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles, SlidersHorizontal, AlertTriangle, Loader2 } from 'lucide-react';
 
@@ -249,16 +249,16 @@ function StrategyReviewView({ job, isPlanning, onCancel, onBack, onWrite }: {
   );
 }
 
-function PageBreakMarkers({ pages }: { pages: number }) {
-  const count = Math.floor(pages);
+/** Where the export starts each new page, from the same keep-together rules the PDF print applies. */
+function PageBreakMarkers({ breaks }: { breaks: number[] }) {
   return (
     <>
-      {Array.from({ length: count }, (_, i) => (
+      {breaks.map((top, i) => (
         <div
           key={i}
           aria-hidden
           className="absolute left-0 right-0 border-t-2 border-dashed border-rose-300 pointer-events-none"
-          style={{ top: 48 + (i + 1) * PAGE_CONTENT_HEIGHT_PX }} // 48px = the page's 0.5in top padding
+          style={{ top: 48 + top }} // 48px = the page's 0.5in top padding
         >
           <span className="absolute right-2 -top-5 text-[10px] font-sans font-semibold text-rose-400 bg-white px-1">Page {i + 2}</span>
         </div>
@@ -272,7 +272,7 @@ function PageMeter({ pages, target }: { pages: number | null; target: 1 | 2 }) {
   const over = pages - target;
   const tone = over <= 0 ? 'bg-green-50 text-green-700 border-green-200' : over <= 0.25 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-700 border-red-200';
   return (
-    <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-md border tabular-nums', tone)} title="Estimated from the on-screen preview. The exported PDF can run slightly longer because sections aren't split across pages.">
+    <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-md border tabular-nums', tone)} title="Laid out from the on-screen preview using the same page-break rules as the PDF export (bullets and role headers are never split).">
       ≈{pages.toFixed(1)} pages · target {target}
     </span>
   );
@@ -313,7 +313,8 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const pages = usePageEstimate(contentRef, pageZoom);
+  const layout = usePageEstimate(contentRef, pageZoom, `${template}:${fingerprint}`);
+  const pages = layout?.pages ?? null;
   const overTarget = pages !== null && pages > pageTarget + 0.05;
 
   const onUpdate = (r: JobAnalysis['resume']) => updateJob(job.id, { resume: r });
@@ -421,7 +422,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             <div ref={contentRef}>
               <Template resume={resume} tagline={tagline} onUpdate={onUpdate} careerJourney={careerJourney} actions={actions} />
             </div>
-            {pages !== null && <PageBreakMarkers pages={pages} />}
+            {layout && <PageBreakMarkers breaks={layout.breaks} />}
           </div>
         </div>
         <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0">

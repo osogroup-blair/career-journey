@@ -32,7 +32,7 @@ function BulletList({ resume, roleIndex, onUpdate, className, careerJourney, rea
       {bullets.map((raw, bi) => {
         const b = edits.normalizeBullet(raw);
         return (
-          <li key={bi} className={`${className || ''} ${readOnly ? '' : 'relative group/bullet'}`}>
+          <li key={bi} className={`break-inside-avoid ${className || ''} ${readOnly ? '' : 'relative group/bullet'}`}>
             <span className="inline-flex items-start gap-1.5 w-full">
               <span className="flex-1">
                 <EditableText multiline readOnly={readOnly} value={b.text} onChange={(v) => onUpdate(edits.updateBullet(resume, roleIndex, bi, v))} />
@@ -197,7 +197,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
 
       {/* Summary */}
       <Section kind="summary" label="the summary" actions={actions} readOnly={readOnly} className="mb-5">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Executive Summary</h3>
+        <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Executive Summary</h3>
         <EditableText readOnly={readOnly}
           tagName="p"
           multiline
@@ -209,7 +209,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
 
       {/* Core Skills */}
       <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-5">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Core Competencies</h3>
+        <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Core Competencies</h3>
         <div className="grid grid-cols-1 gap-1 text-[13px]">
           {resume.skills.map((s, i) => (
             <div key={i}>
@@ -221,11 +221,11 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
 
       {/* Professional Experience — hidden when every role was condensed or removed */}
       <div className={`mb-5${resume.experience.length ? '' : ' hidden'}`}>
-        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-3">Professional Experience</h3>
+        <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-3">Professional Experience</h3>
         <div className="space-y-4">
           {resume.experience.map((exp, i) => (
-            <RoleBlock key={exp.roleId || i} resume={resume} index={i} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions} className="break-inside-avoid">
-              <div className="flex justify-between items-end mb-1">
+            <RoleBlock key={exp.roleId || i} resume={resume} index={i} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions}>
+              <div className="break-inside-avoid break-after-avoid flex justify-between items-end mb-1">
                 <div>
                   <h4 className="font-bold text-slate-900 text-[14px]">{exp.title}</h4>
                   <div className="font-semibold text-slate-700 text-[13px]">
@@ -256,7 +256,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
       {/* Earlier Experience — condensed roles, one line each */}
       {(resume.earlierExperience?.length ?? 0) > 0 && (
         <div className="mb-5">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Earlier Experience</h3>
+          <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Earlier Experience</h3>
           <div className="space-y-1">
             <EarlierRows
               resume={resume} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions}
@@ -274,7 +274,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
 
       {/* Education */}
       <div className="mb-2">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Education</h3>
+        <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Education</h3>
         <div className="space-y-2">
           {resume.education.map((edu, i) => (
             <div key={i} className="flex justify-between items-center text-[13px] break-inside-avoid">
@@ -330,7 +330,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
 
       {/* Core Skills */}
       <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-8">
-        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Skills & Technologies</h3>
+        <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Skills & Technologies</h3>
         <div className="grid grid-cols-1 gap-2 text-[13px]">
           {resume.skills.map((s, i) => (
             <div key={i} className="flex gap-2">
@@ -343,11 +343,11 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
 
       {/* Professional Experience — hidden when every role was condensed or removed */}
       <div className={`mb-8${resume.experience.length ? '' : ' hidden'}`}>
-        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Experience</h3>
+        <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Experience</h3>
         <div className="space-y-6">
           {resume.experience.map((exp, i) => (
-            <RoleBlock key={exp.roleId || i} resume={resume} index={i} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions} className="break-inside-avoid">
-              <div className="flex flex-col md:flex-row md:justify-between mb-2">
+            <RoleBlock key={exp.roleId || i} resume={resume} index={i} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions}>
+              <div className="break-inside-avoid break-after-avoid flex flex-col md:flex-row md:justify-between mb-2">
                 <div>
                   <h4 className="font-bold text-zinc-900 text-base">{exp.title}</h4>
                   <div className="text-brand-600 font-semibold text-[14px]">
@@ -378,7 +378,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
       {/* Earlier Experience — condensed roles, one line each */}
       {(resume.earlierExperience?.length ?? 0) > 0 && (
         <div className="mb-8">
-          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Earlier Experience</h3>
+          <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Earlier Experience</h3>
           <div className="space-y-1.5">
             <EarlierRows
               resume={resume} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions}
@@ -396,7 +396,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
 
       {/* Education */}
       <div className="mb-2">
-        <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Education</h3>
+        <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Education</h3>
         <div className="space-y-3">
           {resume.education.map((edu, i) => (
             <div key={i} className="break-inside-avoid text-[14px]">
@@ -467,8 +467,8 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
         </div>
         <div className="w-3/4 pl-4 space-y-6">
           {resume.experience.map((exp, i) => (
-            <RoleBlock key={exp.roleId || i} resume={resume} index={i} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions} className="break-inside-avoid">
-              <div className="mb-2">
+            <RoleBlock key={exp.roleId || i} resume={resume} index={i} onUpdate={onUpdate} careerJourney={careerJourney} readOnly={readOnly} actions={actions}>
+              <div className="break-inside-avoid break-after-avoid mb-2">
                 <div className="flex justify-between items-baseline">
                   <h4 className="font-bold text-gray-900 text-[15px]">
                     <CompanyName exp={exp} className="underline decoration-1 underline-offset-2" />
