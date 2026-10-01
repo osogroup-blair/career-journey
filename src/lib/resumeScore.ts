@@ -79,6 +79,7 @@ export function resumeToPlainText(resume: GeneratedResume | undefined, tagline?:
     parts.push(e.title, e.company, e.companyDescriptor || '');
     for (const b of e.bullets || []) parts.push(typeof b === 'string' ? b : b?.text || '');
   }
+  for (const e of resume.earlierExperience || []) parts.push(e.title, e.company);
   for (const ed of resume.education || []) parts.push(ed.degree, ed.institution);
   return parts.filter(Boolean).join('\n');
 }

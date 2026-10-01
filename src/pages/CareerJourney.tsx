@@ -802,6 +802,26 @@ export default function CareerJourney() {
                       <Label>Resume Contact Preference</Label>
                       <Input value={person.resume_contact_preference || ''} onChange={e => updatePerson({ resume_contact_preference: e.target.value })} placeholder="e.g. Email + LinkedIn only" />
                     </div>
+                    <div>
+                      <Label>Default Resume Length</Label>
+                      <select
+                        value={person.resume_preferences?.page_target === 1 ? '1' : '2'}
+                        onChange={e => updatePerson({ resume_preferences: { ...(person.resume_preferences || {}), page_target: Number(e.target.value) } })}
+                        className="w-full text-sm border border-slate-200 rounded-md px-3 h-10 bg-white"
+                      >
+                        <option value="1">1 page</option>
+                        <option value="2">2 pages</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Condense Roles That Ended Before</Label>
+                      <Input
+                        value={person.resume_preferences?.condense_roles_ended_before || ''}
+                        onChange={e => updatePerson({ resume_preferences: { ...(person.resume_preferences || {}), condense_roles_ended_before: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) } })}
+                        placeholder="Year, e.g. 2012 (blank = older than 15 years)"
+                        inputMode="numeric"
+                      />
+                    </div>
                     <div className="col-span-2">
                       <Label>Summary</Label>
                       <Textarea value={person.summary || ''} onChange={e => updatePerson({ summary: e.target.value })} className="min-h-[70px]" />
@@ -2344,6 +2364,19 @@ const RoleResumeDetails = ({ role, onChange }: { role: any; onChange: (updates: 
             <EditableCell label="Company Descriptor" value={role.company_descriptor || ''} onChange={v => onChange({ company_descriptor: v })} />
             <EditableCell label="Resume Company Descriptor" value={role.resume_company_descriptor || ''} onChange={v => onChange({ resume_company_descriptor: v })} />
             <EditableCell label="Resume Company URL" value={role.resume_company_url || ''} onChange={v => onChange({ resume_company_url: v })} />
+            <div>
+              <Label className="text-[10px]">Default on Tailored Resumes</Label>
+              <select
+                value={role.resume_default || ''}
+                onChange={e => onChange({ resume_default: e.target.value || undefined })}
+                className="w-full text-xs border border-slate-200 rounded-md px-2 h-8 bg-white"
+              >
+                <option value="">Automatic (by age)</option>
+                <option value="full">Full, with bullets</option>
+                <option value="condensed">One line under Earlier Experience</option>
+                <option value="excluded">Leave off</option>
+              </select>
+            </div>
           </div>
           <div>
             <Label>Positioning Note</Label>

@@ -72,6 +72,7 @@ if (payload?.resume) {
     skills: payload.resume.skills || [],
     education: payload.resume.education || [],
     experience: (payload.resume.experience || []).map((e) => ({ ...e, bullets: e.bullets || [], companyUrl: safeUrl(e.companyUrl) })),
+    earlierExperience: (payload.resume.earlierExperience || []).map(({ restorable: _omit, ...e }) => e),
   };
   createRoot(document.getElementById('root')!).render(
     // 7.5in = the 8.5in Letter page minus the 0.5in margins applied by page.pdf(),

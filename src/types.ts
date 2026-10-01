@@ -20,6 +20,8 @@ export interface GeneratedResume {
   summary: string;
   skills: { category: string; terms: string }[];
   experience: {
+    /** The Career Journey role this entry was written from. Missing on resumes generated before role-level build controls existed. */
+    roleId?: string;
     company: string;
     companyDescriptor?: string;
     companyUrl?: string;
@@ -33,6 +35,33 @@ export interface GeneratedResume {
     degree: string;
     graduationDate: string;
   }[];
+  /** One-line entries for roles built as 'condensed' — filled deterministically from the Career Journey, never by the AI. */
+  earlierExperience?: EarlierExperienceEntry[];
+}
+
+export type ResumeExperienceEntry = GeneratedResume['experience'][number];
+
+export interface EarlierExperienceEntry {
+  roleId: string;
+  company: string;
+  title: string;
+  dates: string;
+  /** The full entry, kept when a role is condensed from the preview so "Restore" can put it back unchanged. Never rendered. */
+  restorable?: ResumeExperienceEntry;
+}
+
+/** A part of the tailored resume that can be regenerated on its own. */
+export type ResumeSectionRef = { kind: 'summary' } | { kind: 'skills' } | { kind: 'role'; roleId: string };
+
+export type ResumeRoleMode = 'full' | 'condensed' | 'excluded';
+
+/** Per-job controls for how the tailored resume is built — chosen on the Build Settings screen before generation. */
+export interface ResumeBuildOptions {
+  pageTarget: 1 | 2;
+  /** Keyed by Career Journey role id. A role with no entry is treated as 'full'. */
+  roles: Record<string, { mode: ResumeRoleMode; maxBullets?: number }>;
+  /** Free-text steer for this resume ("lead with platform work", "skip the consulting stint's tooling"). */
+  guidance?: string;
 }
 
 export interface InterviewPrep {
@@ -94,6 +123,7 @@ export interface JobAnalysis {
   fitAnalysis?: FitAnalysis;
   hardGateAudit?: HardGateAudit;
   gateClarifications?: Record<string, { explanation: string; proof: string }>;
+  resumeBuildOptions?: ResumeBuildOptions;
   resumeStrategy?: ResumeStrategy;
   keywordCoverage?: KeywordCoverage;
   resume?: GeneratedResume;
@@ -245,7 +275,7 @@ export interface ResumeStrategy {
   headerTagline: string;
   executiveSummary: string;
   selectedOutcomes: string[];
-  roleStrategies: { company: string; titleReframe: string; note: string }[];
+  roleStrategies: { roleId?: string; company: string; titleReframe: string; note: string }[];
   skillRows: { label: string; content: string }[];
   keywordPlacement: { category: string; keywords: string[] }[];
   cautionClaims: string[];

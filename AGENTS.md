@@ -56,7 +56,7 @@ This repo carries hand-written planning docs at the root (`payment-system-plan.m
 See [ARCHITECTURE.md § Known inconsistencies / incomplete migrations](ARCHITECTURE.md#known-inconsistencies--incomplete-migrations) for the full list with file references. Highlights:
 
 1. `adminNotes`-leak-style bugs are the kind of thing this codebase has shipped before (found and fixed once already) — when touching `server/support.ts` or any user-facing read path, double check nothing internal-only leaks into a response.
-2. The AI provider migration (18 of 20 endpoints still on the legacy Gemini-schema shim, and therefore not BYOM-aware) is the single largest piece of unfinished work, and the riskiest to rush — the payment plan doc explicitly deferred it rather than migrate blind without real provider credentials to test against. If you pick this up, verify each provider for real (`npm run verify:ai`), not just against Gemini.
+2. The AI provider migration (19 of 21 endpoints still on the legacy Gemini-schema shim, and therefore not BYOM-aware) is the single largest piece of unfinished work, and the riskiest to rush — the payment plan doc explicitly deferred it rather than migrate blind without real provider credentials to test against. If you pick this up, verify each provider for real (`npm run verify:ai`), not just against Gemini.
 3. Test coverage is growing — Vitest is configured (`vitest.config.ts`, `server/__tests__/support.test.ts`) covering support access control and rate limits (`npm test`). Further test expansion (e.g. `server/billing.ts` quota transactions) remains high value.
 
 ## Verifying your work

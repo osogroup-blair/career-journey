@@ -49,6 +49,15 @@ export const PersonSchema = z
     github: z.string().optional(),
     work_preference: z.string().optional(),
     resume_contact_preference: z.string().optional(),
+    // Saved tailored-resume defaults (src/lib/resumeBuild.ts defaultBuildOptions) — pre-fill each job's Build Settings.
+    resume_preferences: z
+      .object({
+        page_target: z.number().optional(), // 1 or 2; anything else reads as 2
+        // Four-digit year: roles that ended before it start out condensed to a one-liner.
+        condense_roles_ended_before: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
     positioning: PositioningSchema.optional(),
   })
   .passthrough();
@@ -147,6 +156,9 @@ export const RoleSchema = z
     company_descriptor: z.string().optional(),
     resume_company_descriptor: z.string().optional(),
     resume_company_url: z.string().optional(),
+    // Saved default for how this role appears on tailored resumes; overridable per job in Build Settings.
+    // 'full' | 'condensed' | 'excluded' — kept a loose string so one odd value can't fail the whole Career Journey parse; resumeBuild.ts ignores anything else.
+    resume_default: z.string().optional(),
     // Free-form structured notes — shape varies per role (e.g. team_leadership carries
     // team_name/starting_size/peak_size/growth_narrative on some roles), so left loose
     // rather than over-fitted to one role's fields.

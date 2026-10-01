@@ -27,6 +27,7 @@ export const PROMPT_OSO_ALIASES: Record<string, string> = {
   compareOffers: "oso/reasoning",
   offerGuidance: "oso/reasoning",
   generateResume: "oso/reasoning",
+  regenerateResumeSection: "oso/reasoning",
   scoreResume: "oso/reasoning",
   coverLetter: "oso/reasoning",
   buildJourneyFromResume: "oso/reasoning",

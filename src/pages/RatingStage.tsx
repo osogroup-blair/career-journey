@@ -23,7 +23,6 @@ export default function RatingStage() {
   const runKeywordExtraction = useStore((s) => s.runKeywordExtraction);
   const runClarifyQuestions = useStore((s) => s.runClarifyQuestions);
   const runPatchJourney = useStore((s) => s.runPatchJourney);
-  const runGenerateTailoredApplication = useStore((s) => s.runGenerateTailoredApplication);
   const activeAiTasks = useStore((s) => s.activeAiTasks);
   const navigate = useNavigate();
   const toast = useToast();
@@ -81,9 +80,9 @@ export default function RatingStage() {
     setFormData(contextEntries[kw.id] || { keywordId: kw.id });
   };
 
+  // No AI call here — the Tailored Application stage opens on Build Settings so roles/length are chosen first.
   const handleFinalize = () => {
     updateJob(job.id, { ratingFinalizedAt: new Date().toISOString(), stage: 'Tailored Application' });
-    runGenerateTailoredApplication(job.id);
     navigate(`/job/${job.id}/tailored`);
   };
 

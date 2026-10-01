@@ -217,6 +217,7 @@ export const FEATURE_NAMES: Record<string, string> = {
   patchJourney: "Journey Patching",
   resumeStrategy: "Resume Strategy Matrix",
   generateResume: "Resume Bullet Generation",
+  regenerateResumeSection: "Resume Section Rewrite",
   scoreResume: "Tailored Resume Scoring",
   coverLetter: "Cover Letter Drafting",
   applicationAssistant: "Application Assistant Chat",

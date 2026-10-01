@@ -92,7 +92,7 @@ Your instructions:
     label: "Resume Strategy",
     description: "Stage 6a — the positioning plan (tagline, summary, title reframes, keyword placement) that drives resume generation.",
     stage: "Tailored Application",
-    template: `You are running Stage 6's resume positioning integrity gate (JD_pipeline_SKILL.md) for the candidate. Before drafting the strategy, define the candidate identity the top third must communicate per the role-family positioning guardrail in jd_signal_map.md. Apply the title-reframing tactic from ats_tactics.md (hybrid title: "Real Title | Head of [JD's preferred phrase]") to roleStrategies.titleReframe. Preserve the canonical resume_company_descriptor values from the Career Journey exactly - never rewrite them to mirror the JD. Use exact JD terminology in keywordPlacement where truthful. headerTagline should mirror the JD's framing of the role.`,
+    template: `You are running Stage 6's resume positioning integrity gate (JD_pipeline_SKILL.md) for the candidate. Before drafting the strategy, define the candidate identity the top third must communicate per the role-family positioning guardrail in jd_signal_map.md. Apply the title-reframing tactic from ats_tactics.md (hybrid title: "Real Title | Head of [JD's preferred phrase]") to roleStrategies.titleReframe. Preserve the canonical resume_company_descriptor values from the Career Journey exactly - never rewrite them to mirror the JD. Use exact JD terminology in keywordPlacement where truthful. headerTagline should mirror the JD's framing of the role. Plan only for the roles listed in the Resume Constraints block, and keep executiveSummary and skillRows within its limits.`,
   },
   generateResume: {
     label: "Generate Tailored Resume",
@@ -102,13 +102,21 @@ Your instructions:
 
 Combine the candidate's existing CareerJourney data with the newly generated tailored Resume Strategy, ensuring all Top Critical Skills and Keywords from the Job Parse are organically incorporated.
 
-1. Ensure the resume fits within a 2-page constraint (be concise with bullet points, max 4-5 per role, impact focused).
+1. Follow the Resume Constraints block exactly: write experience entries only for the roles it lists, most recent first, each with its roleId; respect its page target, per-role bullet limits, and summary/skills limits. Be concise and impact focused.
 2. Use the strategy's exact wording for the Summary and core skills.
-3. Organize experience chronologically.
+3. Order each role's bullets strongest-first for this JD.
 4. Use the candidate's own contact details from their Career Journey "person" object (phone, email, and website as the final contact item; no LinkedIn unless the request says otherwise). If contact info truly isn't derivable, use placeholders like "[Name]" or "user@example.com".
 5. For each experience entry, if the matching Career Journey role has resume_company_descriptor and/or resume_company_url, populate companyDescriptor and companyUrl on that entry exactly as given - never rewrite the descriptor.
 6. Each bullet is an object with "text" and "evidenceRefs" fields, not a bare string. Populate "evidenceRefs" with the real Career Journey item id(s) (deliverable.id or achievement.id) that bullet is based on — never invent an id, only cite ids that literally appear in the Career Journey below. If a bullet is a truthful synthesis of the role's general scope rather than one specific deliverable/achievement, leave evidenceRefs empty rather than guessing an id.
 7. Return a strict JSON object of the GeneratedResume.`,
+  },
+  regenerateResumeSection: {
+    label: "Regenerate Resume Section",
+    description: "Stage 6c — rewrites one part of an existing tailored resume (summary, skills, or one role) on request, leaving the rest untouched.",
+    stage: "Tailored Application",
+    template: `You are revising one section of the candidate's existing tailored resume (Stage 6 of JD_pipeline_SKILL.md), not rebuilding it. Rewrite only the section named below and return only that field: "summary" for the summary, "skills" for the skills rows, or "experienceEntry" for one role. Follow the candidate's instruction if one is given. Keep everything consistent with the rest of the resume shown below - don't repeat proof points other sections already use, and keep the JD's exact vocabulary where it's truthful.
+
+Apply the same rules as full generation: ats_tactics.md keyword mirroring, voice_skill.md's Default Voice (no generic executive adjectives), the canonical resume_company_descriptor verbatim, full month-year dates, and bullets as objects with "text" and "evidenceRefs" citing only ids that literally appear in the Career Journey. Never fabricate a metric, employer, client, tool, or credential.`,
   },
   scoreResume: {
     label: "Resume Score",

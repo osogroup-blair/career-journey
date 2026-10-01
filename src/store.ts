@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { JobAnalysis, JobMatch, MatchPreferences } from './types';
+import { JobAnalysis, JobMatch, MatchPreferences, ResumeBuildOptions, ResumeRoleMode, ResumeSectionRef } from './types';
 import { BillingState } from './types/billing';
 import { FeatureFlags } from './types/featureFlags';
 import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
@@ -11,6 +11,8 @@ import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
 import { toastBridge } from './components/ui';
 import * as aiClient from './lib/aiClient';
 import { scoreResumeKeywords, resumeFingerprint } from './lib/resumeScore';
+import { defaultBuildOptions } from './lib/resumeBuild';
+import { replaceRoleEntry } from './lib/resumeEdits';
 
 const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
   excludedKeywords: [],
@@ -66,7 +68,16 @@ interface AppState {
   runKeywordExtraction: (jobId: string) => void;
   runClarifyQuestions: (jobId: string) => void;
   runPatchJourney: (jobId: string) => void;
+  /** Plan + write in one go (Build without review, Re-plan and rewrite, keyword-gate rebuilds). Uses the job's saved resumeBuildOptions. */
   runGenerateTailoredApplication: (jobId: string, remediation?: string[]) => void;
+  /** Step 1 of the reviewed flow: draft the resume strategy only, for the Strategy Review screen. */
+  runResumeStrategy: (jobId: string) => void;
+  /** Step 2 of the reviewed flow: write the resume from the job's current (possibly user-edited) strategy. */
+  runGenerateResume: (jobId: string) => void;
+  /** Rewrite one part of the existing resume (summary, skills, or one role) without touching the rest. */
+  runRegenerateResumeSection: (jobId: string, section: ResumeSectionRef, instruction?: string) => void;
+  /** Change one role's mode in the job's build options (from the preview's condense/remove/restore controls). */
+  setResumeRoleMode: (jobId: string, roleId: string, mode: ResumeRoleMode) => void;
   runScoreResume: (jobId: string) => void;
   runGenerateCoverLetter: (jobId: string) => void;
   runApplicationAssistantMessage: (jobId: string, message: string) => void;
@@ -97,6 +108,11 @@ interface AppState {
   deleteSkillAtIndex: (index: number) => void;
   updateCareerJourneyMeta: (metaUpdates: any) => void;
   updateCareerJourneyPerson: (personUpdates: any) => void;
+}
+
+/** AI task kind for a single-section regenerate — distinct per section so each one shows its own spinner. */
+export function resumeSectionTaskKind(section: ResumeSectionRef): string {
+  return section.kind === 'role' ? `resumeSection:role:${section.roleId}` : `resumeSection:${section.kind}`;
 }
 
 export const useStore = create<AppState>((set, get) => {
@@ -308,10 +324,66 @@ export const useStore = create<AppState>((set, get) => {
       const label = remediation?.length ? 'Rebuilding resume with missing keywords' : 'Building tailored resume';
       get().runAiTask(jobId, 'generateTailoredApplication', label, async () => {
         const careerJourney = get().careerJourney;
-        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, remediation);
-        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!, remediation);
-        return { resumeStrategy, resume };
+        const options = job.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
+        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, options, remediation);
+        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!, options, remediation);
+        return { resumeBuildOptions: options, resumeStrategy, resume };
       });
+    },
+
+    runResumeStrategy: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.ratingFinalizedAt) return;
+      get().runAiTask(jobId, 'resumeStrategy', 'Drafting resume plan', async () => {
+        const careerJourney = get().careerJourney;
+        const options = job.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
+        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, options);
+        return { resumeBuildOptions: options, resumeStrategy };
+      });
+    },
+
+    runGenerateResume: (jobId) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.resumeStrategy) return;
+      get().runAiTask(jobId, 'generateTailoredApplication', 'Writing tailored resume', async () => {
+        const careerJourney = get().careerJourney;
+        // Read at run time so edits saved on the Strategy Review screen just before clicking are included.
+        const current = get().jobs[jobId] ?? job;
+        const options = current.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
+        const resume = await aiClient.generateFullResume(careerJourney, current.resumeStrategy!, current.parse!, options);
+        return { resumeBuildOptions: options, resume };
+      });
+    },
+
+    runRegenerateResumeSection: (jobId, section, instruction) => {
+      const job = get().jobs[jobId];
+      if (!job || !job.parse || !job.resume) return;
+      const label = section.kind === 'role' ? 'Rewriting role' : section.kind === 'skills' ? 'Rewriting skills' : 'Rewriting summary';
+      get().runAiTask(jobId, resumeSectionTaskKind(section), label, async () => {
+        const careerJourney = get().careerJourney;
+        const options = job.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
+        const result = await aiClient.regenerateResumeSection(section, instruction, job.resume!, job.resumeStrategy, job.parse!, careerJourney, options);
+        // Merge into the resume as it is *now* — the user may have kept editing other sections while this ran.
+        const latest = get().jobs[jobId] ?? job;
+        const base = latest.resume ?? job.resume!;
+        const latestOptions = latest.resumeBuildOptions ?? options;
+        if (section.kind === 'summary' && typeof result.summary === 'string') return { resume: { ...base, summary: result.summary } };
+        if (section.kind === 'skills' && result.skills) return { resume: { ...base, skills: result.skills } };
+        if (section.kind === 'role' && result.experienceEntry) {
+          return {
+            resume: replaceRoleEntry(base, section.roleId, result.experienceEntry, careerJourney),
+            resumeBuildOptions: { ...latestOptions, roles: { ...latestOptions.roles, [section.roleId]: { ...latestOptions.roles[section.roleId], mode: 'full' } } },
+          };
+        }
+        throw new Error('The AI returned nothing for that section — try again.');
+      });
+    },
+
+    setResumeRoleMode: (jobId, roleId, mode) => {
+      const job = get().jobs[jobId];
+      if (!job) return;
+      const options: ResumeBuildOptions = job.resumeBuildOptions ?? defaultBuildOptions(get().careerJourney);
+      get().updateJob(jobId, { resumeBuildOptions: { ...options, roles: { ...options.roles, [roleId]: { ...options.roles[roleId], mode } } } });
     },
 
     runScoreResume: (jobId) => {

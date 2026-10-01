@@ -150,7 +150,7 @@ function classicChildren(resume: GeneratedResume, tagline?: string): (Paragraph 
     out.push(new Paragraph({ spacing: { after: 60 }, children: [run(`${s.category}:`, { bold: true, color: C.slate900 }), run(` ${s.terms}`, { color: C.slate700 })] }));
   });
 
-  out.push(classicSection("Professional Experience", 300, 180));
+  if ((resume.experience || []).length > 0) out.push(classicSection("Professional Experience", 300, 180));
   (resume.experience || []).forEach((exp, i) => {
     const company = exp.companyUrl
       ? link(exp.companyUrl, exp.company, { bold: true, color: C.brand700 })
@@ -166,6 +166,14 @@ function classicChildren(resume: GeneratedResume, tagline?: string): (Paragraph 
     );
     (exp.bullets || []).forEach((b) => out.push(bulletPara(bulletText(b), { color: C.slate800 }, { after: 60, line: lh(1.375) }, BULLETS.pl5)));
   });
+
+  const earlier = resume.earlierExperience || [];
+  if (earlier.length > 0) {
+    out.push(classicSection("Earlier Experience", 300, 120));
+    earlier.forEach((e) => {
+      out.push(splitLine([run(e.title, { bold: true, color: C.slate900 }), run(" — ", {}), run(e.company, { color: C.slate700 })], [run(e.dates, { color: C.slate800 })], CONTENT_W, { after: 60 }, false));
+    });
+  }
 
   out.push(classicSection("Education", 300, 120));
   (resume.education || []).forEach((edu) => {
@@ -243,7 +251,7 @@ function modernChildren(resume: GeneratedResume, tagline?: string): (Paragraph |
     );
   });
 
-  out.push(modernSection("Experience", 480, 240));
+  if ((resume.experience || []).length > 0) out.push(modernSection("Experience", 480, 240));
   (resume.experience || []).forEach((exp, i) => {
     const company = exp.companyUrl
       ? link(exp.companyUrl, exp.company, { px: 14, bold: true, color: C.brand600 })
@@ -259,6 +267,14 @@ function modernChildren(resume: GeneratedResume, tagline?: string): (Paragraph |
     );
     (exp.bullets || []).forEach((b) => out.push(bulletPara(bulletText(b), { color: C.zinc700 }, { after: 90, line: relaxed }, BULLETS.pl4)));
   });
+
+  const earlier = resume.earlierExperience || [];
+  if (earlier.length > 0) {
+    out.push(modernSection("Earlier Experience", 480, 180));
+    earlier.forEach((e) => {
+      out.push(splitLine([run(e.title, { bold: true, color: C.zinc900 }), run(` ${e.company}`, { bold: true, color: C.brand600 })], [run(e.dates, { color: C.zinc900 })], CONTENT_W, { after: 90 }, false));
+    });
+  }
 
   out.push(modernSection("Education", 480, 180));
   (resume.education || []).forEach((edu) => {
@@ -355,8 +371,19 @@ function executiveChildren(resume: GeneratedResume, tagline?: string): (Paragrap
     entries.push(splitLine([run(exp.title, { px: 14, font: SERIF, italics: true, color: C.gray800 })], [run(exp.location || "", { px: 11, caps: true, tracking: 0.05, color: C.gray500 })], rightW, { after: 120 }));
     (exp.bullets || []).forEach((b) => entries.push(bulletPara(bulletText(b), { px: 13, font: SERIF, color: C.gray800 }, { after: 60, line: lh(1.5) }, BULLETS.pl5)));
   });
-  out.push(spacer(360));
-  out.push(executiveSideBySide("Experience", entries.length ? entries : [new Paragraph({ children: [] })]));
+  if (entries.length > 0) {
+    out.push(spacer(360));
+    out.push(executiveSideBySide("Experience", entries));
+  }
+
+  const earlier = resume.earlierExperience || [];
+  if (earlier.length > 0) {
+    const rows = earlier.map((e, i) =>
+      splitLine([run(e.company, { px: 13, font: SERIF, bold: true, color: C.gray900 }), run(` ${e.title}`, { px: 13, font: SERIF, italics: true, color: C.gray800 })], [run(e.dates, { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 90 : 0 }, false)
+    );
+    out.push(spacer(360));
+    out.push(executiveSideBySide("Earlier", rows));
+  }
 
   const edu: Paragraph[] = [];
   (resume.education || []).forEach((e, i) => {

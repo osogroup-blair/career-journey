@@ -108,6 +108,8 @@ const SAMPLE_CONTEXT_ENTRIES = [
   { keywordId: "kw-2", questionText: "Did you lead any payments infra rebuilds?", answer: "Yes, redesigned routing at Stripe.", approvalStatus: "Approved for patch", proposedAdditionType: "Add new deliverable", targetRoleId: "ROLE-001" },
 ];
 
+const SAMPLE_BUILD_OPTIONS = { pageTarget: 2, roles: {} };
+
 /** Per-prompt sample variables, rendered as labeled JSON blocks by renderSampleContents. */
 export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
   parse: { company: "Sample Co", roleTitle: "Sample Role", jdText: SAMPLE_JD_TEXT },
@@ -117,8 +119,9 @@ export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
   auditGates: { parse: SAMPLE_PARSE_RESULT, jdSegments: SAMPLE_JD_SEGMENTS, careerJourney: SAMPLE_CAREER_JOURNEY, gateClarifications: {} },
   liteScan: { jdText: SAMPLE_JD_TEXT, careerJourney: SAMPLE_CAREER_JOURNEY },
   patchJourney: { careerJourney: SAMPLE_CAREER_JOURNEY, contextEntries: SAMPLE_CONTEXT_ENTRIES },
-  resumeStrategy: { parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, contextEntries: [] },
-  generateResume: { careerJourney: SAMPLE_CAREER_JOURNEY, strategy: SAMPLE_RESUME_STRATEGY, parse: SAMPLE_PARSE_RESULT },
+  resumeStrategy: { parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, contextEntries: [], resumeBuildOptions: SAMPLE_BUILD_OPTIONS },
+  generateResume: { careerJourney: SAMPLE_CAREER_JOURNEY, strategy: SAMPLE_RESUME_STRATEGY, parse: SAMPLE_PARSE_RESULT, resumeBuildOptions: SAMPLE_BUILD_OPTIONS },
+  regenerateResumeSection: { section: { kind: "summary" }, instruction: "Shorter", resume: SAMPLE_RESUME, strategy: SAMPLE_RESUME_STRATEGY, parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, resumeBuildOptions: SAMPLE_BUILD_OPTIONS },
   scoreResume: { resume: SAMPLE_RESUME, strategy: SAMPLE_RESUME_STRATEGY, parse: SAMPLE_PARSE_RESULT, keywords: SAMPLE_KEYWORDS, keywordCoverage: { score: 67, threshold: 85, passed: false, missingKeywords: ["Backend architecture"] }, careerJourney: SAMPLE_CAREER_JOURNEY },
   coverLetter: { parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, fitAnalysis: SAMPLE_FIT_ANALYSIS, resumeStrategy: SAMPLE_RESUME_STRATEGY },
   applicationAssistant: { transcript: SAMPLE_TRANSCRIPT, parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY, resume: SAMPLE_RESUME, fitAnalysis: SAMPLE_FIT_ANALYSIS },

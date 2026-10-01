@@ -193,11 +193,12 @@ export const RESUME_STRATEGY_SCHEMA = {
       items: {
         type: Type.OBJECT,
         properties: {
+          roleId: { type: Type.STRING, description: "The Career Journey role id this strategy is for, exactly as listed in Resume Constraints." },
           company: { type: Type.STRING },
           titleReframe: { type: Type.STRING },
           note: { type: Type.STRING },
         },
-        required: ["company", "titleReframe", "note"],
+        required: ["roleId", "company", "titleReframe", "note"],
       },
     },
     skillRows: {
@@ -246,6 +247,7 @@ export const GENERATE_RESUME_SCHEMA = {
       items: {
         type: Type.OBJECT,
         properties: {
+          roleId: { type: Type.STRING, description: "The Career Journey role id this entry is written from, exactly as listed in Resume Constraints." },
           company: { type: Type.STRING },
           companyDescriptor: { type: Type.STRING, description: "The canonical resume_company_descriptor for this role's employer, verbatim from the Career Journey, if one exists." },
           companyUrl: { type: Type.STRING, description: "The canonical resume_company_url for this role's employer, verbatim from the Career Journey, if one exists." },
@@ -271,7 +273,7 @@ export const GENERATE_RESUME_SCHEMA = {
             },
           },
         },
-        required: ["company", "title", "dates", "location", "bullets"],
+        required: ["roleId", "company", "title", "dates", "location", "bullets"],
       },
     },
     education: {
@@ -288,6 +290,16 @@ export const GENERATE_RESUME_SCHEMA = {
     },
   },
   required: ["name", "contactInfo", "summary", "skills", "experience", "education"],
+};
+
+/** One section of an existing resume, rewritten on its own. Only the field matching the requested section is expected back. */
+export const REGENERATE_RESUME_SECTION_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    summary: GENERATE_RESUME_SCHEMA.properties.summary,
+    skills: GENERATE_RESUME_SCHEMA.properties.skills,
+    experienceEntry: GENERATE_RESUME_SCHEMA.properties.experience.items,
+  },
 };
 
 export const SCORE_RESUME_SCHEMA = {
@@ -541,6 +553,7 @@ export const LEGACY_RESPONSE_SCHEMAS: Record<string, object> = {
   patchJourney: PATCH_DELTA_SCHEMA,
   resumeStrategy: RESUME_STRATEGY_SCHEMA,
   generateResume: GENERATE_RESUME_SCHEMA,
+  regenerateResumeSection: REGENERATE_RESUME_SECTION_SCHEMA,
   scoreResume: SCORE_RESUME_SCHEMA,
   coverLetter: COVER_LETTER_SCHEMA,
   generateFormAnswers: GENERATE_FORM_ANSWERS_SCHEMA,

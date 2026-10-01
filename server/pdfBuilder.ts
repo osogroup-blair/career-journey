@@ -147,7 +147,7 @@ export async function buildResumePdf(resume: GeneratedResume, strategy?: ResumeS
     doc.moveDown(0.15);
   });
 
-  sectionHeader(doc, "Professional Experience");
+  if ((resume.experience || []).length > 0) sectionHeader(doc, "Professional Experience");
   (resume.experience || []).forEach((exp) => {
     // Keep the company/title lines and first bullet together on one page.
     ensureSpace(doc, BODY_SIZE * 6);
@@ -164,6 +164,13 @@ export async function buildResumePdf(resume: GeneratedResume, strategy?: ResumeS
     splitRow(doc, [{ text: toWinAnsi(exp.title), font: ITALIC }], { text: toWinAnsi(exp.location), font: ITALIC, color: "#6B7280" }, 3);
     (exp.bullets || []).forEach((b: any) => bullet(doc, toWinAnsi(typeof b === "string" ? b : b.text)));
   });
+
+  if ((resume.earlierExperience || []).length > 0) {
+    sectionHeader(doc, "Earlier Experience");
+    (resume.earlierExperience || []).forEach((e) => {
+      splitRow(doc, [{ text: toWinAnsi(e.title), font: BOLD }, { text: ` — ${toWinAnsi(e.company)}` }], { text: toWinAnsi(e.dates) }, 2);
+    });
+  }
 
   sectionHeader(doc, "Education");
   (resume.education || []).forEach((edu) => {
