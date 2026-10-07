@@ -14,6 +14,7 @@ import CareerJourneyBuilder from './pages/CareerJourneyBuilder';
 import StrengthenJourney from './pages/StrengthenJourney';
 import JobTracker from './pages/JobTracker';
 import Matches from './pages/Matches';
+import Discover from './pages/Discover';
 import Migrate from './pages/Migrate';
 import JobLayout from './layouts/JobLayout';
 import AdminLayout from './layouts/AdminLayout';
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/journey" element={<CareerJourney />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/matches" element={<Matches />} />
+            <Route path="/discover" element={<Discover />} />
             <Route path="/migrate" element={<Migrate />} />
             <Route path="/applications" element={<JobTracker />} />
             <Route path="/compare-offers" element={<CompareOffers />} />

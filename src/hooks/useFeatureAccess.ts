@@ -27,6 +27,18 @@ export function useFeatureAccess(feature: FeatureKey): {
     };
   }
 
+  if (feature === 'job_discovery' && featureFlags?.killSwitches?.discovery) {
+    return { allowed: false, featureLabel, reason: 'Job Discovery is temporarily unavailable.' };
+  }
+
+  // Job Discovery is admin-only until a StillOpen licence exists — comped
+  // accounts (including the shared demo) don't bypass it. The server decides
+  // for real (requireFeature + STILLOPEN_LICENSED); this only hides the UI.
+  if (feature === 'job_discovery' && !isAdmin) {
+    const enabled = Boolean(featureFlags?.features?.job_discovery?.[billing?.plan || 'free']);
+    return enabled ? { allowed: true, featureLabel } : { allowed: false, featureLabel, reason: 'Job Discovery is currently limited to admins.' };
+  }
+
   // Admin & Comped users get full bypass access
   if (isAdmin || billing?.comped) {
     return { allowed: true, featureLabel };

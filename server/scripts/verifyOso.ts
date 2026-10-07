@@ -4,7 +4,7 @@ dotenv.config();
 import { createLegacyGenAI } from '../ai/legacyGenAIShim';
 import { LEGACY_RESPONSE_SCHEMAS } from '../ai/legacySchemas';
 import { OsoClient } from '../ai/osoClient';
-import { KeywordsResponseSchema, FitAnalysisSchema } from '../ai/schemas';
+import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema } from '../ai/schemas';
 import { SAMPLE_INPUTS, renderSampleContents } from '../ai/promptSampleInputs';
 import { DEFAULT_PROMPTS } from '../promptStore';
 import { osoAliasForPrompt } from '../ai/osoAliasMap';
@@ -12,11 +12,18 @@ import { osoAliasForPrompt } from '../ai/osoAliasMap';
 /**
  * Manual verification for the Oso router integration — not run automatically.
  * For every prompt with sample input, sends the sample to that prompt's
- * mapped alias through the exact platform code path (OsoClient for the two Zod
+ * mapped alias through the exact platform code path (OsoClient for the Zod
  * endpoints, the legacy shim for the rest) and checks the reply parses as JSON
  * (and against the Zod schema where one exists), VERIFY_CONCURRENCY at a time (default 1 — the router returns routing_failed for some prompts under 4x concurrency). Prints alias -> actual model,
  * latency and tokens. Usage: npm run verify:oso [-- promptId ...]
  */
+// Prompts served through the Zod abstraction (getAIClientForRequest) rather than the legacy shim.
+const ZOD_SCHEMAS: Record<string, any> = {
+  keywords: KeywordsResponseSchema,
+  fitScore: FitAnalysisSchema,
+  discoverySearchProfile: DiscoverySearchProfileAiSchema,
+};
+
 async function main() {
   if (!process.env.OSO_AI_API_KEY) {
     console.error('OSO_AI_API_KEY is not set in .env.');
@@ -32,9 +39,9 @@ async function main() {
     const started = Date.now();
     try {
       let actual: string | undefined, tokens: number, note = '';
-      if (id === 'keywords' || id === 'fitScore') {
+      if (id in ZOD_SCHEMAS) {
         const client = new OsoClient(alias);
-        const schema = id === 'keywords' ? KeywordsResponseSchema : FitAnalysisSchema;
+        const schema = ZOD_SCHEMAS[id];
         const contents = renderSampleContents(id, '', DEFAULT_PROMPTS[id].template);
         const r = await client.generateStructured({ systemPrompt: 'Respond in the exact schema provided.', prompt: contents, schema: schema as any });
         actual = r.actualModel; tokens = r.usage.totalTokens; note = 'zod-valid';

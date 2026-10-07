@@ -19,6 +19,7 @@ export const PROMPT_OSO_ALIASES: Record<string, string> = {
   refineFromInterviewAnswer: "oso/fast",
   generateFormAnswers: "oso/fast",
   interviewPrep: "oso/fast",
+  discoverySearchProfile: "oso/fast",
   // oso/reasoning — nested schemas and multi-step judgement/long-form writing. (oso/fast
   // returned jdRefs as strings for `keywords`, so it stays here.)
   keywords: "oso/reasoning",

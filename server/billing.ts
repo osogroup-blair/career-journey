@@ -2,7 +2,7 @@ import type { App } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import type { Request, Response, NextFunction } from "express";
 import { getAdminApp } from "./firebaseAdmin";
-import { getFeatureFlags, isFeatureEnabled } from "./featureFlags";
+import { getFeatureFlags, isFeatureEnabled, isFeatureKilled, isDiscoveryLicensed } from "./featureFlags";
 import type { BillingState, PlanId } from "../src/types/billing";
 import type { FeatureKey } from "../src/types/featureFlags";
 import { FEATURE_METADATA } from "../src/types/featureFlags";
@@ -65,7 +65,7 @@ export function requireFeature(feature: FeatureKey) {
       const flags = await getFeatureFlags(app);
 
       // Emergency kill switch applies to everyone including admins
-      if (flags.killSwitches.aiPipeline || (feature === "job_matches" && flags.killSwitches.matches)) {
+      if (flags.killSwitches.aiPipeline || isFeatureKilled(flags, feature)) {
         res.status(503).json({
           error: `${FEATURE_METADATA[feature]?.label || "This feature"} is temporarily disabled — try again shortly.`,
         });
@@ -88,6 +88,11 @@ export function requireFeature(feature: FeatureKey) {
         isAdmin: false,
         comped: billing.comped,
       });
+
+      if (!enabled && feature === "job_discovery" && !isDiscoveryLicensed()) {
+        res.status(403).json({ error: "Job Discovery is currently limited to admins.", feature });
+        return;
+      }
 
       if (!enabled) {
         res.status(403).json({
@@ -214,6 +219,7 @@ export const FEATURE_NAMES: Record<string, string> = {
   fitScore: "Role Fit Scoring",
   auditGates: "Hard Gate Audit",
   liteScan: "Discovery Lite Scan",
+  discoverySearchProfile: "Job Discovery Search Profile",
   patchJourney: "Journey Patching",
   resumeStrategy: "Resume Strategy Matrix",
   generateResume: "Resume Bullet Generation",

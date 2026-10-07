@@ -7,18 +7,21 @@ import { auth, isFirebaseConfigured } from '../lib/firebase';
 import {
   Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar,
   LogOut, Sparkles, TrendingUp, Menu, X, ChevronDown, CreditCard,
-  Settings as SettingsIcon, User, FileText
+  Settings as SettingsIcon, User, FileText, Telescope
 } from 'lucide-react';
 import { Button, useToast } from './ui';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
 import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
 import { validateCareerJourney } from '../lib/careerJourneyNormalize';
 import { listAdminTickets } from '../lib/adminClient';
+import { useFeatureAccess } from '../hooks/useFeatureAccess';
 
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { careerJourney, addJob, setCareerJourney, billing, isAdmin } = useStore();
+  // Discover needs server-side storage, so it's hidden in local-only mode as well as for anyone without access.
+  const showDiscover = useFeatureAccess('job_discovery').allowed && isFirebaseConfigured;
   const toast = useToast();
 
   const [resumeOpen, setResumeOpen] = useState(false);
@@ -203,7 +206,7 @@ export default function Navbar() {
                   setResumeOpen(false);
                 }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  jobsOpen || isActive('/matches') || isActive('/applications')
+                  jobsOpen || isActive('/matches') || isActive('/discover') || isActive('/applications')
                     ? 'bg-brand-50 text-brand-700'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
@@ -219,6 +222,12 @@ export default function Navbar() {
                     <Radar className="h-4 w-4 text-slate-400" />
                     Matches
                   </Link>
+                  {showDiscover && (
+                    <Link to="/discover" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                      <Telescope className="h-4 w-4 text-slate-400" />
+                      Discover
+                    </Link>
+                  )}
                   <Link to="/applications" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                     <Briefcase className="h-4 w-4 text-slate-400" />
                     Job Tracker
@@ -347,6 +356,11 @@ export default function Navbar() {
           <Link to="/matches" className={linkClass('/matches') + ' w-full'}>
             <Radar className="h-4 w-4" /> Matches
           </Link>
+          {showDiscover && (
+            <Link to="/discover" className={linkClass('/discover') + ' w-full'}>
+              <Telescope className="h-4 w-4" /> Discover
+            </Link>
+          )}
           <Link to="/applications" className={linkClass('/applications') + ' w-full'}>
             <Briefcase className="h-4 w-4" /> Job Tracker
           </Link>

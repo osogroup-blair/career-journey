@@ -22,7 +22,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 - **Single Express app** (`server.ts`, ~1950 lines) serves both the API and, in production, the built SPA. In dev, Vite runs in middleware mode inside the same process (`npm run dev` → `tsx watch server.ts`); there's no separate `vite dev` server.
 - **Single Zustand store** (`src/store.ts`) is the frontend's only source of truth for jobs, matches, Career Journey, billing state, admin flag, and in-flight AI tasks. Every page reads from it; every mutation goes through it.
 - **Dual persistence** via a `DataStore` interface (`src/data/DataStore.ts`): `LocalStorageDataStore` (default, no backend account needed) or `FirestoreDataStore` (once Firebase env vars are set and the user signs in). Both implement the same interface, so pages never know which one is active.
-- **Platform AI runs through the Oso Model Router** (with local Ollama as the zero-config fallback); **BYOM** users can bring Gemini, OpenAI, Anthropic or Ollama, but only for 2 of 21 endpoints — see [AI provider abstraction](#ai-provider-abstraction).
+- **Platform AI runs through the Oso Model Router** (with local Ollama as the zero-config fallback); **BYOM** users can bring Gemini, OpenAI, Anthropic or Ollama, but only for 3 of 22 endpoints — see [AI provider abstraction](#ai-provider-abstraction).
 - **Stripe billing**, an **admin console**, and a **support-ticket system** are layered on top of the original single-user job-pipeline app; all three were added after the core pipeline and are documented in `payment-system-plan.md` / `admin-support-feedback-plan.md` / `admin-support-hardening-plan.md`, which are worth reading for *why* things are shaped the way they are, not just *what* they are.
 
 ---
@@ -41,6 +41,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 | `/strengthen` | `StrengthenJourney` | Gap-filling flow driven by `careerJourneyGaps.ts` |
 | `/journey` | `CareerJourney` | "Advanced Editor" — full raw-schema editor, 2929 lines, every section as a tab |
 | `/matches` | `Matches` | Job discovery / bulk AI scan, gated to paid plans |
+| `/discover` | `Discover` | Scheduled StillOpen job search from a CV snapshot; pick listings to light-scan, promote into the pipeline. Admin-only until licensed — see [Job Discovery](#job-discovery-stillopen) |
 | `/migrate` | `Migrate` | One-time localStorage → Firestore copy |
 | `/applications` | `JobTracker` | Kanban board across pipeline stages |
 | `/compare-offers` | `CompareOffers` | AI comparison across every job in the Offer stage |
@@ -96,6 +97,7 @@ The canonical Zod schema for the whole profile: `meta`, `person`, `education`, `
 |---|---|
 | `/api/ai` | `requireFirebaseAuth` + `requireWithinAiQuota` |
 | `/api/sources` | `requireFirebaseAuth` + `requireAnyPaidPlan` |
+| `/api/discovery` | `requireFirebaseAuth` + `requireFeature("job_discovery")` (admin-only while unlicensed) |
 | `/api/admin` | `requireFirebaseAuth` + `requireAdmin` |
 | `/api/export` | `requireFirebaseAuth` |
 | `/api/billing` | `requireFirebaseAuth` |
@@ -112,8 +114,9 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 **Support** — `POST/GET /api/support/tickets`, `GET/POST /api/support/tickets/:id/messages`.
 **User & Privacy** — `GET /api/user/export-data` (full GDPR data archive), `DELETE /api/user/account` (self-service account purge).
 **Admin** — `/api/admin/tickets*` (list/get/update/reply/screenshot), `/api/admin/featureFlags` (get/set), `/api/admin/allowedModels` (set), `/api/admin/users` (list + plan override + quota reset + comp toggle), `GET /api/admin/users/:uid/detail`, `POST /api/admin/users/:uid/status` (suspend/reactivate), `POST /api/admin/users/:uid/send-reset`, `DELETE /api/admin/users/:uid`, `GET /api/admin/audit-logs`, `/api/admin/prompts*` (list/save/restore/test-run), `GET /api/admin/ai-calls` (the AI call log below, newest first, `?limit=` up to 1000).
-**AI pipeline** — `parse`, `keywords`, `clarifyQuestions`, `fitScore`, `auditGates`, `liteScan` (also individually gated by `requireAnyPaidPlan`), `patchJourney`, `resumeStrategy`, `generateResume`, `regenerateResumeSection` (rewrites one summary/skills/role section in place), `scoreResume` (Tailored Application stage's on-demand AI review; the live keyword-match score beside it is client-side, `src/lib/resumeScore.ts`), `coverLetter`, `applicationAssistant`, `generateFormAnswers`, `interviewPrep`, `interviewPrepChat`, `offerGuidance`, `compareOffers`, `buildJourneyFromResume`, `buildJourneyChat`, `refineFromInterviewAnswer`.
+**AI pipeline** — `parse`, `keywords`, `clarifyQuestions`, `fitScore`, `auditGates`, `liteScan` (also individually gated by `requireAnyPaidPlan`), `patchJourney`, `resumeStrategy`, `generateResume`, `regenerateResumeSection` (rewrites one summary/skills/role section in place), `scoreResume` (Tailored Application stage's on-demand AI review; the live keyword-match score beside it is client-side, `src/lib/resumeScore.ts`), `coverLetter`, `applicationAssistant`, `generateFormAnswers`, `interviewPrep`, `interviewPrepChat`, `offerGuidance`, `compareOffers`, `buildJourneyFromResume`, `buildJourneyChat`, `refineFromInterviewAnswer`, `discoverySearchProfile` (CV text → StillOpen searches; gated to `job_discovery` *before* the quota middleware).
 **Sources** — `fetchCompanyJobs` (Greenhouse/Lever board scrape), `fetchJobFromUrl` (structured board parse with generic-HTML fallback).
+**Discovery** (`server/discovery/routes.ts`, an Express Router mounted from `server.ts`) — `GET/PUT /api/discovery/profile`, `POST /api/discovery/run` (starts a run, returns 202; the page polls the profile), `GET /api/discovery/jobs` (re-checks status first if older than 6h), `GET /api/discovery/jobs/:id/detail` (proxies the full ad, only for ids already in the user's list), `PATCH /api/discovery/jobs/:id`.
 **Export** — `resume.docx`, `resume.pdf`, `coverLetter.docx`, `coverLetter.pdf`. The resume PDF is printed by headless Chrome from `/print.html` (`src/print/main.tsx`, the same `ResumeTemplates.tsx` components the Tailored Application page shows) via `server/pdfRenderer.ts`, falling back to `server/pdfBuilder.ts` if no Chrome is found (`CHROME_PATH`). The resume `.docx` is a per-template hand-built approximation in `server/docxBuilder.ts` — mirror any template change there. The request carries `template` (`classic|modern|executive`).
 **Health** — `GET /api/health`.
 
@@ -165,7 +168,7 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 
 **BYOM key handling**: the raw key is *never* stored server-side. `src/lib/byomKeyStorage.ts` is the only place it's persisted — browser `localStorage`, scoped to the device — and `aiClient.ts` attaches it as a header on every AI request. `POST /api/billing/validateByomKey` exercises the real client abstraction with a trivial schema to test a key before the user saves it, and never persists it regardless of outcome. Only the **choice** of provider+model is saved server-side (`POST /api/billing/byomSettings` → `billing.byomProvider`/`byomModel`).
 
-**Migration status — read this before touching any `/api/ai/*` route.** Only two endpoints, `keywords` and `fitScore`, go through `getAIClientForRequest`/the Zod-schema abstraction (`server/ai/schemas.ts` has exactly two schemas). Every other `/api/ai/*` endpoint — and the admin prompt Test Run — goes through `getLegacyClientForPrompt` in `server.ts` → `createLegacyGenAI` (`server/ai/legacyGenAIShim.ts`), which speaks a Gemini-style `generateContent` surface with hand-written Gemini `Type.*` schemas (`legacySchemas.ts`, converted to JSON Schema by `geminiSchemaToJsonSchema.ts`). That path resolves the *platform* provider only (Oso or Ollama), so **BYOM subscribers' calls to everything except `keywords`/`fitScore` run on the platform, not their own key/provider choice**. Known, tracked gap.
+**Migration status — read this before touching any `/api/ai/*` route.** Only three endpoints, `keywords`, `fitScore` and `discoverySearchProfile`, go through `getAIClientForRequest`/the Zod-schema abstraction (`server/ai/schemas.ts` has exactly three schemas). Every other `/api/ai/*` endpoint — and the admin prompt Test Run — goes through `getLegacyClientForPrompt` in `server.ts` → `createLegacyGenAI` (`server/ai/legacyGenAIShim.ts`), which speaks a Gemini-style `generateContent` surface with hand-written Gemini `Type.*` schemas (`legacySchemas.ts`, converted to JSON Schema by `geminiSchemaToJsonSchema.ts`). That path resolves the *platform* provider only (Oso or Ollama), so **BYOM subscribers' calls to everything except `keywords`/`fitScore`/`discoverySearchProfile` run on the platform, not their own key/provider choice**. Known, tracked gap.
 
 **Allowed models** (`config/allowedModels`, `src/types/aiModels.ts`): `Record<AIProviderId, AllowedModel[]>` (including a platform-only `oso` list synced from the router), readable by any signed-in user, admin-write-only. Seeded list (`seedAllowedModels.ts`) — 3 tiers per provider: Gemini (`gemini-2.5-pro`, `gemini-3.7-flash`, `gemini-3.5-flash-lite`), OpenAI (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`), Anthropic (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001`). Note the Gemini client's own hardcoded default (`gemini-3.1-pro-preview`) isn't actually in this seed list — a minor inconsistency, not yet reconciled.
 
@@ -225,12 +228,27 @@ Server/Admin-SDK-only (client read-only or fully denied):
 - `config/featureFlags`, `config/allowedModels` — any-signed-in-user-read, write:false.
 - `stripeEvents/{eventId}` — fully denied to clients (idempotency ledger).
 - `tickets/{ticketId}` (+ `messages` subcollection) — top-level (not nested under `users/`, so admin can query cross-account), owner-read-own-only, write:false.
+- `users/{uid}/discovery/profile`, `users/{uid}/discoveredJobs/{stillopenId}`, `discoverySchedules/{uid}` — Job Discovery; fully denied to clients, read/written only through `/api/discovery`. `discoverySchedules` is top-level so the scheduler's `nextRunAt <= now` query needs no collection-group index. All three are included in the GDPR export and removed by both account-delete paths.
 
 `firestore.indexes.json` is currently empty by design — the codebase avoids queries that would need a composite index (see the support-ticket in-memory-sort note above).
 
 ### Storage
 
 `ticketScreenshots/{uid}/{fileName}` — intended rules (owner-write, <5MB, image/* only, read:false always) are written in `storage.rules` but **not deployed**; see [Support / feedback loop](#support--feedback-loop).
+
+---
+
+## Job Discovery (StillOpen)
+
+`/discover` searches [StillOpen](https://stillopen.work/agents)'s public API (fully-remote listings, each re-checked against the employer's own board) on a schedule the user picks, from a plain-text CV of their Career Journey.
+
+- **CV snapshot** — `careerJourneyToText` (`src/lib/careerJourneyText.ts`) is deterministic and omits contact details; "out of date" is a string comparison with a fresh render. Refreshing the CV never rewrites the searches.
+- **Searches** — StillOpen is keyword + exact-value filters (`loc`, `level`, `area`, `pay`), not CV-in. `discoverySearchProfile` (AI, user-triggered) proposes 3–6 queries and filters; `sanitizeAiSearchProfile` drops any value StillOpen wouldn't accept. Gotchas checked live: it takes `uk`, not `gb`; regions are `worldwide|emea|apac|latam|na` only; most listings have `level: unspecified`, so any level filter hides them. New country codes are probed against the live API on save.
+- **Runs** (`server/discovery/runSearch.ts`) — no AI. Fan out queries × filters (capped at 24 calls), merge into `discoveredJobs` keeping the user's state (dismissed/scanned/promoted), status re-check everything else, delete closed listings and untouched ones not found for 14 days.
+- **Scheduler** (`server/discovery/scheduler.ts`) — in-process `setInterval` every 15 min (the server is one long-running container), started in `app.listen`. Off without Firebase Admin or with `DISCOVERY_SCHEDULER=off`. Each run is claimed with a transaction on `discoverySchedules/{uid}.lockedUntil`, so extra replicas or a simultaneous "Search now" can't double-run a user. A user who has lost access has their discovery data deleted on their next due tick.
+- **StillOpen client** (`server/discovery/stillOpenClient.ts`) — one process-wide throttle (~40/min, under the 60/min per-IP limit, since every user's run leaves from this server's IP), 10s timeouts, one retry honouring `Retry-After`, Zod-validated requests and responses.
+- **Picking jobs** — the page ranks listings cheaply (`src/lib/discoveryRank.ts`), the user selects up to 15 to "Quick scan": the full ad is fetched on demand (never stored in `discoveredJobs`), then the existing light scan runs via `scanPostingIntoMatch` (`src/lib/matchScan.ts`, shared with Matches) and creates a `JobMatch` with `source: 'stillopen'`. "Add to pipeline" is the existing `promoteMatch`, which now carries the match's `sourceUrl` into the job's `jobLink`.
+- **Licence & terms** — StillOpen's terms need a written licence for any use by or for an organisation. Until `STILLOPEN_LICENSED=true`, `job_discovery` is **admin-only** in `isFeatureEnabled` — comped accounts (the shared demo) and the plan matrix don't open it. Attribution ("Data provided by StillOpen" + logo, linked; each listing linked to its `canonical_url`) is the `StillOpenAttribution` component, shown on Discover and on Matches when a StillOpen match is visible. Evidence wording (`describeEvidence`) never calls a listing verified unless StillOpen's `evidence_type` is `ats_verified`/`board_verified`. Kill switch: `killSwitches.discovery` (Admin › Flags).
 
 ---
 
@@ -246,7 +264,7 @@ Server/Admin-SDK-only (client read-only or fully denied):
 
 Kept here as a single list so nothing gets rediscovered from scratch. See `AGENTS.md` for which of these are worth picking up first.
 
-1. **AI provider abstraction is 2/21 endpoints migrated.** BYOM users' calls to everything except `keywords`/`fitScore` silently run on the platform provider (Oso/Ollama). (`server/ai/`, `payment-system-plan.md`)
+1. **AI provider abstraction is 3/22 endpoints migrated.** BYOM users' calls to everything except `keywords`/`fitScore`/`discoverySearchProfile` silently run on the platform provider (Oso/Ollama). (`server/ai/`, `payment-system-plan.md`)
 2. **Two separate prompt-override mechanisms**: `server/promptStore.ts` (admin, local JSON files) vs. `users/{uid}/promptConfigs` (per-user, Firestore). Not reconciled.
 3. **`storage.rules` and the newest `firestore.rules`/`firestore.indexes.json` additions have never been deployed** to the live Firebase project — no authenticated `firebase login` CLI session exists in this environment. Screenshot uploads operate client-side (`uploadTicketScreenshot`), but rules/indexes remain unpushed until a CLI session deploys them.
 4. **Admin prompt overrides live in local JSON files**, not Firestore — won't survive a redeploy to a fresh environment (the Docker setup keeps them on named volumes, so they survive image rebuilds on the same host, but not a move to a new one).

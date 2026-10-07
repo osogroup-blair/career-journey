@@ -9,8 +9,12 @@
     {
       "name": "career-journey-npm-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 47293
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 47293,
+      "autoPort": true
     }
   ]
 }

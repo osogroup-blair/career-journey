@@ -17,7 +17,7 @@ export async function authHeaders(): Promise<Record<string, string>> {
 // so attaching it unconditionally here is harmless for everyone else. This
 // is the ONLY place the key ever leaves localStorage — never persisted
 // anywhere server-side (see payment-system-plan.md Phase 4).
-function byomHeaders(): Record<string, string> {
+export function byomHeaders(): Record<string, string> {
   const stored = getStoredByomKey();
   if (!stored) return {};
   return {

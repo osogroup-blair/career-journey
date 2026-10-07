@@ -52,3 +52,17 @@ export const FitAnalysisSchema = z.object({
   leadWith: z.array(LeadWithGapEntrySchema),
   gaps: z.array(LeadWithGapEntrySchema),
 });
+
+// Job Discovery search profile (third endpoint on this abstraction). Plain
+// strings rather than the z.enum/transform validators in
+// src/types/discovery.ts: z.toJSONSchema can't express transforms, and the
+// route re-validates every value against StillOpen's real enums afterwards,
+// dropping anything the model invents rather than failing the whole call.
+export const DiscoverySearchProfileAiSchema = z.object({
+  queries: z.array(z.string()).describe("3-6 short keyword searches (1-4 words each), e.g. 'product manager', 'growth product'"),
+  loc: z.array(z.string()).describe("0-3 location filters: 2-letter country codes ('uk' for the United Kingdom, 'us', 'de') or 'worldwide' | 'emea' | 'apac' | 'latam' | 'na'"),
+  level: z.array(z.string()).describe("Usually empty. Only from: junior | mid | senior | lead | manager | head"),
+  area: z.array(z.string()).describe("0-2 from: consulting | content | customer | design | engineering | finance | healthcare | legal | operations | people | product | sales_marketing"),
+  payMin: z.number().nullable().describe("null, or one of 40000 | 60000 | 80000 | 100000 | 120000 | 150000 | 200000"),
+  rationale: z.string().describe("One or two sentences on why these searches fit the CV"),
+});

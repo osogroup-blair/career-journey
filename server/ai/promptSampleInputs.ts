@@ -130,6 +130,7 @@ export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
   interviewPrepChat: { transcript: SAMPLE_TRANSCRIPT, round: SAMPLE_INTERVIEW_ROUND, parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY },
   offerGuidance: { offer: SAMPLE_OFFER, parse: SAMPLE_PARSE_RESULT, careerJourney: SAMPLE_CAREER_JOURNEY },
   compareOffers: { offers: SAMPLE_OFFERS, careerJourney: SAMPLE_CAREER_JOURNEY },
+  discoverySearchProfile: { cvText: "Sample Candidate\nLead Software Engineer\n\nTARGET ROLES\nStaff Engineer; Engineering Manager\n\nLOCATION & WORK PREFERENCE\nLocation: Austin, TX\nPreference: Remote\n\nEXPERIENCE\nLead Software Engineer — Stripe (2023-01 – Present)\n  - Redesigned the payment routing service — Cut failed-transaction rate by 30%" },
   buildJourneyFromResume: { resumeText: "Jane Doe — Senior Software Engineer at Stripe (2023-Present). Led payments routing rebuild, cut failed-transaction rate by 30%. BS Computer Science, University of Texas." },
   buildJourneyChat: { transcript: SAMPLE_TRANSCRIPT, currentDraft: {} },
   refineFromInterviewAnswer: { entityType: "achievement", current: SAMPLE_CAREER_JOURNEY.achievements[0], question: "What was the measurable impact?", answer: "It cut failed-transaction rate by 30% within one quarter." },

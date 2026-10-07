@@ -2,19 +2,22 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Textarea, Input, Label, useToast } from '../components/ui';
-import { scanJobMatch, fetchCompanyJobs } from '../lib/aiClient';
-import { generateId } from '../lib/utils';
+import { fetchCompanyJobs } from '../lib/aiClient';
 import { buildArchiveLearningsSummary } from '../lib/archiveLearnings';
+import { runQueue as runQueueWith, runMatchScan, scanPostingIntoMatch, type MatchScanDeps, type PostingMeta } from '../lib/matchScan';
+import { StillOpenAttribution } from '../components/StillOpenAttribution';
+import { TagInput } from '../components/TagInput';
 import { JobMatch, MatchStatus, MatchSource } from '../types';
 import {
   Radar, Loader2, Sparkles, Trash2, ArrowUpRight, XCircle, AlertTriangle, Inbox,
-  SlidersHorizontal, X, Filter, RotateCcw, RefreshCw, ExternalLink, Building2
+  SlidersHorizontal, Filter, RotateCcw, RefreshCw, ExternalLink, Building2
 } from 'lucide-react';
 
 const SOURCE_LABEL: Record<MatchSource, string> = {
   'manual-paste': 'Pasted',
   greenhouse: 'Greenhouse',
   lever: 'Lever',
+  stillopen: 'StillOpen',
 };
 
 // A single company can have 100+ open reqs; cap what one Refresh will scan so it can't
@@ -41,55 +44,6 @@ function splitPostings(raw: string): string[] {
     .split(/\n[ \t]*-{3,}[ \t]*\n/)
     .map((block) => block.trim())
     .filter((block) => block.length > 40);
-}
-
-function guessTitleFromText(text: string): string {
-  const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || 'Untitled posting';
-  return firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine;
-}
-
-function findExcludedKeyword(jdText: string, excludedKeywords: string[]): string | null {
-  const haystack = jdText.toLowerCase();
-  const hit = excludedKeywords.find((k) => k.trim() && haystack.includes(k.trim().toLowerCase()));
-  return hit ? hit.trim() : null;
-}
-
-function TagInput({ tags, onChange, placeholder }: { tags: string[]; onChange: (tags: string[]) => void; placeholder: string }) {
-  const [draft, setDraft] = useState('');
-
-  const commit = () => {
-    const value = draft.trim();
-    if (value && !tags.includes(value)) onChange([...tags, value]);
-    setDraft('');
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {tags.map((tag) => (
-          <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-            {tag}
-            <button onClick={() => onChange(tags.filter((t) => t !== tag))} className="text-slate-400 hover:text-slate-700">
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
-      </div>
-      <Input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            commit();
-          }
-        }}
-        onBlur={commit}
-        placeholder={placeholder}
-        className="h-9 text-xs"
-      />
-    </div>
-  );
 }
 
 export default function Matches() {
@@ -122,85 +76,23 @@ export default function Matches() {
   const [isRefreshingCompanies, setIsRefreshingCompanies] = useState(false);
   const [refreshWarnings, setRefreshWarnings] = useState<string[]>([]);
 
-  const runScan = async (matchId: string, jdText: string, known?: { company?: string; title?: string }) => {
-    try {
-      const archiveLearnings = buildArchiveLearningsSummary(jobs);
-      const result = await scanJobMatch(jdText, careerJourney, archiveLearnings);
-      updateMatch(matchId, {
-        companyName: known?.company || result.parse?.company || 'Unknown Company',
-        roleTitle: known?.title || result.parse?.roleTitle || 'Unknown Role',
-        parse: result.parse,
-        matchScore: result.matchScore,
-        verdict: result.verdict,
-        hardGateRisk: result.hardGateRisk,
-        topGaps: result.topGaps,
-        leadWith: result.leadWith,
-        scanError: undefined,
-        dismissReason: undefined,
-      });
-    } catch (err: any) {
-      updateMatch(matchId, {
-        companyName: known?.company || 'Scan failed',
-        roleTitle: known?.title || 'Scan failed',
-        scanError: err?.message || 'Unknown error',
-      });
-    }
+  const scanDeps = (): MatchScanDeps => ({
+    addMatch,
+    updateMatch,
+    careerJourney,
+    jobs,
+    excludedKeywords: matchPreferences.excludedKeywords,
+  });
+
+  const runScan = (matchId: string, jdText: string, known?: { company?: string; title?: string }) =>
+    runMatchScan(scanDeps(), matchId, jdText, known);
+
+  const scanOne = async (jdText: string, opts?: PostingMeta) => {
+    await scanPostingIntoMatch(scanDeps(), jdText, opts);
   };
 
-  const scanOne = async (
-    jdText: string,
-    opts?: { source?: MatchSource; sourceUrl?: string; externalId?: string; company?: string; title?: string }
-  ) => {
-    const id = generateId('MATCH');
-    const now = new Date().toISOString();
-    const source = opts?.source || 'manual-paste';
-
-    const excludedHit = findExcludedKeyword(jdText, matchPreferences.excludedKeywords);
-    if (excludedHit) {
-      addMatch({
-        id,
-        createdAt: now,
-        updatedAt: now,
-        source,
-        sourceUrl: opts?.sourceUrl,
-        externalId: opts?.externalId,
-        companyName: opts?.company || 'Not scanned',
-        roleTitle: opts?.title || guessTitleFromText(jdText),
-        jdText,
-        status: 'Dismissed',
-        dismissReason: `Skipped before scanning — JD contains excluded keyword "${excludedHit}"`,
-      });
-      return;
-    }
-
-    addMatch({
-      id,
-      createdAt: now,
-      updatedAt: now,
-      source,
-      sourceUrl: opts?.sourceUrl,
-      externalId: opts?.externalId,
-      companyName: opts?.company || 'Scanning…',
-      roleTitle: opts?.title || 'Scanning…',
-      jdText,
-      status: 'New',
-    });
-    await runScan(id, jdText, { company: opts?.company, title: opts?.title });
-  };
-
-  const runQueue = async <T,>(items: T[], worker: (item: T) => Promise<void>, concurrency = 3) => {
-    let cursor = 0;
-    let done = 0;
-    setProgress({ done: 0, total: items.length });
-    const runners = async () => {
-      while (cursor < items.length) {
-        const idx = cursor++;
-        await worker(items[idx]);
-        done++;
-        setProgress({ done, total: items.length });
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, runners));
+  const runQueue = async <T,>(items: T[], worker: (item: T) => Promise<void>) => {
+    await runQueueWith(items, worker, setProgress);
     setProgress(null);
   };
 
@@ -640,6 +532,11 @@ export default function Matches() {
                 </div>
               </Card>
             ))}
+          </div>
+        )}
+        {visibleMatches.some((m) => m.source === 'stillopen') && (
+          <div className="flex justify-end">
+            <StillOpenAttribution />
           </div>
         )}
       </main>

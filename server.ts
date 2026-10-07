@@ -58,7 +58,7 @@ import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketP
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
 import { OsoRouterError, fetchOsoModels, fetchOsoStatus, isOsoConfigured } from "./server/ai/osoClient";
-import { KeywordsResponseSchema, FitAnalysisSchema } from "./server/ai/schemas";
+import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema } from "./server/ai/schemas";
 import { isByomPlan, isByomProvider, AIProviderId, PlanId, BillingState } from "./src/types/billing";
 import { getFeatureFlags, setFeatureFlags, validateFeatureFlagsUpdate } from "./server/featureFlags";
 import { getAuth } from "firebase-admin/auth";
@@ -67,6 +67,10 @@ import type { AllowedModelsConfig } from "./src/types/aiModels";
 import { sendEmail, isEmailConfigured } from "./server/email";
 import { logAdminAction, listAuditLogs } from "./server/auditLog";
 import { configureAiCallLog, instrumentLegacyClient, listAiCalls } from "./server/aiCallLog";
+import { createDiscoveryRouter } from "./server/discovery/routes";
+import { startDiscoveryScheduler } from "./server/discovery/scheduler";
+import { deleteAllDiscoveryData, loadDiscoveredJobs, profileRef as discoveryProfileRef } from "./server/discovery/runSearch";
+import { sanitizeAiSearchProfile } from "./server/discovery/searchProfile";
 
 /** Distinguishes "your BYOM key is missing/invalid" (actionable, 400) from an actual server error (500). */
 function handleAiRouteError(e: any, res: express.Response) {
@@ -188,7 +192,8 @@ function segmentJdText(jdText: string): { id: string; text: string }[] {
 async function startServer() {
   configureAiCallLog(getAdminApp);
   const app = express();
-  const PORT = 47293;
+  // 47293 unless PORT is set — the Docker image doesn't set it; parallel local dev servers (preview tooling) do.
+  const PORT = Number(process.env.PORT) || 47293;
 
   // Registered BEFORE the global express.json() below, with its own raw-body
   // parser — Stripe's signature verification needs the exact raw request
@@ -213,6 +218,8 @@ async function startServer() {
   // No-op until FIREBASE_SERVICE_ACCOUNT_JSON is set (see server/firebaseAdmin.ts) —
   // guards the AI/sourcing endpoints once the app is deployed publicly.
   app.use("/api/ai", requireFirebaseAuth);
+  // Gated before the quota middleware so a refused call doesn't spend an AI action.
+  app.use("/api/ai/discoverySearchProfile", requireFeature("job_discovery"));
   app.use("/api/ai", requireWithinAiQuota);
   app.use("/api/sources", requireFirebaseAuth);
   // Job Analysis (Matches/discovery) is hard-gated behind any paid plan —
@@ -228,6 +235,8 @@ async function startServer() {
   app.use("/api/billing", requireFirebaseAuth);
   app.use("/api/support", requireFirebaseAuth);
   app.use("/api/user", requireFirebaseAuth);
+  // Job Discovery (StillOpen) — admin-only until STILLOPEN_LICENSED is set; see server/discovery/.
+  app.use("/api/discovery", requireFirebaseAuth, requireFeature("job_discovery"), createDiscoveryRouter());
 
   app.post("/api/billing/createCheckoutSession", async (req, res) => {
     const adminApp = getAdminApp();
@@ -590,7 +599,7 @@ async function startServer() {
     if (!adminApp) {
       res.json({
         features: getDefaultFeatureMatrix(),
-        killSwitches: { matches: false, aiPipeline: false },
+        killSwitches: { matches: false, aiPipeline: false, discovery: false },
       });
       return;
     }
@@ -823,12 +832,14 @@ async function startServer() {
     }
     try {
       const db = getFirestore(adminApp);
-      const [userAuth, billing, jobsSnap, matchesSnap, ticketsSnap] = await Promise.all([
+      const [userAuth, billing, jobsSnap, matchesSnap, ticketsSnap, discoveryProfileSnap, discoveredJobs] = await Promise.all([
         getAuth(adminApp).getUser(uid).catch(() => null),
         getBillingState(adminApp, uid),
         db.collection("users").doc(uid).collection("jobs").get().catch(() => ({ docs: [] as any[] })),
         db.collection("users").doc(uid).collection("matches").get().catch(() => ({ docs: [] as any[] })),
         db.collection("tickets").where("uid", "==", uid).get().catch(() => ({ docs: [] as any[] })),
+        discoveryProfileRef(db, uid).get().catch(() => null),
+        loadDiscoveredJobs(adminApp, uid).catch(() => []),
       ]);
 
       res.json({
@@ -847,6 +858,7 @@ async function startServer() {
         jobs: jobsSnap.docs.map((d) => d.data()),
         matches: matchesSnap.docs.map((d) => d.data()),
         tickets: ticketsSnap.docs.map((d) => d.data()),
+        jobDiscovery: { profile: discoveryProfileSnap?.exists ? discoveryProfileSnap.data() : null, discoveredJobs },
       });
     } catch (e: any) {
       console.error("export user data failed", e);
@@ -876,6 +888,7 @@ async function startServer() {
       batch.delete(db.collection("users").doc(uid).collection("meta").doc("billing"));
       batch.delete(db.collection("users").doc(uid));
       await batch.commit();
+      await deleteAllDiscoveryData(adminApp, uid);
 
       // Delete user from Firebase Auth
       await getAuth(adminApp).deleteUser(uid);
@@ -980,6 +993,7 @@ async function startServer() {
       const db = getFirestore(adminApp);
       await db.collection("users").doc(uid).delete();
       await db.collection("users").doc(uid).collection("meta").doc("billing").delete();
+      await deleteAllDiscoveryData(adminApp, uid);
 
       await logAdminAction(adminApp, {
         actorUid,
@@ -1861,6 +1875,35 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
     }
   });
 
+  // Job Discovery: CV text -> StillOpen keyword searches + filters. On the
+  // Zod abstraction (BYOM-aware). The model's output is re-validated against
+  // StillOpen's real filter values by sanitizeAiSearchProfile — anything it
+  // invents is dropped, not sent (StillOpen 400s on unknown values).
+  app.post("/api/ai/discoverySearchProfile", async (req, res) => {
+    try {
+      const { cvText } = req.body as { cvText?: string };
+      if (typeof cvText !== "string" || cvText.trim().length < 40) {
+        res.status(400).json({ error: "The CV text is too short to build searches from — add more to your Career Journey first." });
+        return;
+      }
+      const client = await getAIClientForRequest(req, "discoverySearchProfile");
+      const { data, usage, model, actualModel, requestId } = await client.generateStructured({
+        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "discoverySearchProfile")}${getActivePrompt("discoverySearchProfile")}`,
+        prompt: `Candidate CV:\n${cvText.slice(0, 20000)}`,
+        schema: DiscoverySearchProfileAiSchema,
+      });
+      await trackUsage(req, "discoverySearchProfile", model, usage, client.provider, { actualModel, requestId });
+      const { searchProfile, dropped } = sanitizeAiSearchProfile(data);
+      if (!searchProfile) {
+        res.status(502).json({ error: "The AI didn't return any usable searches — try again." });
+        return;
+      }
+      res.json({ searchProfile, rationale: data.rationale, dropped });
+    } catch (e: any) {
+      handleAiRouteError(e, res);
+    }
+  });
+
   // Delta-based, not full-object-regeneration: asking Gemini to return an entire
   // updated CareerJourney under a bare `{ type: Type.OBJECT }` reliably comes back
   // `{}` — see server/ai/legacySchemas.ts's PATCH_DELTA_SCHEMA (used below via
@@ -2672,6 +2715,7 @@ User's answer: ${answer}`,
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    startDiscoveryScheduler(getAdminApp);
   });
 }
 

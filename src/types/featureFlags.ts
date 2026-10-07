@@ -2,6 +2,7 @@ import { PlanId } from './billing';
 
 export type FeatureKey =
   | 'job_matches'
+  | 'job_discovery'
   | 'tailored_resume'
   | 'cover_letter'
   | 'interview_prep'
@@ -31,6 +32,19 @@ export const FEATURE_METADATA: Record<FeatureKey, FeatureMetadata> = {
       pro_monthly: true,
       byom_monthly: true,
       byom_yearly: true,
+    },
+  },
+  job_discovery: {
+    id: 'job_discovery',
+    label: 'Scheduled Job Discovery (StillOpen)',
+    description:
+      'Scheduled remote-job searches from a CV snapshot of the Career Journey, via the StillOpen API. Admin-only until a StillOpen commercial licence is in place (STILLOPEN_LICENSED) — plan toggles here have no effect before then.',
+    category: 'discovery',
+    defaultPlans: {
+      free: false,
+      pro_monthly: false,
+      byom_monthly: false,
+      byom_yearly: false,
     },
   },
   tailored_resume: {
@@ -127,6 +141,8 @@ export interface FeatureFlags {
   killSwitches: {
     matches: boolean;
     aiPipeline: boolean;
+    /** Stops Job Discovery (StillOpen) — API routes and the scheduler. Optional so older stored docs still type-check. */
+    discovery?: boolean;
   };
   features?: Partial<Record<FeatureKey, Partial<Record<PlanId, boolean>>>>;
 }

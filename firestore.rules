@@ -62,6 +62,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Job Discovery (server/discovery/) — the profile, stored StillOpen listings and
+    // the scheduler's per-user run state are all read and written through
+    // /api/discovery via the Admin SDK, never by the client directly: the feature is
+    // admin-gated server-side, and StillOpen's terms require status re-checks before a
+    // stored listing is shown, which only the server does. Undeclared paths already
+    // default-deny; these are explicit for the same reason as stripeEvents above.
+    match /users/{userId}/discovery/{document=**} {
+      allow read, write: if false;
+    }
+    match /users/{userId}/discoveredJobs/{document=**} {
+      allow read, write: if false;
+    }
+    match /discoverySchedules/{userId} {
+      allow read, write: if false;
+    }
+
     // Support tickets (admin-support-feedback-plan.md Phase 0). Top-level, not nested
     // under users/{uid}/..., because admin needs to query across every account — same
     // reasoning as config/ and stripeEvents/ above. All writes (create, triage,

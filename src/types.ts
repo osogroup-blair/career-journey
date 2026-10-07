@@ -320,7 +320,7 @@ export interface JobMatchScanResult {
   leadWith: string[];
 }
 
-export type MatchSource = 'manual-paste' | 'greenhouse' | 'lever';
+export type MatchSource = 'manual-paste' | 'greenhouse' | 'lever' | 'stillopen';
 
 export interface JobMatch {
   id: string;

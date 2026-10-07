@@ -178,6 +178,22 @@ In one pass:
 5. List the 3-5 biggest evidence gaps (topGaps) and the 2-3 strongest proof points already in the Career Journey worth leading with (leadWith) — short, concrete phrases, not full sentences.
 6. If past application outcomes are supplied below, use them as real signal: a posting that resembles one that previously led to rejection or a poor fit should score and read more cautiously than keyword overlap alone would suggest.`,
   },
+  discoverySearchProfile: {
+    label: "Job Discovery Search Profile",
+    description: "Turns the candidate's plain-text CV into keyword searches and filters for scheduled StillOpen job discovery.",
+    stage: "Discover",
+    template: `You are setting up a scheduled job search for the candidate on StillOpen, a board of fully-remote job listings. StillOpen's search is keyword-based (free text over title, skills and the ad body) plus a few exact-value filters — it cannot take a whole CV, so your job is to turn the CV below into the handful of searches that will surface the roles this candidate should actually see.
+
+Rules:
+1. queries: 3-6 short searches, 1-4 words each, built around the candidate's target role families first, then their strongest adjacent role titles or specialisms. Prefer job-title phrasing ("senior product manager", "platform product") over skill lists. No boolean operators or quotes. Don't repeat near-duplicates.
+2. loc: where the candidate can work from, as StillOpen location codes — 2-letter country codes (it uses "uk" for the United Kingdom, not "gb") or a region: worldwide, emea, apac, latam, na. Include "worldwide" alongside a country when the candidate is open to roles with no location restriction. At most 3. Leave empty only if the CV gives no location at all.
+3. level: leave EMPTY unless seniority is the single most important filter — most listings don't state a level, and any level filter hides all of them.
+4. area: at most 2 functional areas, only when clearly implied by the target roles.
+5. payMin: null unless the CV states a salary floor; never guess one.
+6. rationale: one or two plain sentences on why these searches fit.
+
+Use only what the CV says — don't invent preferences.`,
+  },
   patchJourney: {
     label: "Career Journey Patch",
     description: "Turns approved gap-interview context entries into a structured delta merged into the Career Journey.",

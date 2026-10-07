@@ -11,7 +11,14 @@ const PIPELINE_PREAMBLE_INTRO =
 // etc. don't apply to extracting a fresh Career Journey from a resume.
 const BUILDER_PROMPT_IDS = new Set(["buildJourneyFromResume", "buildJourneyChat", "refineFromInterviewAnswer"]);
 
+// Prompts that need none of the pipeline reference material by default —
+// discoverySearchProfile only turns a CV into search keywords, and the
+// pipeline files would multiply its token cost for no benefit. Admins can
+// still opt files in on the AI Prompts page.
+const NO_KNOWLEDGE_PROMPT_IDS = new Set(["discoverySearchProfile"]);
+
 export function defaultKnowledgeFilesFor(promptId: string): string[] {
+  if (NO_KNOWLEDGE_PROMPT_IDS.has(promptId)) return [];
   return BUILDER_PROMPT_IDS.has(promptId) ? [BUILDER_KNOWLEDGE_FILE_NAME] : PIPELINE_KNOWLEDGE_FILE_NAMES;
 }
 
@@ -31,6 +38,7 @@ function joinFiles(names: string[]): string {
  * to re-derive it or duplicate the framing text.
  */
 export function buildKnowledgePreambleFromFiles(promptId: string, names: string[]): string {
+  if (names.length === 0 && NO_KNOWLEDGE_PROMPT_IDS.has(promptId)) return "";
   if (BUILDER_PROMPT_IDS.has(promptId)) {
     // Builder prompts historically had no framing intro, just the file body
     // followed by "---" — preserve that exactly for unchanged behavior when

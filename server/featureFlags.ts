@@ -15,7 +15,7 @@ function defaultFlags(): FeatureFlags {
     proMonthlyLimit: Number(process.env.PRO_MONTHLY_AI_ACTIONS_LIMIT) || 100,
     byomBurstPerMinute: Number(process.env.BYOM_BURST_PER_MINUTE) || 30,
     byomDailyLimit: Number(process.env.BYOM_DAILY_LIMIT) || 500,
-    killSwitches: { matches: false, aiPipeline: false },
+    killSwitches: { matches: false, aiPipeline: false, discovery: false },
     features: getDefaultFeatureMatrix(),
   };
 }
@@ -106,7 +106,7 @@ export function validateFeatureFlagsUpdate(input: unknown): void {
       throw new Error("killSwitches must be an object.");
     }
     for (const [key, value] of Object.entries(killSwitches as Record<string, unknown>)) {
-      if (key !== "matches" && key !== "aiPipeline") {
+      if (key !== "matches" && key !== "aiPipeline" && key !== "discovery") {
         throw new Error(`Unknown kill switch "${key}".`);
       }
       if (typeof value !== "boolean") {
@@ -147,6 +147,23 @@ export function validateFeatureFlagsUpdate(input: unknown): void {
 }
 
 /**
+ * StillOpen's terms need a written licence for any use by or for an
+ * organisation, so Job Discovery stays admin-only (personal use) until one is
+ * signed and STILLOPEN_LICENSED=true is set. Read per call, not at import, so
+ * tests and a restart-free env change both behave.
+ */
+export function isDiscoveryLicensed(): boolean {
+  return process.env.STILLOPEN_LICENSED === "true";
+}
+
+/** The feature-specific kill switch that applies to `feature`, if any (aiPipeline is checked separately — it stops everything). */
+export function isFeatureKilled(flags: FeatureFlags, feature: FeatureKey): boolean {
+  if (feature === "job_matches") return flags.killSwitches.matches;
+  if (feature === "job_discovery") return flags.killSwitches.discovery === true;
+  return false;
+}
+
+/**
  * Checks if a specific feature is enabled for a user.
  * 
  * Rules:
@@ -164,9 +181,15 @@ export function isFeatureEnabled(
     return false;
   }
 
-  // Specific matches kill switch
-  if (feature === "job_matches" && flags.killSwitches.matches) {
+  // Feature-specific kill switches (matches, discovery)
+  if (isFeatureKilled(flags, feature)) {
     return false;
+  }
+
+  // Unlicensed Job Discovery is admins only — not comped accounts (the shared
+  // demo account is comped), not any plan, whatever the matrix says.
+  if (feature === "job_discovery" && !isDiscoveryLicensed()) {
+    return user?.isAdmin === true;
   }
 
   // Admin & Comped users have full access to all features

@@ -441,6 +441,35 @@ export default function AdminFlags() {
 
             <div
               className={`p-3.5 rounded-lg border transition-colors ${
+                flags.killSwitches.discovery ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">
+                    {flags.killSwitches.discovery && <AlertTriangle className="w-4 h-4 text-rose-600" />}
+                    Disable Job Discovery (StillOpen)
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    503s the Discover page's API and pauses every scheduled StillOpen search.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={flags.killSwitches.discovery === true}
+                  onChange={(e) =>
+                    setFlags({
+                      ...flags,
+                      killSwitches: { ...flags.killSwitches, discovery: e.target.checked },
+                    })
+                  }
+                  className="w-5 h-5 text-rose-600 rounded border-slate-300 focus:ring-rose-500"
+                />
+              </label>
+            </div>
+
+            <div
+              className={`p-3.5 rounded-lg border transition-colors ${
                 flags.killSwitches.aiPipeline ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'
               }`}
             >

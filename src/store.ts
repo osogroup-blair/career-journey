@@ -500,6 +500,7 @@ export const useStore = create<AppState>((set, get) => {
         companyName: match.companyName,
         roleTitle: match.roleTitle,
         jdText: match.jdText,
+        jobLink: match.sourceUrl,
         parse: match.parse,
       };
 
