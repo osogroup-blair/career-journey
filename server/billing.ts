@@ -2,7 +2,7 @@ import type { App } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import type { Request, Response, NextFunction } from "express";
 import { getAdminApp } from "./firebaseAdmin";
-import { getFeatureFlags, isFeatureEnabled, isFeatureKilled, isDiscoveryLicensed } from "./featureFlags";
+import { getFeatureFlags, isFeatureEnabled, isFeatureKilled, isDiscoveryLicensed, NON_AI_FEATURES } from "./featureFlags";
 import type { BillingState, PlanId } from "../src/types/billing";
 import type { FeatureKey } from "../src/types/featureFlags";
 import { FEATURE_METADATA } from "../src/types/featureFlags";
@@ -65,7 +65,7 @@ export function requireFeature(feature: FeatureKey) {
       const flags = await getFeatureFlags(app);
 
       // Emergency kill switch applies to everyone including admins
-      if (flags.killSwitches.aiPipeline || isFeatureKilled(flags, feature)) {
+      if ((flags.killSwitches.aiPipeline && !NON_AI_FEATURES.has(feature)) || isFeatureKilled(flags, feature)) {
         res.status(503).json({
           error: `${FEATURE_METADATA[feature]?.label || "This feature"} is temporarily disabled — try again shortly.`,
         });

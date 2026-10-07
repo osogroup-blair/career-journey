@@ -69,6 +69,8 @@ import { logAdminAction, listAuditLogs } from "./server/auditLog";
 import { adminDeleteUser, deleteOwnAccount } from "./server/userData";
 import { configureAiCallLog, instrumentLegacyClient, listAiCalls } from "./server/aiCallLog";
 import { createDiscoveryRouter } from "./server/discovery/routes";
+import { createPublicSpotlightRouter, createSpotlightRouter, exportSpotlight, registerSpotlightPage } from "./server/spotlight";
+import { readFile } from "fs/promises";
 import { startDiscoveryScheduler } from "./server/discovery/scheduler";
 import { deleteAllDiscoveryData, loadDiscoveredJobs, profileRef as discoveryProfileRef } from "./server/discovery/runSearch";
 import { sanitizeAiSearchProfile } from "./server/discovery/searchProfile";
@@ -229,6 +231,9 @@ async function startServer() {
   app.use("/api/user", requireFirebaseAuth);
   // Job Discovery (StillOpen) — admin-only until STILLOPEN_LICENSED is set; see server/discovery/.
   app.use("/api/discovery", requireFirebaseAuth, requireFeature("job_discovery"), createDiscoveryRouter());
+  // Career Spotlight — owner routes behind auth + the feature gate; the public read needs neither. See server/spotlight.ts.
+  app.use("/api/spotlight", requireFirebaseAuth, requireFeature("career_spotlight"), createSpotlightRouter());
+  app.use("/api/public/spotlights", createPublicSpotlightRouter());
 
   app.post("/api/billing/createCheckoutSession", async (req, res) => {
     const adminApp = getAdminApp();
@@ -824,7 +829,7 @@ async function startServer() {
     }
     try {
       const db = getFirestore(adminApp);
-      const [userAuth, billing, jobsSnap, matchesSnap, ticketsSnap, discoveryProfileSnap, discoveredJobs] = await Promise.all([
+      const [userAuth, billing, jobsSnap, matchesSnap, ticketsSnap, discoveryProfileSnap, discoveredJobs, spotlight] = await Promise.all([
         getAuth(adminApp).getUser(uid).catch(() => null),
         getBillingState(adminApp, uid),
         db.collection("users").doc(uid).collection("jobs").get().catch(() => ({ docs: [] as any[] })),
@@ -832,6 +837,7 @@ async function startServer() {
         db.collection("tickets").where("uid", "==", uid).get().catch(() => ({ docs: [] as any[] })),
         discoveryProfileRef(db, uid).get().catch(() => null),
         loadDiscoveredJobs(adminApp, uid).catch(() => []),
+        exportSpotlight(adminApp, uid).catch(() => null),
       ]);
 
       res.json({
@@ -851,6 +857,7 @@ async function startServer() {
         matches: matchesSnap.docs.map((d) => d.data()),
         tickets: ticketsSnap.docs.map((d) => d.data()),
         jobDiscovery: { profile: discoveryProfileSnap?.exists ? discoveryProfileSnap.data() : null, discoveredJobs },
+        careerSpotlight: spotlight,
       });
     } catch (e: any) {
       console.error("export user data failed", e);
@@ -2690,9 +2697,13 @@ User's answer: ${answer}`,
       server: { middlewareMode: true },
       appType: "spa",
     });
+    // Public Career Spotlight pages, ahead of the SPA fallback.
+    registerSpotlightPage(app, async (url) => vite.transformIndexHtml(url, await readFile(path.resolve("spotlight.html"), "utf8")));
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
+    let spotlightTemplate: Promise<string> | null = null;
+    registerSpotlightPage(app, () => (spotlightTemplate ??= readFile(path.join(distPath, "spotlight.html"), "utf8")));
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

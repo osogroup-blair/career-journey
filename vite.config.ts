@@ -31,6 +31,8 @@ export default defineConfig(() => {
         input: {
           main: path.resolve(__dirname, 'index.html'),
           print: path.resolve(__dirname, 'print.html'),
+          // spotlight.html is the public Career Spotlight page (server/spotlight.ts serves it at /s/:slug).
+          spotlight: path.resolve(__dirname, 'spotlight.html'),
         },
       },
     },

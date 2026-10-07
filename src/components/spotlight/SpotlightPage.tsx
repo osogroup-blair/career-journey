@@ -48,13 +48,16 @@ export default function SpotlightPage({
   mode,
   variant = 'screen',
   now = new Date(),
+  initialEvidence = null,
 }: {
   snapshot: SpotlightSnapshot;
   mode?: 'light' | 'dark';
   variant?: 'screen' | 'print';
   now?: Date;
+  /** Opens the evidence drawer on load (the public page's ?evidence= link). */
+  initialEvidence?: EvidenceTarget | null;
 }) {
-  const [evidence, setEvidence] = useState<EvidenceTarget | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceTarget | null>(initialEvidence);
   const [flashRole, setFlashRole] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState<SectionKey | null>(null);

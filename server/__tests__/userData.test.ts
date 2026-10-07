@@ -34,6 +34,12 @@ vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ deleteUser: mockDeleteUser }),
 }));
 
+vi.mock('../spotlight', () => ({
+  deleteSpotlightsOwnedBy: async (_app: App, uid: string) => {
+    calls.push(`spotlights.deleteOwnedBy:${uid}`);
+  },
+}));
+
 vi.mock('../auditLog', () => ({
   logAdminAction: (app: App, entry: any) => mockLogAdminAction(app, entry),
 }));
@@ -50,8 +56,13 @@ describe('user data purge on account deletion', () => {
     await purgeUserData(mockApp, 'user123');
     // One recursive delete at the user root covers careerJourney, jobs, matches,
     // matchPreferences, promptConfigs/*/changeLog, meta/billing and aiUsageLogs.
-    // Plus Job Discovery's top-level scheduler entry, which lives outside users/{uid}.
-    expect(calls).toEqual(['firestore.recursiveDelete:users/user123', 'firestore.delete:discoverySchedules/user123']);
+    // Plus the top-level records outside users/{uid}: published Spotlight pages (first, so a public
+    // page never outlives the account) and Job Discovery's scheduler entry.
+    expect(calls).toEqual([
+      'spotlights.deleteOwnedBy:user123',
+      'firestore.recursiveDelete:users/user123',
+      'firestore.delete:discoverySchedules/user123',
+    ]);
   });
 
   it('purgeUserData refuses an empty uid rather than touching users/', async () => {
@@ -62,6 +73,7 @@ describe('user data purge on account deletion', () => {
   it('self-service DELETE /api/user/account purges data, then deletes the Auth user', async () => {
     await deleteOwnAccount(mockApp, 'user123');
     expect(calls).toEqual([
+      'spotlights.deleteOwnedBy:user123',
       'firestore.recursiveDelete:users/user123',
       'firestore.delete:discoverySchedules/user123',
       'auth.deleteUser:user123',
@@ -73,6 +85,7 @@ describe('user data purge on account deletion', () => {
     await adminDeleteUser(mockApp, 'admin1', 'user123');
     expect(calls).toEqual([
       'auth.deleteUser:user123',
+      'spotlights.deleteOwnedBy:user123',
       'firestore.recursiveDelete:users/user123',
       'firestore.delete:discoverySchedules/user123',
       'audit:delete_user:user123',

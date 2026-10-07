@@ -78,6 +78,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Career Spotlight (career-spotlight-plan.md). Server-only: the snapshot must be built
+    // by server/spotlight.ts from the stored Career Journey, never written by a client, and
+    // public pages are read through /api/public/spotlights so missing and unpublished
+    // pages look the same.
+    match /users/{userId}/spotlight/{document=**} {
+      allow read, write: if false;
+    }
+    match /spotlights/{slug} {
+      allow read, write: if false;
+    }
+
     // Support tickets (admin-support-feedback-plan.md Phase 0). Top-level, not nested
     // under users/{uid}/..., because admin needs to query across every account — same
     // reasoning as config/ and stripeEvents/ above. All writes (create, triage,

@@ -9,7 +9,8 @@ export type FeatureKey =
   | 'offer_comparison'
   | 'strengthen_journey'
   | 'byom_custom_models'
-  | 'export_pdf_docx';
+  | 'export_pdf_docx'
+  | 'career_spotlight';
 
 export type FeatureCategory = 'discovery' | 'pipeline' | 'intelligence' | 'tools' | 'models';
 
@@ -131,6 +132,18 @@ export const FEATURE_METADATA: Record<FeatureKey, FeatureMetadata> = {
       byom_yearly: true,
     },
   },
+  career_spotlight: {
+    id: 'career_spotlight',
+    label: 'Career Spotlight',
+    description: 'Publishing a shareable hiring page built from the Career Journey. Free pages carry a "Made with Career Journey" footer mark.',
+    category: 'tools',
+    defaultPlans: {
+      free: true,
+      pro_monthly: true,
+      byom_monthly: true,
+      byom_yearly: true,
+    },
+  },
 };
 
 export interface FeatureFlags {
@@ -143,6 +156,8 @@ export interface FeatureFlags {
     aiPipeline: boolean;
     /** Stops Job Discovery (StillOpen) — API routes and the scheduler. Optional so older stored docs still type-check. */
     discovery?: boolean;
+    /** Takes every published Career Spotlight offline (public pages 404) and stops publishing. Optional for older stored docs. */
+    spotlight?: boolean;
   };
   features?: Partial<Record<FeatureKey, Partial<Record<PlanId, boolean>>>>;
 }

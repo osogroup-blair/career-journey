@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Eye, Maximize2, Printer, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ExternalLink, Eye, Maximize2, Printer, Sparkles } from 'lucide-react';
 import { useStore } from '../store';
-import { auth } from '../lib/firebase';
+import { isFirebaseConfigured } from '../lib/firebase';
 import { useLocalPreference } from '../hooks/useLocalPreference';
-import { buildSpotlightSnapshot, normalizeSpotlightSettings } from '../lib/spotlightSnapshot';
-import { Badge, Button, Card } from '../components/ui';
+import {
+  buildSpotlightSnapshot,
+  diffSpotlightSnapshots,
+  normalizeSpotlightSettings,
+  suggestSpotlightSlug,
+  summarizeSpotlightChanges,
+  validateSpotlightSlug,
+} from '../lib/spotlightSnapshot';
+import { publishSpotlight, SpotlightApiError, spotlightUrl, unpublishSpotlight } from '../lib/spotlightClient';
+import { Badge, Button, Card, useToast } from '../components/ui';
 import SpotlightPage from '../components/spotlight/SpotlightPage';
+import { useSpotlightState } from '../components/spotlight/useSpotlightState';
 import {
   AchievementsPanel,
   BuildWarnings,
@@ -15,6 +24,7 @@ import {
   ExperiencePanel,
   IntroductionPanel,
   OutcomesPanel,
+  PublishingPanel,
   SectionsPanel,
   SettingsUpdate,
   SpotlightRegion,
@@ -49,21 +59,55 @@ function Choice<T extends string>({ value, options, onChange, label }: { value: 
   );
 }
 
+const STATUS_STYLE = {
+  live: 'bg-emerald-100 text-emerald-700',
+  pending: 'bg-amber-100 text-amber-800',
+  off: 'bg-slate-200 text-slate-600',
+};
+
+function StatusPill({ tone, children }: { tone: keyof typeof STATUS_STYLE; children: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLE[tone]}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {children}
+    </span>
+  );
+}
+
+/** Why publishing isn't available, in words the owner can act on. */
+function blockedMessage(e: SpotlightApiError): { text: string; upgrade?: boolean } {
+  if (e.status === 403) return { text: 'Publishing a Spotlight isn’t part of your plan. You can still preview it and save it as a PDF.', upgrade: true };
+  if (e.status === 503) return { text: 'Publishing is paused for maintenance. Your settings are kept in this browser until it’s back.' };
+  if (e.status === 501) return { text: 'Publishing needs an account. This copy of Career Journey runs without one, so you can preview and print only.' };
+  return { text: 'Couldn’t reach the server, so publishing is unavailable for now. You can still preview and print.' };
+}
+
+const formatDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
 /**
- * The Career Spotlight editor: choose what the hiring page shows, and see it as a hiring
- * manager would. Settings are per browser for now (Phase 1 of career-spotlight-plan.md);
- * publishing a shareable link comes with Phase 2, which moves them to the account.
+ * The Career Spotlight editor: choose what the hiring page shows, see it as a hiring manager
+ * would, and publish it as a link (career-spotlight-plan.md). With an account the settings
+ * live on the server; in local mode they stay in this browser and the page can only be
+ * previewed and printed.
  */
 export default function Spotlight() {
-  const { careerJourney } = useStore();
-  const [stored, setStored] = useLocalPreference<unknown>(`spotlight.settings.${auth?.currentUser?.uid ?? 'local'}`, {});
-  const settings = useMemo(() => normalizeSpotlightSettings(stored, careerJourney), [stored, careerJourney]);
+  const { careerJourney, billing, isAdmin } = useStore();
+  const toast = useToast();
+  const { loading, stored, setStored, remote, blocked, published, setPublished, save, cancelPendingSave } = useSpotlightState();
+  // Free plans keep the footer mark; the server enforces this on publish, the editor mirrors it so the preview is honest.
+  const canHideBadge = isAdmin || !billing || billing.comped === true || billing.plan !== 'free';
+  const settings = useMemo(() => {
+    const s = normalizeSpotlightSettings(stored, careerJourney);
+    return canHideBadge ? s : { ...s, showBadge: true };
+  }, [stored, careerJourney, canHideBadge]);
   const { snapshot, warnings } = useMemo(() => buildSpotlightSnapshot(careerJourney, settings), [careerJourney, settings]);
+  const slug = settings.slug ?? suggestSpotlightSlug(careerJourney?.person?.name);
 
   const [device, setDevice] = useLocalPreference<Device>('spotlight.preview.device', 'desktop');
   const [theme, setTheme] = useLocalPreference<Theme>('spotlight.preview.theme', 'light');
   const [view, setView] = useState<'edit' | 'preview'>('edit');
   const [fullPreview, setFullPreview] = useState<null | 'screen' | 'print'>(null);
+  const [publishing, setPublishing] = useState(false);
   const stage = useRef<HTMLDivElement | null>(null);
   const pendingReveal = useRef<SpotlightRegion | null>(null);
 
@@ -90,7 +134,47 @@ export default function Spotlight() {
     window.setTimeout(() => el.classList.remove('sp-reveal'), 900);
   }, [snapshot]);
 
+  // What the published page would gain from a publish now.
+  const changes = useMemo(() => (published ? diffSpotlightSnapshots(published.snapshot, snapshot) : []), [published, snapshot]);
+  const moved = !!published && slug !== published.slug;
+  const dirty = !published || changes.length > 0 || moved;
+  const changeSummary = [moved ? 'a new page address' : '', summarizeSpotlightChanges(changes)].filter(Boolean).join(' and ');
+  const canPublish = remote && !blocked && validateSpotlightSlug(slug).ok && dirty && !publishing;
+
+  const publish = async () => {
+    setPublishing(true);
+    cancelPendingSave();
+    try {
+      const { published: next } = await publishSpotlight({ ...settings, slug });
+      setPublished(next);
+      setStored({ ...settings, slug: next.slug });
+      toast.success(`Published at ${spotlightUrl(next.slug)}`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Couldn’t publish. Try again.');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const unpublish = async () => {
+    try {
+      await unpublishSpotlight();
+      setPublished(null);
+      toast.success('Unpublished. The link no longer works.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Couldn’t unpublish. Try again.');
+    }
+  };
+
   const hasJourney = !!(careerJourney?.person?.name || careerJourney?.roles?.length);
+  const blockedInfo = blocked ? blockedMessage(blocked) : null;
+
+  let status: { tone: keyof typeof STATUS_STYLE; text: string } | null = null;
+  if (remote) {
+    if (!published) status = { tone: 'off', text: 'Not published' };
+    else if (dirty) status = { tone: 'pending', text: 'Unpublished changes' };
+    else status = { tone: 'live', text: `Live · ${published.visibility === 'public' ? 'Public' : 'Unlisted'}` };
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -99,11 +183,14 @@ export default function Spotlight() {
           <div>
             <div className="text-xs text-slate-500">Journey / Spotlight</div>
             <h1 className="mt-1 flex flex-wrap items-center gap-3 text-2xl font-extrabold tracking-tight text-slate-900">
-              Spotlight <Badge variant="outline">Only you can see this</Badge>
+              Spotlight
+              {status ? <StatusPill tone={status.tone}>{status.text}</StatusPill> : !loading && <Badge variant="outline">Only you can see this</Badge>}
+              {remote && save === 'saving' && <span className="text-xs font-normal text-slate-400">Saving…</span>}
+              {remote && save === 'error' && <span className="text-xs font-normal text-red-600">Settings not saved. Check your connection.</span>}
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-600">
-              The page you'll send to people who might hire you. Choose what it shows and see it the way they will. Sharing it as a link comes
-              next; for now you can preview it and save it as a PDF.
+              The page you send to people who might hire you. Choose what it shows and see it the way they will
+              {remote ? '. Nothing changes on the public page until you publish.' : '.'}
             </p>
           </div>
           {hasJourney && (
@@ -111,14 +198,53 @@ export default function Spotlight() {
               <Button variant="outline" onClick={() => setFullPreview('screen')}>
                 <Maximize2 className="mr-2 h-4 w-4" /> Full preview
               </Button>
-              <Button onClick={() => setFullPreview('print')}>
+              <Button variant={remote && !blocked ? 'outline' : 'default'} onClick={() => setFullPreview('print')}>
                 <Printer className="mr-2 h-4 w-4" /> Print or save as PDF
               </Button>
+              {published && (
+                <a href={spotlightUrl(published.slug)} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline">
+                    <ExternalLink className="mr-2 h-4 w-4" /> Open public page
+                  </Button>
+                </a>
+              )}
+              {remote && !blocked && (
+                <Button onClick={publish} disabled={!canPublish}>
+                  {publishing ? 'Publishing…' : !published ? 'Publish' : dirty ? 'Publish changes' : 'Published'}
+                </Button>
+              )}
             </div>
           )}
         </div>
 
-        {!hasJourney ? (
+        {hasJourney && published && dirty && changeSummary && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <p className="min-w-0 flex-1">
+              <span className="font-semibold">Not on your public page yet:</span> {changeSummary}. Published {formatDay(published.updatedAt)}.
+            </p>
+            <Button size="sm" variant="outline" onClick={publish} disabled={!canPublish}>
+              Publish changes
+            </Button>
+          </div>
+        )}
+        {hasJourney && blockedInfo && isFirebaseConfigured && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+            <AlertCircle className="h-4 w-4 shrink-0 text-slate-400" />
+            <p className="min-w-0 flex-1">{blockedInfo.text}</p>
+            {blockedInfo.upgrade && (
+              <Link to="/upgrade">
+                <Button size="sm">See plans</Button>
+              </Link>
+            )}
+          </div>
+        )}
+
+        {loading ? (
+          <p className="mt-8 text-sm text-slate-500" role="status">
+            Loading your Spotlight…
+          </p>
+        ) : !hasJourney ? (
           <Card className="mt-6 max-w-2xl p-6 sm:p-8">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
               <Sparkles className="h-5 w-5" />
@@ -150,14 +276,15 @@ export default function Spotlight() {
             <div className="mt-5 grid items-start gap-6 lg:grid-cols-[400px_minmax(0,1fr)]">
               <div className={`${view === 'preview' ? 'hidden lg:grid' : 'grid'} gap-3.5`}>
                 <BuildWarnings warnings={warnings} />
-                <VisitorsCanSee settings={settings} snapshot={snapshot} careerJourney={careerJourney} />
+                {remote && !blocked && <PublishingPanel settings={settings} slug={slug} published={published} update={update} onUnpublish={unpublish} />}
+                <VisitorsCanSee settings={settings} snapshot={snapshot} careerJourney={careerJourney} publishing={remote && !blocked} />
                 <IntroductionPanel settings={settings} careerJourney={careerJourney} update={update} />
                 <OutcomesPanel settings={settings} snapshot={snapshot} careerJourney={careerJourney} update={update} />
                 <ExperiencePanel settings={settings} careerJourney={careerJourney} update={update} />
                 <AchievementsPanel settings={settings} snapshot={snapshot} careerJourney={careerJourney} update={update} />
                 <SectionsPanel settings={settings} update={update} />
                 <ContactPanel settings={settings} careerJourney={careerJourney} update={update} />
-                <StylePanel settings={settings} update={update} />
+                <StylePanel settings={settings} update={update} canHideBadge={canHideBadge} />
               </div>
 
               <div className={`${view === 'edit' ? 'hidden lg:block' : 'block'} lg:sticky lg:top-20`}>

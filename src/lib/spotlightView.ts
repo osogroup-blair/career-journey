@@ -170,6 +170,14 @@ export function resolveEvidence(snapshot: SpotlightSnapshot, target: EvidenceTar
   return { eyebrow, title, summary, groups };
 }
 
+/** A shareable ?evidence= id → what it points at on this page, or null if nothing visible has that id. */
+export function evidenceTargetFromId(snapshot: SpotlightSnapshot, id: string): EvidenceTarget | null {
+  if (snapshot.skills.some((s) => s.id === id)) return { kind: 'skill', id };
+  if (snapshot.capabilities.some((c) => c.id === id)) return { kind: 'capability', id };
+  if (snapshot.achievements.items.some((a) => a.id === id)) return { kind: 'achievement', id };
+  return null;
+}
+
 // ---------- career arc ----------
 
 export interface ArcSegment {

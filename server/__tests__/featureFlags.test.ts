@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isFeatureEnabled, getFeatureFlags, setFeatureFlags, _resetFeatureFlagsCache } from '../featureFlags';
+import { isFeatureEnabled, getFeatureFlags, setFeatureFlags, _resetFeatureFlagsCache, validateFeatureFlagsUpdate } from '../featureFlags';
 import { getDefaultFeatureMatrix, FeatureFlags } from '../../src/types/featureFlags';
 import type { App } from 'firebase-admin/app';
 
@@ -116,6 +116,22 @@ describe('Feature Flags & Entitlement Evaluation', () => {
       expect(isFeatureEnabled(globalKillFlags, 'job_matches', { plan: 'pro_monthly', isAdmin: true })).toBe(false);
       expect(isFeatureEnabled(globalKillFlags, 'cover_letter', { plan: 'pro_monthly', isAdmin: true })).toBe(false);
       expect(isFeatureEnabled(globalKillFlags, 'tailored_resume', { plan: 'free', comped: true })).toBe(false);
+    });
+
+    it('leaves Career Spotlight up when only the AI pipeline is switched off — it makes no AI calls', () => {
+      const aiOff: FeatureFlags = { ...baseFlags, killSwitches: { matches: false, aiPipeline: true } };
+      expect(isFeatureEnabled(aiOff, 'career_spotlight', { plan: 'free' })).toBe(true);
+    });
+
+    it('spotlight kill switch takes Career Spotlight down for everyone, admins included', () => {
+      const off: FeatureFlags = { ...baseFlags, killSwitches: { matches: false, aiPipeline: false, spotlight: true } };
+      expect(isFeatureEnabled(off, 'career_spotlight', { plan: 'pro_monthly', isAdmin: true })).toBe(false);
+      expect(isFeatureEnabled(off, 'cover_letter', { plan: 'pro_monthly' })).toBe(true);
+    });
+
+    it('accepts the spotlight kill switch in an admin update', () => {
+      expect(() => validateFeatureFlagsUpdate({ killSwitches: { spotlight: true } })).not.toThrow();
+      expect(() => validateFeatureFlagsUpdate({ killSwitches: { spotlight: 'yes' } })).toThrow();
     });
   });
 

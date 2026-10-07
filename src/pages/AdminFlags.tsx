@@ -470,6 +470,35 @@ export default function AdminFlags() {
 
             <div
               className={`p-3.5 rounded-lg border transition-colors ${
+                flags.killSwitches.spotlight ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-slate-900 flex items-center gap-1.5">
+                    {flags.killSwitches.spotlight && <AlertTriangle className="w-4 h-4 text-rose-600" />}
+                    Take Career Spotlight pages offline
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Every published /s/ page shows "not found" and publishing stops. Owners' settings are kept.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={flags.killSwitches.spotlight === true}
+                  onChange={(e) =>
+                    setFlags({
+                      ...flags,
+                      killSwitches: { ...flags.killSwitches, spotlight: e.target.checked },
+                    })
+                  }
+                  className="w-5 h-5 text-rose-600 rounded border-slate-300 focus:ring-rose-500"
+                />
+              </label>
+            </div>
+
+            <div
+              className={`p-3.5 rounded-lg border transition-colors ${
                 flags.killSwitches.aiPipeline ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'
               }`}
             >

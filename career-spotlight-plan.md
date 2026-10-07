@@ -2,7 +2,7 @@
 
 A public, read-only page that presents a Career Journey to someone deciding whether to hire its owner. Everything else in the app is a tool the candidate uses on themselves. Spotlight is the one surface built for **someone else**: a hiring manager, recruiter or founder who has never heard of this person and is deciding whether to spend 30 minutes on a call.
 
-Status: Phases 0 and 1 built (2026-10-07). Phase 0: `src/types/spotlight.ts`, `src/lib/spotlightSnapshot.ts`. Phase 1: `src/components/spotlight/`, `src/lib/spotlightView.ts`, the `#/spotlight` editor (`src/pages/Spotlight.tsx`). Publishing (Phase 2) is next.
+Status: Phases 0–2 built (2026-10-07). Phase 0: `src/types/spotlight.ts`, `src/lib/spotlightSnapshot.ts`. Phase 1: `src/components/spotlight/`, `src/lib/spotlightView.ts`, the `#/spotlight` editor. Phase 2: `server/spotlight.ts`, `spotlight.html` + `src/spotlight/main.tsx`, `src/lib/spotlightClient.ts`. Phase 3 (Open Graph image, PDF download, view counts) is next.
 - Public page: https://claude.ai/artifact/762BiRJbahioftTTx3LceN
 - Owner editor: https://claude.ai/artifact/L5i3Gp5FgYKREnh4F2GyX4
 
@@ -229,7 +229,9 @@ Each phase can ship on its own and is verified before the next starts.
 - Verification: unit tests, `npm run lint`, and a browser checklist against the demo account (`npm run seed:demo`) at desktop, 390 px, dark mode, print preview and keyboard-only.
 - **This is the design phase.** Iterate on the real demo data and the real (large) journey before building any publishing plumbing.
 
-### Phase 2: Publishing
+### Phase 2: Publishing (built)
+- As built: settings moved to the server too (`PUT /api/spotlight/settings`, debounced from the editor), not just the published page — new `firestore.rules` entries aren't deployed, so the client can't write new Firestore paths directly. Phase 1's per-browser settings are carried over on first load.
+- Open question found while building: an "unlisted" page's address is based on the owner's name, so it can be guessed. Unlisted currently means "not indexed", not "secret". If that matters, add an optional random suffix (`/s/jordan-rivera-k7x2`) for unlisted pages.
 - Firestore settings persistence, `spotlights/{slug}`, the `server/spotlight.ts` routes, the `spotlight.html` entry, `/s/:slug` with injected OG meta, the rate limit, the feature flag and kill switch, purge and GDPR-export integration, and `firestore.rules` entries.
 - Tests: `server/__tests__/spotlight.test.ts` (publish derives uid from the token; an unpublished slug and a missing slug return the same 404; the kill switch 404s; slug collision and reserved words; snapshot built server-side ignores client-sent journey content) plus a `userData` purge test.
 - Docs: ARCHITECTURE.md (route table, data model, Spotlight section) and AGENTS.md env/feature table.

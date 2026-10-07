@@ -19,6 +19,7 @@ You're working in **Career Journey**, a job-search/resume SaaS: React 19 + Expre
 | Oso router (`npm run verify:oso`, admin router status / model sync) | `OSO_AI_API_KEY`, optionally `OSO_ROUTER_URL`, `OSO_DATA_CLASSIFICATION` (default empty = no `routing` object sent; if set, must not exceed the Oso client's ceiling) |
 | BYOM (multi-provider AI) | A `GEMINI_API_KEY`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY` for `npm run verify:ai`; real BYOM keys come from the user at runtime, never from env vars |
 | Job Discovery (`/discover`, StillOpen) | The Firebase vars above. No StillOpen key needed. Admin-only until `STILLOPEN_LICENSED=true` (StillOpen's terms need a written licence for organisational use); `DISCOVERY_SCHEDULER=off` disables the in-process scheduler |
+| Career Spotlight publishing (`/spotlight`, public pages at `/s/:slug`) | The Firebase vars above, and `APP_URL` for the pages' canonical/Open Graph URLs. Without Firebase the editor still previews and prints |
 | Support ticket email notifications | `SMTP_USER` + `SMTP_PASS` + `SUPPORT_NOTIFY_EMAIL` (optional — the ticket loop works without email) |
 
 Full list with defaults in `.env.example` — it's the actual source of truth, read it directly rather than trusting a paraphrase.

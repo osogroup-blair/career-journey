@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- The public Career Spotlight page, served at /s/:slug by server/spotlight.ts, which fills both placeholders. -->
+    <!--spotlight-head-->
+    <style>
+      html, body { margin: 0; background: #f5f7fa; }
+      @media (prefers-color-scheme: dark) { html, body { background: #0d121a; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--spotlight-data-->
+    <script type="module" src="/src/spotlight/main.tsx"></script>
+  </body>
+</html>

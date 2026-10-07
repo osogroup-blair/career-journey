@@ -1,5 +1,5 @@
-import { ReactNode, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import {
   SPOTLIGHT_ACCENTS,
   SPOTLIGHT_MAX_CAPTION,
@@ -10,10 +10,11 @@ import {
   SpotlightSettings,
   SpotlightSnapshot,
 } from '../../types/spotlight';
-import { buildSpotlightSnapshot, defaultSpotlightRoleModes, extractLeadMetric } from '../../lib/spotlightSnapshot';
+import { buildSpotlightSnapshot, defaultSpotlightRoleModes, extractLeadMetric, validateSpotlightSlug } from '../../lib/spotlightSnapshot';
+import { checkSpotlightSlug, PublishedSpotlightSummary, spotlightUrl } from '../../lib/spotlightClient';
 import { SPOTLIGHT_ACCENT_COLORS, formatRoleDates } from '../../lib/spotlightView';
 import { rolesRecentFirst } from '../../lib/resumeBuild';
-import { Badge, Input, Label, SearchInput } from '../ui';
+import { Badge, Button, Input, Label, SearchInput } from '../ui';
 
 /** The region of the preview a setting affects; the editor scrolls the preview there on change. */
 export type SpotlightRegion = 'hero' | 'outcomes' | 'arc' | 'experience' | 'achievements' | 'capabilities' | 'skills' | 'how' | 'background' | 'contact';
@@ -127,9 +128,25 @@ export function BuildWarnings({ warnings }: { warnings: { code: string; message:
   );
 }
 
-export function VisitorsCanSee({ settings, snapshot, careerJourney }: { settings: SpotlightSettings; snapshot: SpotlightSnapshot; careerJourney: any }) {
+export function VisitorsCanSee({
+  settings,
+  snapshot,
+  careerJourney,
+  publishing,
+}: {
+  settings: SpotlightSettings;
+  snapshot: SpotlightSnapshot;
+  careerJourney: any;
+  /** False in local mode, where there's no link to find. */
+  publishing: boolean;
+}) {
   const hiddenRoles = (careerJourney?.roles?.length ?? 0) - snapshot.roles.length;
   const rows: { ok: boolean; text: string; note?: string }[] = [
+    ...(!publishing
+      ? []
+      : settings.visibility === 'public'
+        ? [{ ok: false, text: 'Listed in search engines', note: 'Anyone searching your name may find it.' }]
+        : [{ ok: true, text: 'Not listed in search engines', note: 'Anyone with the link can open it.' }]),
     snapshot.contact.phone ? { ok: false, text: 'Your phone number is shown', note: 'Anyone with the link can see it.' } : { ok: true, text: 'Your phone number is hidden' },
     snapshot.contact.email
       ? { ok: true, text: 'Your email is shown after a click', note: 'It is never written out in full in the page, which stops most scrapers.' }
@@ -499,7 +516,7 @@ export function ContactPanel({ settings, careerJourney, update }: { settings: Sp
   );
 }
 
-export function StylePanel({ settings, update }: { settings: SpotlightSettings; update: SettingsUpdate }) {
+export function StylePanel({ settings, update, canHideBadge }: { settings: SpotlightSettings; update: SettingsUpdate; canHideBadge: boolean }) {
   return (
     <Panel title="Style" defaultOpen={false}>
       <div>
@@ -522,9 +539,168 @@ export function StylePanel({ settings, update }: { settings: SpotlightSettings; 
       </div>
       <Toggle
         label='"Made with Career Journey" in the footer'
-        checked={settings.showBadge}
+        help={canHideBadge ? undefined : 'Included on the Free plan. Upgrade to remove it.'}
+        checked={canHideBadge ? settings.showBadge : true}
+        disabled={!canHideBadge}
         onChange={(showBadge) => update({ showBadge }, 'contact')}
       />
+    </Panel>
+  );
+}
+
+const SLUG_PROBLEM: Record<string, string> = {
+  too_short: 'Use at least 3 characters.',
+  too_long: 'Use 40 characters or fewer.',
+  invalid_characters: 'Use lowercase letters, numbers and single hyphens.',
+  reserved: 'That address is reserved. Choose another.',
+  taken: 'Someone else has that address. Choose another.',
+};
+
+export function PublishingPanel({
+  settings,
+  slug,
+  published,
+  update,
+  onUnpublish,
+}: {
+  settings: SpotlightSettings;
+  /** The address the next publish will use: the setting, or one suggested from the name. */
+  slug: string;
+  published: PublishedSpotlightSummary | null;
+  update: SettingsUpdate;
+  onUnpublish: () => Promise<void>;
+}) {
+  const [availability, setAvailability] = useState<{ slug: string; problem: string | null } | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const url = spotlightUrl(published?.slug ?? slug);
+
+  // Check the address as it's typed: shape locally, then "taken" with the server.
+  useEffect(() => {
+    const local = validateSpotlightSlug(slug);
+    if (local.ok === false) {
+      setAvailability({ slug, problem: SLUG_PROBLEM[local.reason] });
+      return;
+    }
+    if (slug === published?.slug) {
+      setAvailability({ slug, problem: null });
+      return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      checkSpotlightSlug(slug)
+        .then((r) => !cancelled && setAvailability({ slug, problem: r.ok === false ? SLUG_PROBLEM[r.reason] : null }))
+        .catch(() => !cancelled && setAvailability(null));
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [slug, published?.slug]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard blocked: the address is on screen and selectable.
+    }
+  };
+
+  const status = availability?.slug === slug ? availability : null;
+  return (
+    <Panel title="Publishing" hint="link and who can find it">
+      <div>
+        <Label htmlFor="sp-slug">Page address</Label>
+        <div className="flex h-10 items-center overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
+          <span className="whitespace-nowrap pl-3 pr-0.5 font-mono text-xs text-slate-400">{window.location.host}/s/</span>
+          <input
+            id="sp-slug"
+            className="h-full min-w-0 flex-1 bg-transparent pr-3 font-mono text-[13px] outline-none"
+            value={slug}
+            spellCheck={false}
+            autoComplete="off"
+            maxLength={40}
+            aria-describedby="sp-slug-state"
+            onChange={(e) => update({ slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+          />
+        </div>
+        <p id="sp-slug-state" className={`mt-1.5 flex items-center gap-1.5 text-xs ${status?.problem ? 'text-red-600' : 'text-emerald-700'}`}>
+          {status &&
+            (status.problem ? (
+              <>
+                <AlertCircle className="h-3.5 w-3.5" /> {status.problem}
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {published && slug !== published.slug ? 'Available. The old link stops working when you publish.' : published ? 'Your current address' : 'Available'}
+              </>
+            ))}
+        </p>
+        {published && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{url}</code>
+            <button type="button" onClick={copy} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              <Copy className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Copy link'}
+            </button>
+          </div>
+        )}
+      </div>
+      <fieldset>
+        <legend className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-slate-500">Who can find it</legend>
+        <div className="grid gap-2">
+          {(
+            [
+              { value: 'unlisted', title: 'Anyone with the link', body: 'Search engines are asked not to list it. Recommended.' },
+              { value: 'public', title: 'Public', body: 'Can appear in search results for your name.' },
+            ] as const
+          ).map((o) => (
+            <label key={o.value} className={`grid cursor-pointer grid-cols-[18px_minmax(0,1fr)] gap-2.5 rounded-lg border p-3 ${settings.visibility === o.value ? 'border-brand-500 bg-brand-50' : 'border-slate-200'}`}>
+              <input type="radio" name="sp-visibility" className="mt-0.5 accent-brand-600" checked={settings.visibility === o.value} onChange={() => update({ visibility: o.value })} />
+              <span>
+                <span className="block text-sm font-semibold text-slate-800">{o.title}</span>
+                <span className="block text-xs text-slate-500">{o.body}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {published &&
+        (confirming ? (
+          <div className="grid gap-2">
+            <Warn>The link stops working for everyone who has it. Your settings are kept, so you can publish again later.</Warn>
+            <div className="flex gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await onUnpublish();
+                    setConfirming(false);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Unpublish
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setConfirming(false)}>
+                Keep it live
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Button variant="outline" size="sm" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => setConfirming(true)}>
+              Unpublish page
+            </Button>
+          </div>
+        ))}
     </Panel>
   );
 }

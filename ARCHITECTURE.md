@@ -12,6 +12,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 - [Admin console](#admin-console)
 - [Support / feedback loop](#support--feedback-loop)
 - [Data model](#data-model)
+- [Career Spotlight](#career-spotlight)
 - [Auth model](#auth-model)
 - [Known inconsistencies / incomplete migrations](#known-inconsistencies--incomplete-migrations)
 
@@ -39,7 +40,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 | `/edit` | `EditJourney` | "Simple Editor" — ten sections (Profile, Roles, Projects, Achievements, Skills, Capabilities, Education, Certifications, Methodologies, Client Engagements), each a searchable, filterable, paginated list with inline editors; Cmd/Ctrl-K searches every section; per-section AI assistant. List state lives in the URL (`#/edit?section=skills&q=okr&item=SK-001`), which is how other pages deep-link to one item (`editPathFor` in `src/lib/journeySections.ts`). See below |
 | `/build` | `CareerJourneyBuilder` | Bootstrap a Career Journey: resume extraction, guided chat, or blank template |
 | `/strengthen` | `StrengthenJourney` | Gap-filling flow driven by `careerJourneyGaps.ts` |
-| `/spotlight` | `Spotlight` | Career Spotlight editor: curation settings beside a live preview of the hiring-manager page (`src/components/spotlight/`), built from `buildSpotlightSnapshot` (`src/lib/spotlightSnapshot.ts`, an allowlist projection — never spread journey objects into it). Settings are per browser until publishing ships; see `career-spotlight-plan.md` |
+| `/spotlight` | `Spotlight` | Career Spotlight editor: curation settings beside a live preview of the hiring-manager page (`src/components/spotlight/`), built from `buildSpotlightSnapshot` (`src/lib/spotlightSnapshot.ts`, an allowlist projection — never spread journey objects into it). Publishes to `/s/{slug}`; settings live on the server with an account, in the browser in local mode. See [Career Spotlight](#career-spotlight) |
 | `/journey` | `CareerJourney` | "Advanced Editor" — full raw-schema editor, 2929 lines, every section as a tab |
 | `/matches` | `Matches` | Job discovery / bulk AI scan, gated to paid plans |
 | `/discover` | `Discover` | Scheduled StillOpen job search from a CV snapshot; pick listings to light-scan, promote into the pipeline. Admin-only until licensed — see [Job Discovery](#job-discovery-stillopen) |
@@ -101,6 +102,8 @@ The canonical Zod schema for the whole profile: `meta`, `person`, `education`, `
 | `/api/ai` | `requireFirebaseAuth` + `requireWithinAiQuota` |
 | `/api/sources` | `requireFirebaseAuth` + `requireAnyPaidPlan` |
 | `/api/discovery` | `requireFirebaseAuth` + `requireFeature("job_discovery")` (admin-only while unlicensed) |
+| `/api/spotlight` | `requireFirebaseAuth` + `requireFeature("career_spotlight")` |
+| `/api/public/spotlights`, `/s/:slug` | None — public Career Spotlight pages, per-IP rate limited (`server/spotlight.ts`) |
 | `/api/admin` | `requireFirebaseAuth` + `requireAdmin` |
 | `/api/export` | `requireFirebaseAuth` |
 | `/api/billing` | `requireFirebaseAuth` |
@@ -231,9 +234,10 @@ Server/Admin-SDK-only (client read-only or fully denied):
 - `config/featureFlags`, `config/allowedModels` — any-signed-in-user-read, write:false.
 - `stripeEvents/{eventId}` — fully denied to clients (idempotency ledger).
 - `tickets/{ticketId}` (+ `messages` subcollection) — top-level (not nested under `users/`, so admin can query cross-account), owner-read-own-only, write:false.
+- `users/{uid}/spotlight/settings`, `spotlights/{slug}` — Career Spotlight; fully denied to clients, read/written only through `/api/spotlight` (owner) and `/api/public/spotlights` / `/s/:slug` (public). `spotlights/{slug}` is top-level and keyed by slug so a public read is one doc fetch; it carries `ownerUid`, which account deletion and the GDPR export query on (single-field equality, no composite index).
 - `users/{uid}/discovery/profile`, `users/{uid}/discoveredJobs/{stillopenId}`, `discoverySchedules/{uid}` — Job Discovery; fully denied to clients, read/written only through `/api/discovery`. `discoverySchedules` is top-level so the scheduler's `nextRunAt <= now` query needs no collection-group index. All three are included in the GDPR export and removed by both account-delete paths.
 
-**Account deletion** — both `DELETE /api/user/account` (self-service: data, then Auth user) and `DELETE /api/admin/users/:uid` (Auth user, then data, then `delete_user` audit log) go through `purgeUserData` in `server/userData.ts`, which runs `recursiveDelete` on `users/{uid}`. Firestore never cascades a doc delete to its subcollections, so this is what removes everything above plus `meta/billing` and `aiUsageLogs` — and any per-user subcollection added later, with no code change. Top-level per-user records (`tickets/`, `aiCallLogs/`) are left in place.
+**Account deletion** — both `DELETE /api/user/account` (self-service: data, then Auth user) and `DELETE /api/admin/users/:uid` (Auth user, then data, then `delete_user` audit log) go through `purgeUserData` in `server/userData.ts`, which runs `recursiveDelete` on `users/{uid}`. Firestore never cascades a doc delete to its subcollections, so this is what removes everything above plus `meta/billing` and `aiUsageLogs` — and any per-user subcollection added later, with no code change. It first deletes the account's published `spotlights/{slug}` pages (by `ownerUid`), so a public page never outlives the account, and afterwards `discoverySchedules/{uid}`. Top-level per-user records (`tickets/`, `aiCallLogs/`) are left in place.
 
 `firestore.indexes.json` is currently empty by design — the codebase avoids queries that would need a composite index (see the support-ticket in-memory-sort note above).
 
@@ -259,6 +263,17 @@ Server/Admin-SDK-only (client read-only or fully denied):
 - **Licence & terms** — StillOpen's terms need a written licence for any use by or for an organisation. Until `STILLOPEN_LICENSED=true`, `job_discovery` is **admin-only** in `isFeatureEnabled` — comped accounts (the shared demo) and the plan matrix don't open it. Attribution ("Data provided by StillOpen" + logo, linked; each listing linked to its `canonical_url`) is the `StillOpenAttribution` component, shown on Discover and on Matches when a StillOpen match is visible. Evidence wording (`describeEvidence`) never calls a listing verified unless StillOpen's `evidence_type` is `ats_verified`/`board_verified`. Kill switch: `killSwitches.discovery` (Admin › Flags).
 
 ---
+
+## Career Spotlight
+
+A public, read-only hiring page built from the Career Journey (`career-spotlight-plan.md`).
+
+- **Snapshot, not live data** — `buildSpotlightSnapshot` (`src/lib/spotlightSnapshot.ts`) projects the journey plus the owner's settings into a `SpotlightSnapshot` (`src/types/spotlight.ts`), field by field from an allowlist; a sentinel test fails if any unlisted field gets through. Hidden roles disappear everywhere. The same function runs in the editor's preview and in `POST /api/spotlight/publish`, which always builds from the journey it reads from Firestore — the client sends settings, never content. Edits to the journey only go public on the next publish; the editor names what changed (`diffSpotlightSnapshots`).
+- **Routes** (`server/spotlight.ts`) — owner: `GET /api/spotlight`, `PUT /api/spotlight/settings`, `GET /api/spotlight/slug/:slug` (shape/reserved/taken), `POST`/`DELETE /api/spotlight/publish`. Public: `GET /api/public/spotlights/:slug` (JSON) and `GET /s/:slug` (HTML with title/description/Open Graph/robots and the snapshot inlined, registered ahead of the SPA fallback; Vite-transformed `spotlight.html` in dev, `dist/spotlight.html` in production). Missing, unpublished, malformed and kill-switched pages all get the same 404. Unlisted pages send `noindex`.
+- **Publish** — one transaction claims the slug (409 if another account owns it), moves the page if the slug changed, and saves the settings. Free plans always keep the footer mark (`showBadge`), enforced server-side.
+- **Front end** — `spotlight.html` → `src/spotlight/main.tsx`, a separate Vite entry with no auth, store or Firebase SDK (~71KB gzipped JS). The page components (`src/components/spotlight/`) use one scoped stylesheet with light/dark/print themes and container queries; the evidence drawer renders in a portal because the container query makes `.sp` the containing block for `position: fixed`. `?evidence=<skill|capability|achievement id>` opens the drawer on load.
+- **Gating** — feature `career_spotlight` (all plans by default) and kill switch `killSwitches.spotlight` (Admin › Flags), which takes every public page offline. The `aiPipeline` switch doesn't apply: Spotlight makes no AI calls (`NON_AI_FEATURES`).
+- **Rate limiting** — the public routes have an in-memory per-IP limit (120/min). `trust proxy` isn't set, so behind a reverse proxy `req.ip` is the proxy and the limit is shared by everyone; set `trust proxy` for the deployment's proxy before relying on it.
 
 ## Auth model
 

@@ -15,7 +15,7 @@ function defaultFlags(): FeatureFlags {
     proMonthlyLimit: Number(process.env.PRO_MONTHLY_AI_ACTIONS_LIMIT) || 100,
     byomBurstPerMinute: Number(process.env.BYOM_BURST_PER_MINUTE) || 30,
     byomDailyLimit: Number(process.env.BYOM_DAILY_LIMIT) || 500,
-    killSwitches: { matches: false, aiPipeline: false, discovery: false },
+    killSwitches: { matches: false, aiPipeline: false, discovery: false, spotlight: false },
     features: getDefaultFeatureMatrix(),
   };
 }
@@ -106,7 +106,7 @@ export function validateFeatureFlagsUpdate(input: unknown): void {
       throw new Error("killSwitches must be an object.");
     }
     for (const [key, value] of Object.entries(killSwitches as Record<string, unknown>)) {
-      if (key !== "matches" && key !== "aiPipeline" && key !== "discovery") {
+      if (key !== "matches" && key !== "aiPipeline" && key !== "discovery" && key !== "spotlight") {
         throw new Error(`Unknown kill switch "${key}".`);
       }
       if (typeof value !== "boolean") {
@@ -160,8 +160,15 @@ export function isDiscoveryLicensed(): boolean {
 export function isFeatureKilled(flags: FeatureFlags, feature: FeatureKey): boolean {
   if (feature === "job_matches") return flags.killSwitches.matches;
   if (feature === "job_discovery") return flags.killSwitches.discovery === true;
+  if (feature === "career_spotlight") return flags.killSwitches.spotlight === true;
   return false;
 }
+
+/**
+ * Features that make no AI calls, so the aiPipeline emergency switch doesn't take them
+ * down with it. Each still has its own kill switch (isFeatureKilled).
+ */
+export const NON_AI_FEATURES: ReadonlySet<FeatureKey> = new Set<FeatureKey>(["career_spotlight"]);
 
 /**
  * Checks if a specific feature is enabled for a user.
@@ -177,7 +184,7 @@ export function isFeatureEnabled(
   user?: { plan?: PlanId; isAdmin?: boolean; comped?: boolean }
 ): boolean {
   // Global Emergency Kill Switch
-  if (flags.killSwitches.aiPipeline) {
+  if (flags.killSwitches.aiPipeline && !NON_AI_FEATURES.has(feature)) {
     return false;
   }
 

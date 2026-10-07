@@ -2,6 +2,7 @@ import type { App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { logAdminAction } from "./auditLog";
+import { deleteSpotlightsOwnedBy } from "./spotlight";
 
 /**
  * Deletes users/{uid} and everything under it. Firestore never cascades a
@@ -14,11 +15,14 @@ import { logAdminAction } from "./auditLog";
  *
  * Top-level collections keyed by uid (tickets/, aiCallLogs/) are not touched,
  * except discoverySchedules/{uid}: Job Discovery's scheduler entry, which would
- * otherwise keep a deleted user on the due list (server/discovery/scheduler.ts).
+ * otherwise keep a deleted user on the due list (server/discovery/scheduler.ts),
+ * and spotlights/{slug}: published Career Spotlight pages, found by ownerUid and
+ * deleted first so a public page never outlives the account (server/spotlight.ts).
  */
 export async function purgeUserData(app: App, uid: string): Promise<void> {
   if (!uid) throw new Error("purgeUserData requires a uid");
   const db = getFirestore(app);
+  await deleteSpotlightsOwnedBy(app, uid);
   await db.recursiveDelete(db.collection("users").doc(uid));
   await db.collection("discoverySchedules").doc(uid).delete();
 }
