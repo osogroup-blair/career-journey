@@ -1,3 +1,4 @@
+import type { ListingStatus } from './types/discovery';
 export type JobStage =
   | 'Intake'
   | 'Parsed'
@@ -94,7 +95,10 @@ export interface JobAnalysis {
   stage: JobStage;
   companyName: string;
   roleTitle: string;
+  /** Where to apply — for a job promoted from a StillOpen scan, the employer's own application page. */
   jobLink?: string;
+  /** Set when the job came from a StillOpen listing (Discover). Kept apart from jobLink: StillOpen's terms require linking the listing page, and the Apply stage re-checks its status. */
+  source?: JobListingSource;
   compensationRange?: string;
   locationNotes?: string;
   jdText: string;
@@ -136,6 +140,17 @@ export interface JobAnalysis {
   applicationFormAnswers?: Record<string, string>;
 
   offer?: OfferDetails;
+}
+
+export interface JobListingSource {
+  kind: 'stillopen';
+  listingId: string;
+  listingUrl: string | null;
+  /** Last Apply-stage status check, cached so revisits within a few hours don't re-ask StillOpen. */
+  status?: ListingStatus;
+  statusCheckedAt?: string;
+  closedAt?: string | null;
+  closure?: string | null;
 }
 
 export interface ApplicationFormField {
@@ -329,8 +344,13 @@ export interface JobMatch {
   source: MatchSource;
   /** Dedup key for API-sourced postings: the posting's id on its origin ATS. */
   externalId?: string;
-  /** Link back to the original posting, for API-sourced postings. */
+  /** Link back to the original posting, for API-sourced postings (for StillOpen, the listing page). */
   sourceUrl?: string;
+  /** The employer's own application page, when the source provides one (StillOpen) — becomes the job's jobLink. */
+  applyUrl?: string;
+  /** Same names as on JobAnalysis, so promoting a match carries them straight into the job header. */
+  compensationRange?: string;
+  locationNotes?: string;
   companyName: string;
   roleTitle: string;
   jdText: string;

@@ -7,34 +7,16 @@ import { buildArchiveLearningsSummary } from '../lib/archiveLearnings';
 import { runQueue as runQueueWith, runMatchScan, scanPostingIntoMatch, type MatchScanDeps, type PostingMeta } from '../lib/matchScan';
 import { StillOpenAttribution } from '../components/StillOpenAttribution';
 import { TagInput } from '../components/TagInput';
+import { SOURCE_LABEL, VERDICT_BADGE, GATE_BADGE } from '../components/MatchSummary';
 import { JobMatch, MatchStatus, MatchSource } from '../types';
 import {
   Radar, Loader2, Sparkles, Trash2, ArrowUpRight, XCircle, AlertTriangle, Inbox,
   SlidersHorizontal, Filter, RotateCcw, RefreshCw, ExternalLink, Building2
 } from 'lucide-react';
 
-const SOURCE_LABEL: Record<MatchSource, string> = {
-  'manual-paste': 'Pasted',
-  greenhouse: 'Greenhouse',
-  lever: 'Lever',
-  stillopen: 'StillOpen',
-};
-
 // A single company can have 100+ open reqs; cap what one Refresh will scan so it can't
 // silently trigger hours of AI calls. Re-running Refresh picks up the rest next time.
 const MAX_POSTINGS_PER_REFRESH = 15;
-
-const VERDICT_BADGE: Record<string, 'success' | 'warning' | 'destructive'> = {
-  PASS: 'success',
-  BORDERLINE: 'warning',
-  SKIP: 'destructive',
-};
-
-const GATE_BADGE: Record<string, 'success' | 'warning' | 'destructive'> = {
-  'CLEAR TO APPLY': 'success',
-  'VERIFY FIRST': 'warning',
-  'LIKELY AUTO-REJECT': 'destructive',
-};
 
 const STATUS_FILTERS: (MatchStatus | 'All')[] = ['All', 'New', 'Promoted', 'Dismissed'];
 
@@ -432,6 +414,11 @@ export default function Matches() {
                         {m.sourceUrl && (
                           <a href={m.sourceUrl} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-brand-600 shrink-0">
                             <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                        {m.applyUrl && (
+                          <a href={m.applyUrl} target="_blank" rel="noreferrer" className="text-[10px] font-bold uppercase tracking-wide text-brand-600 hover:text-brand-800 shrink-0">
+                            Apply
                           </a>
                         )}
                       </div>

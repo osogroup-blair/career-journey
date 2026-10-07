@@ -6,6 +6,7 @@ import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
 import { dataStore } from './data';
 import { auth } from './lib/firebase';
 import { generateId } from './lib/utils';
+import { buildJobFromMatch } from './lib/matchScan';
 import { normalizeCareerJourney } from './lib/careerJourneyNormalize';
 import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
 import { toastBridge } from './components/ui';
@@ -492,17 +493,7 @@ export const useStore = create<AppState>((set, get) => {
       if (!match) return null;
 
       const jobId = generateId('JOB');
-      const newJob: JobAnalysis = {
-        id: jobId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stage: match.parse ? 'Parsed' : 'Intake',
-        companyName: match.companyName,
-        roleTitle: match.roleTitle,
-        jdText: match.jdText,
-        jobLink: match.sourceUrl,
-        parse: match.parse,
-      };
+      const newJob = buildJobFromMatch(match, jobId, new Date().toISOString());
 
       set((state) => ({ jobs: { ...state.jobs, [jobId]: newJob } }));
       persistJob(get().jobs[jobId]);

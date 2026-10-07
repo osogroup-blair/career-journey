@@ -4,9 +4,11 @@ import { useStore } from '../store';
 import { Button, Card, CardContent, Badge, Textarea, Label, useToast } from '../components/ui';
 import { TagInput } from '../components/TagInput';
 import { StillOpenAttribution } from '../components/StillOpenAttribution';
+import { VERDICT_BADGE, GATE_BADGE } from '../components/MatchSummary';
 import { isFirebaseConfigured } from '../lib/firebase';
 import { careerJourneyToText } from '../lib/careerJourneyText';
 import { rankDiscoveredJobs, describeEvidence } from '../lib/discoveryRank';
+import { formatSalary } from '../lib/discoveryFormat';
 import { runQueue, scanPostingIntoMatch } from '../lib/matchScan';
 import {
   DiscoveryApiError,
@@ -32,11 +34,10 @@ import {
   type DiscoveryProfile,
   type DiscoverySchedule,
   type DiscoverySearchProfile,
-  type StillOpenSalary,
 } from '../types/discovery';
 import {
   Telescope, Loader2, Sparkles, RefreshCw, ExternalLink, AlertTriangle, Inbox, ArrowUpRight,
-  FileText, CalendarClock, Search, CheckSquare, Square, XCircle, ChevronDown, ChevronUp, Radar,
+  FileText, CalendarClock, Search, CheckSquare, Square, XCircle, ChevronDown, ChevronUp, Radar, Send,
 } from 'lucide-react';
 
 // Same cap as a Matches refresh: one click can't quietly start dozens of AI scans.
@@ -46,13 +47,6 @@ const RUN_POLL_TIMEOUT_MS = 3 * 60 * 1000;
 
 type ListFilter = 'review' | 'scanned' | 'dismissed' | 'all';
 const FILTER_LABEL: Record<ListFilter, string> = { review: 'To review', scanned: 'Scanned', dismissed: 'Dismissed', all: 'All' };
-
-const VERDICT_BADGE: Record<string, 'success' | 'warning' | 'destructive'> = { PASS: 'success', BORDERLINE: 'warning', SKIP: 'destructive' };
-const GATE_BADGE: Record<string, 'success' | 'warning' | 'destructive'> = {
-  'CLEAR TO APPLY': 'success',
-  'VERIFY FIRST': 'warning',
-  'LIKELY AUTO-REJECT': 'destructive',
-};
 
 const EMPTY_SEARCH: DiscoverySearchProfile = { queries: [], loc: [], level: [], area: [], payMin: null };
 
@@ -64,14 +58,6 @@ function relativeTime(iso?: string | null): string {
   const text = mins < 60 ? `${mins} min` : mins < 48 * 60 ? `${Math.round(mins / 60)} h` : `${Math.round(mins / 1440)} days`;
   if (mins < 1) return 'just now';
   return future ? `in ${text}` : `${text} ago`;
-}
-
-function formatSalary(s?: StillOpenSalary | null): string {
-  if (!s || (s.min == null && s.max == null)) return '';
-  const fmt = (n?: number | null) => (n == null ? '' : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
-  const range = s.min != null && s.max != null && s.min !== s.max ? `${fmt(s.min)}–${fmt(s.max)}` : fmt(s.max ?? s.min);
-  const period = s.period && s.period !== 'year' ? ` / ${s.period}` : '';
-  return `${s.currency ? `${s.currency} ` : ''}${range}${period}${s.source === 'estimate' ? ' (board estimate)' : ''}`;
 }
 
 function PillToggle<T extends string>({ options, selected, onChange, label }: { options: readonly T[]; selected: T[]; onChange: (v: T[]) => void; label?: (v: T) => string }) {
@@ -128,6 +114,7 @@ export default function Discover() {
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | null>(null);
   const [scanningIds, setScanningIds] = useState<Set<string>>(new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [openJd, setOpenJd] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentCvText = useMemo(() => careerJourneyToText(careerJourney), [careerJourney]);
@@ -285,7 +272,16 @@ export default function Discover() {
       const { matchId } = await scanPostingIntoMatch(
         { addMatch, updateMatch, careerJourney, jobs: pipelineJobs, excludedKeywords: matchPreferences.excludedKeywords },
         jdText,
-        { source: 'stillopen', sourceUrl: detail.canonicalUrl || job.canonicalUrl || undefined, externalId: job.id, company: job.company, title: job.title }
+        {
+          source: 'stillopen',
+          sourceUrl: detail.canonicalUrl || job.canonicalUrl || undefined,
+          externalId: job.id,
+          company: job.company,
+          title: job.title,
+          applyUrl: detail.applyUrl || undefined,
+          compensationRange: detail.salaryText,
+          locationNotes: detail.locationNotes,
+        }
       );
       await updateDiscoveredJob(job.id, { userState: 'scanned', matchId });
       patchListing(job.id, { userState: 'scanned', matchId });
@@ -329,6 +325,25 @@ export default function Discover() {
 
   const handlePromote = async (job: DiscoveredJob) => {
     if (!job.matchId) return;
+    // Scans from before the apply link was carried over: fetch it now so the job gets the employer link.
+    const match = matches[job.matchId];
+    if (match && !match.applyUrl) {
+      try {
+        const detail = await getDiscoveredJobDetail(job.id);
+        updateMatch(job.matchId, {
+          applyUrl: detail.applyUrl || undefined,
+          compensationRange: match.compensationRange || detail.salaryText || undefined,
+          locationNotes: match.locationNotes || detail.locationNotes || undefined,
+        });
+      } catch (e: any) {
+        if (e instanceof DiscoveryApiError && (e.status === 410 || e.status === 404)) {
+          setListings((prev) => prev.filter((j) => j.id !== job.id));
+          toast.info(`"${job.title}" has closed — removed from your list.`);
+          return;
+        }
+        // Anything else: promote anyway with the StillOpen link rather than block on it.
+      }
+    }
     const jobId = promoteMatch(job.matchId);
     if (!jobId) {
       toast.error("Couldn't find this scan's match — try scanning again.");
@@ -705,6 +720,36 @@ export default function Discover() {
                           )}
                         </div>
                       ) : null}
+
+                      {match && !scanning && (
+                        <div className="flex flex-wrap items-center gap-3 pt-0.5">
+                          {match.applyUrl && (
+                            <a href={match.applyUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                              <Send className="w-3 h-3" /> Apply on employer site
+                            </a>
+                          )}
+                          {match.jdText && (
+                            <button
+                              onClick={() =>
+                                setOpenJd((s) => {
+                                  const next = new Set(s);
+                                  next.has(job.id) ? next.delete(job.id) : next.add(job.id);
+                                  return next;
+                                })
+                              }
+                              className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                            >
+                              {openJd.has(job.id) ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              {openJd.has(job.id) ? 'Hide JD' : 'View JD'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {match && openJd.has(job.id) && (
+                        <div className="max-h-80 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                          {match.jdText}
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-2 shrink-0">
                       {match?.status === 'Promoted' && match.promotedJobId ? (

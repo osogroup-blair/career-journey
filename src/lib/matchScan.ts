@@ -1,6 +1,7 @@
 import { scanJobMatch } from './aiClient';
 import { generateId } from './utils';
 import { buildArchiveLearningsSummary } from './archiveLearnings';
+import { segmentJdText } from './jdSegments';
 import type { JobAnalysis, JobMatch, MatchSource } from '../types';
 
 /**
@@ -56,6 +57,9 @@ export interface PostingMeta {
   externalId?: string;
   company?: string;
   title?: string;
+  applyUrl?: string;
+  compensationRange?: string;
+  locationNotes?: string;
 }
 
 /** Light-scans an existing match's JD and writes the verdict (or the error) back onto it. */
@@ -93,7 +97,18 @@ export async function scanPostingIntoMatch(deps: MatchScanDeps, jdText: string, 
   const id = generateId('MATCH');
   const now = new Date().toISOString();
   const source = opts?.source || 'manual-paste';
-  const base = { id, createdAt: now, updatedAt: now, source, sourceUrl: opts?.sourceUrl, externalId: opts?.externalId, jdText };
+  const base = {
+    id,
+    createdAt: now,
+    updatedAt: now,
+    source,
+    sourceUrl: opts?.sourceUrl,
+    externalId: opts?.externalId,
+    applyUrl: opts?.applyUrl || undefined,
+    compensationRange: opts?.compensationRange || undefined,
+    locationNotes: opts?.locationNotes || undefined,
+    jdText,
+  };
 
   const excludedHit = findExcludedKeyword(jdText, deps.excludedKeywords);
   if (excludedHit) {
@@ -110,4 +125,33 @@ export async function scanPostingIntoMatch(deps: MatchScanDeps, jdText: string, 
   deps.addMatch({ ...base, companyName: opts?.company || 'Scanning…', roleTitle: opts?.title || 'Scanning…', status: 'New' });
   await runMatchScan(deps, id, jdText, { company: opts?.company, title: opts?.title });
   return { matchId: id, skipped: false };
+}
+
+/**
+ * The pipeline job a match turns into when promoted (store.promoteMatch).
+ * A scanned match skips Intake, and with it the parse step that normally
+ * assigns jdSegments — so they're computed here, or Rating would have no JD
+ * text to cite. jobLink prefers the employer's apply page over the posting
+ * link; a StillOpen listing is also kept as `source` for attribution and the
+ * Apply stage's still-open check.
+ */
+export function buildJobFromMatch(match: JobMatch, jobId: string, now: string): JobAnalysis {
+  const job: JobAnalysis = {
+    id: jobId,
+    createdAt: now,
+    updatedAt: now,
+    stage: match.parse ? 'Parsed' : 'Intake',
+    companyName: match.companyName,
+    roleTitle: match.roleTitle,
+    jdText: match.jdText,
+    jobLink: match.applyUrl || match.sourceUrl,
+    parse: match.parse,
+  };
+  if (match.parse && match.jdText) job.jdSegments = segmentJdText(match.jdText);
+  if (match.compensationRange) job.compensationRange = match.compensationRange;
+  if (match.locationNotes) job.locationNotes = match.locationNotes;
+  if (match.source === 'stillopen' && match.externalId) {
+    job.source = { kind: 'stillopen', listingId: match.externalId, listingUrl: match.sourceUrl ?? null };
+  }
+  return job;
 }

@@ -6,6 +6,7 @@ import type {
   DiscoveryProfile,
   DiscoveryProfileUpdate,
   DiscoverySearchProfile,
+  ListingStatusResult,
 } from '../types/discovery';
 
 /** Carries the HTTP status so the Discover page can tell "not allowed" (403) and "needs Firebase" (501) apart from failures. */
@@ -59,4 +60,9 @@ export function updateDiscoveredJob(id: string, patch: { userState?: DiscoveredJ
 /** An /api/ai route, so it carries the BYOM headers like every other AI call (see aiClient.ts). */
 export function generateSearchProfile(cvText: string): Promise<{ searchProfile: DiscoverySearchProfile; rationale: string; dropped: string[] }> {
   return call('POST', '/api/ai/discoverySearchProfile', { cvText }, byomHeaders());
+}
+
+/** Whether the StillOpen listing behind a pipeline job is still open (Apply stage). */
+export function getListingStatus(listingId: string): Promise<ListingStatusResult> {
+  return call('GET', `/api/discovery/listings/${encodeURIComponent(listingId)}/status`);
 }

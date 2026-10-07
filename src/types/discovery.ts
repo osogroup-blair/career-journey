@@ -162,11 +162,26 @@ export interface DiscoveredJobDetail {
   title: string;
   company: string;
   canonicalUrl: string | null;
+  /** The employer's own application page — becomes the job's jobLink when promoted. */
   applyUrl: string | null;
+  /** The ad as plain text with paragraph breaks kept (built from description_html — StillOpen's description_text has none). */
   descriptionText: string;
   skills: string[];
   employmentType?: string | null;
+  /** Display string for the job's compensationRange, or "" when no salary was published. */
+  salaryText: string;
+  /** Display string for the job's locationNotes, e.g. "Remote — United Kingdom, Ireland · Full-time". */
+  locationNotes: string;
   status: ListingStatus;
+}
+
+/** Whether a listing behind a pipeline job is still open — the Apply stage's check (GET /api/discovery/listings/:id/status). */
+export interface ListingStatusResult {
+  status: ListingStatus;
+  closedAt: string | null;
+  /** observed = a source said it's gone; inferred = it aged out; employer = the employer closed it. */
+  closure: string | null;
+  checkedAt: string;
 }
 
 export const DiscoveredJobPatchSchema = z.object({

@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, useToast } from '../components/ui';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Button, LoadingButton, Card, CardContent, CardHeader, CardTitle, Input, Label, Textarea, useToast } from '../components/ui';
 import { fetchJobFromUrl } from '../lib/aiClient';
-import { Link2, FileText, Upload } from 'lucide-react';
+import { MatchSummaryCard } from '../components/MatchSummary';
+import { StillOpenAttribution } from '../components/StillOpenAttribution';
+import { Link2, FileText, Upload, ExternalLink, Pencil, ArrowRight, Radar, Banknote, MapPin } from 'lucide-react';
 
 type IntakeTab = 'paste' | 'upload' | 'url';
 
@@ -13,9 +15,14 @@ export default function IntakeStage() {
   const updateJob = useStore((state) => state.updateJob);
   const runParseJob = useStore((state) => state.runParseJob);
   const isParsing = useStore((s) => Object.values(s.activeAiTasks).some((t) => t.jobId === id && t.kind === 'parse'));
+  // The match this job was promoted from, if any — promoteMatch stamps promotedJobId on it.
+  const sourceMatch = useStore((s) => Object.values(s.matches).find((m) => m.promotedJobId === id));
   const navigate = useNavigate();
   const toast = useToast();
 
+  // A job that's already been parsed opens on a read-only overview of its JD (and the scan it
+  // came from); "Edit details" switches to the intake form for changes or a re-parse.
+  const [editing, setEditing] = useState(() => !job?.parse);
   const [tab, setTab] = useState<IntakeTab>('paste');
   const [formData, setFormData] = useState({
     companyName: '',
@@ -40,18 +47,30 @@ export default function IntakeStage() {
         jdText: job.jdText || '',
         recruiterNotes: job.recruiterNotes || ''
       });
+      setEditing(!job.parse);
     }
   }, [job?.id]);
 
   // The job auto-advances to Parsed when the background parse task completes
   // (advanceStageIfEligible in the store). If the user is still on this screen
   // when that happens, follow them forward; if they've navigated elsewhere,
-  // leave them be — the activity indicator + toast already told them.
+  // leave them be — the activity indicator + toast already told them. Only on
+  // that transition: a job that was already Parsed (e.g. promoted from a
+  // match) must be able to come back to Intake without being bounced away.
+  const previousStage = useRef(job?.stage);
   useEffect(() => {
-    if (job?.stage === 'Parsed') {
+    if (job?.stage === 'Parsed' && previousStage.current === 'Intake') {
       navigate(`/job/${job.id}/parsed`);
     }
+    previousStage.current = job?.stage;
   }, [job?.stage]);
+
+  // A re-parse started from the edit form: show the overview again once it lands.
+  const parsedAt = useRef(job?.parse);
+  useEffect(() => {
+    if (job?.parse && job.parse !== parsedAt.current) setEditing(false);
+    parsedAt.current = job?.parse;
+  }, [job?.parse]);
 
   if (!job) return null;
 
@@ -110,6 +129,96 @@ export default function IntakeStage() {
       setIsFetchingUrl(false);
     }
   };
+
+  if (!editing) {
+    const source = job.source?.kind === 'stillopen' ? job.source : null;
+    return (
+      <div className="space-y-6 max-w-4xl">
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-slate-900">{job.roleTitle || 'Untitled role'}</h2>
+                <p className="text-sm font-semibold text-slate-500">{job.companyName}</p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                  {job.compensationRange && (
+                    <span className="flex items-center gap-1"><Banknote className="w-3.5 h-3.5 text-slate-400" />{job.compensationRange}</span>
+                  )}
+                  {job.locationNotes && (
+                    <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-slate-400" />{job.locationNotes}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                  <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit details
+                </Button>
+                {job.jobLink && (
+                  <a href={job.jobLink} target="_blank" rel="noreferrer">
+                    <Button size="sm">
+                      <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Open application
+                    </Button>
+                  </a>
+                )}
+              </div>
+            </div>
+            {source && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                <span>
+                  Found via StillOpen{' '}
+                  {source.listingUrl && (
+                    <a href={source.listingUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:text-brand-800 underline">view listing</a>
+                  )}
+                </span>
+                <StillOpenAttribution />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {sourceMatch && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2"><Radar className="w-4 h-4 text-brand-600" /> Match scan</span>
+                <Link to={sourceMatch.source === 'stillopen' ? '/discover' : '/matches'} className="text-xs font-semibold text-slate-500 hover:text-slate-800">
+                  Back to {sourceMatch.source === 'stillopen' ? 'Discover' : 'Matches'}
+                </Link>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MatchSummaryCard match={sourceMatch} />
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2"><FileText className="w-4 h-4 text-brand-600" /> Job Description</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {job.jdText ? (
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{job.jdText}</div>
+            ) : (
+              <p className="text-sm text-slate-500">No job description saved — use Edit details to add one.</p>
+            )}
+            {job.recruiterNotes && (
+              <div className="pt-4 border-t border-slate-100">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Recruiter notes</p>
+                <p className="whitespace-pre-wrap text-sm text-slate-700">{job.recruiterNotes}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end">
+          <Button onClick={() => navigate(`/job/${job.id}/parsed`)}>
+            Continue to Parsed <ArrowRight className="w-4 h-4 ml-1.5" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const tabClass = (t: IntakeTab) =>
     `flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
@@ -206,6 +315,9 @@ export default function IntakeStage() {
       </Card>
 
       <div className="flex justify-end gap-3">
+        {job.parse && (
+          <Button variant="ghost" onClick={() => setEditing(false)} disabled={isParsing}>Back to overview</Button>
+        )}
         <Button variant="outline" onClick={handleSave} disabled={isParsing}>Save Draft</Button>
         <LoadingButton
           onClick={handleParse}

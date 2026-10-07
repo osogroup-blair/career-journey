@@ -72,6 +72,8 @@ import { createDiscoveryRouter } from "./server/discovery/routes";
 import { startDiscoveryScheduler } from "./server/discovery/scheduler";
 import { deleteAllDiscoveryData, loadDiscoveredJobs, profileRef as discoveryProfileRef } from "./server/discovery/runSearch";
 import { sanitizeAiSearchProfile } from "./server/discovery/searchProfile";
+import { htmlToText } from "./server/htmlToText";
+import { segmentJdText } from "./src/lib/jdSegments";
 
 /** Distinguishes "your BYOM key is missing/invalid" (actionable, 400) from an actual server error (500). */
 function handleAiRouteError(e: any, res: express.Response) {
@@ -175,19 +177,6 @@ async function getLegacyClientForPrompt(promptId: string, req: express.Request):
 async function projectCareerJourneyForPrompt(promptId: string, careerJourney: any): Promise<any> {
   const cfg = await getPromptAiConfigFor(getAdminApp(), promptId);
   return projectCareerJourney(careerJourney, cfg.careerJourneyFields);
-}
-
-/**
- * Deterministic, non-AI segmentation of raw JD text into paragraph/bullet
- * chunks with stable ids — the traceability anchor that lets a keyword or
- * fit-gap claim point back to the exact JD text it came from (EvidenceTrace).
- * Split on blank lines first; if that yields one giant blob (JDs pasted
- * without paragraph breaks), fall back to splitting on line breaks.
- */
-function segmentJdText(jdText: string): { id: string; text: string }[] {
-  const byParagraph = jdText.split(/\n\s*\n+/).map((s) => s.trim()).filter(Boolean);
-  const chunks = byParagraph.length > 3 ? byParagraph : jdText.split(/\n+/).map((s) => s.trim()).filter(Boolean);
-  return chunks.map((text, i) => ({ id: `jd-${i}`, text }));
 }
 
 async function startServer() {
@@ -1678,25 +1667,8 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
     }
   });
 
-  function stripHtml(html: string): string {
-    return html
-      // Greenhouse/Lever content fields arrive HTML-entity-escaped (e.g. "&lt;div&gt;"), so decode first.
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&amp;/g, "&")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<\/(p|div|li|br|h[1-6])>/gi, "\n")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/g, " ")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\n[ \t]+/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
+  // Greenhouse/Lever content (and fetched pages) arrive entity-escaped — see server/htmlToText.ts.
+  const stripHtml = (html: string) => htmlToText(html, { decodeEntitiesFirst: true });
 
   app.post("/api/sources/fetchCompanyJobs", async (req, res) => {
     const { boardToken } = req.body as { boardToken: string };

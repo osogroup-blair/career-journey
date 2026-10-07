@@ -9,8 +9,11 @@ import {
   type DiscoveredJob,
   type DiscoveredJobDetail,
   type DiscoveryProfile,
+  type ListingStatusResult,
 } from "../../src/types/discovery";
-import { getJob, searchJobs, StillOpenError } from "./stillOpenClient";
+import { checkStatus, getJob, searchJobs, StillOpenError } from "./stillOpenClient";
+import { htmlToText } from "../htmlToText";
+import { formatLocationNotes, formatSalary } from "../../src/lib/discoveryFormat";
 import {
   claimRun,
   computeNextRunAt,
@@ -203,12 +206,49 @@ export function createDiscoveryRouter(): express.Router {
         company: d.company,
         canonicalUrl: d.canonical_url ?? null,
         applyUrl: d.apply_url ?? null,
-        descriptionText: d.description_text || "",
+        // description_text has every line break stripped (checked live), which runs headings into
+        // paragraphs and leaves nothing for JD segmentation to split on — the HTML keeps the structure.
+        descriptionText: d.description_html ? htmlToText(d.description_html) : d.description_text || "",
         skills: d.skills || [],
         employmentType: d.employment_type ?? null,
+        salaryText: formatSalary(d.salary),
+        locationNotes: formatLocationNotes(d.locations || [], d.employment_type),
         status: d.status,
       };
       res.json(detail);
+    } catch (e) {
+      sendError(res, e);
+    }
+  });
+
+  // The Apply stage's "is this still open?" check for a pipeline job that came from StillOpen.
+  // Only answers for listings behind one of the caller's own jobs or matches, so it can't be
+  // used to probe StillOpen for arbitrary ids. Both lookups are single-field queries (no index).
+  router.get("/listings/:id/status", async (req, res) => {
+    const id = String(req.params.id);
+    if (!/^\d{1,12}$/.test(id)) {
+      res.status(400).json({ error: "Invalid listing id." });
+      return;
+    }
+    try {
+      const userDoc = getFirestore(getAdminApp()!).collection("users").doc(uidOf(req));
+      const [jobHit, matchHit] = await Promise.all([
+        userDoc.collection("jobs").where("source.listingId", "==", id).limit(1).get(),
+        userDoc.collection("matches").where("externalId", "==", id).limit(1).get(),
+      ]);
+      if (jobHit.empty && matchHit.empty) {
+        res.status(404).json({ error: "That listing isn't linked to any of your jobs." });
+        return;
+      }
+      const [entry] = await checkStatus([Number(id)]);
+      const result: ListingStatusResult = {
+        // merged_into means StillOpen folded it into another listing — this one is effectively gone.
+        status: entry?.merged_into ? "closed" : entry?.status ?? "unknown",
+        closedAt: entry?.closed_at ?? null,
+        closure: entry?.merged_into ? "merged" : entry?.closure ?? null,
+        checkedAt: new Date().toISOString(),
+      };
+      res.json(result);
     } catch (e) {
       sendError(res, e);
     }

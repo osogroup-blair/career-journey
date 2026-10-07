@@ -130,7 +130,8 @@ const SearchResponseSchema = z
   })
   .passthrough();
 
-const DetailSchema = StillOpenListingSchema.extend({
+export const DetailSchema = StillOpenListingSchema.extend({
+  description_html: z.string().nullish(),
   description_text: z.string().nullish(),
   skills: z.array(z.string()).nullish(),
   apply_url: z.string().nullish(),
