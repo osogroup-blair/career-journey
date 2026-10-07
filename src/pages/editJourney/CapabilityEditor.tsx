@@ -3,6 +3,7 @@ import { Plus, ArrowUpCircle } from 'lucide-react';
 import { Button, Card, Label } from '../../components/ui';
 import { EditField, EntityPicker, SelectField, DeleteButton } from '../../components/journey/fields';
 import * as m from '../../lib/journeyMutations';
+import { roleLabel } from '../../lib/journeySections';
 import { useEditor } from './EditorContext';
 
 // `key` listed explicitly: no @types/react here, so JSX doesn't strip it (see JobTracker.tsx).
@@ -33,11 +34,13 @@ function FunctionCard({ fn }: { key?: string; fn: any }) {
 }
 
 export function CapabilityEditor({ id }: { id: string }) {
-  const { cj, mutate, vocab, open } = useEditor();
+  const { cj, mutate, vocab, open, options } = useEditor();
   const cap = (cj.capabilities || []).find((c: any) => c.id === id);
   if (!cap) return null;
   const update = (patch: any) => mutate((d) => m.updateCapability(d, id, patch));
   const functions = cap.functions || [];
+  // One chip per project, however many of its deliverables align to this capability.
+  const projects = [...new Map(m.capabilityDeliverables(cj, id).map((x) => [x.initiative.id, x])).values()];
 
   return (
     <div className="space-y-6">
@@ -46,6 +49,35 @@ export function CapabilityEditor({ id }: { id: string }) {
         <SelectField label="Maturity" value={cap.maturity_level} options={vocab.maturity_levels} onCommit={(v) => update({ maturity_level: v })} />
       </div>
       <EditField label="Description" value={cap.description} onCommit={(v) => update({ description: v })} textarea rows={3} />
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <EntityPicker
+          label="Roles"
+          options={options.roles}
+          value={m.capabilityRoleIds(cj, id)}
+          onChange={(roleIds) => mutate((d, ids) => m.setCapabilityRoles(d, ids, id, roleIds))}
+          onChipClick={(roleId) => open('roles', roleId)}
+        />
+        <EntityPicker
+          label="Education"
+          options={options.education}
+          value={m.referrerIds(cj.education, 'capability_alignment', id)}
+          onChange={(eduIds) => mutate((d) => m.setReferrers(d.education, 'capability_alignment', id, eduIds))}
+          onChipClick={(eduId) => open('education', eduId)}
+        />
+      </div>
+
+      <div>
+        <Label>Project deliverables ({projects.length})</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {projects.length === 0 && <span className="text-xs text-slate-400">No deliverables are aligned to this capability. Link it from a deliverable on the project.</span>}
+          {projects.map(({ role, initiative }) => (
+            <button key={initiative.id} type="button" onClick={() => open('projects', initiative.id)} className="text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-700 hover:bg-brand-50 hover:text-brand-800">
+              {initiative.name || initiative.id} <span className="text-slate-400">· {roleLabel(role)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div>
         <div className="flex items-center justify-between mb-3">

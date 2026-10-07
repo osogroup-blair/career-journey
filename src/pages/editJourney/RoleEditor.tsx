@@ -37,15 +37,24 @@ export function RoleEditor({ id }: { id: string }) {
 
       <RoleResumeDetails role={role} onChange={update} />
 
-      <EntityPicker
-        label="Skills used in this role"
-        options={options.skills}
-        value={role.skills}
-        onChange={(skills) => update({ skills })}
-        onCreate={createSkill}
-        createLabel="Add new skill"
-        onChipClick={(skillId) => open('skills', skillId)}
-      />
+      <div className="grid md:grid-cols-2 gap-4">
+        <EntityPicker
+          label="Skills used in this role"
+          options={options.skills}
+          value={role.skills}
+          onChange={(skills) => update({ skills })}
+          onCreate={createSkill}
+          createLabel="Add new skill"
+          onChipClick={(skillId) => open('skills', skillId)}
+        />
+        <EntityPicker
+          label="Capabilities"
+          options={options.capabilities}
+          value={m.roleCapabilityIds(cj, id)}
+          onChange={(capIds) => mutate((d, ids) => m.setRoleCapabilities(d, ids, id, capIds))}
+          onChipClick={(capId) => open('capabilities', capId)}
+        />
+      </div>
 
       <div>
         <div className="flex items-center justify-between mb-2">
@@ -93,17 +102,13 @@ export function RoleEditor({ id }: { id: string }) {
             <Plus className="w-3.5 h-3.5 mr-1 text-brand-600" /> Add achievement
           </Button>
         </div>
-        <ul className="space-y-1">
-          {achievements.length === 0 && <li className="text-xs text-slate-400">No achievements linked yet.</li>}
-          {achievements.map((a: any) => (
-            <li key={a.id}>
-              <button type="button" onClick={() => open('achievements', a.id)} className="text-left text-sm text-slate-700 hover:text-brand-700 hover:underline">
-                <span className="text-[11px] text-slate-400 mr-1.5">{a.id}</span>
-                {a.title}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <EntityPicker
+          options={options.achievements}
+          value={achievements.map((a: any) => a.id)}
+          onChange={(achIds) => mutate((d, ids) => m.setRoleAchievements(d, ids, id, achIds))}
+          placeholder="Search to link an existing achievement…"
+          onChipClick={(achId) => open('achievements', achId)}
+        />
       </div>
 
       <div className="pt-4 border-t border-slate-100">

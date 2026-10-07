@@ -110,6 +110,17 @@ describe('achievements', () => {
     expect(m.achievementRoleIds(journey, 'ACH-001')).toEqual(['ROLE-003']);
   });
 
+  it('setRoleAchievements links and unlinks from the role side', () => {
+    const { journey } = run((d, ids) => m.setRoleAchievements(d, ids, 'ROLE-001', ['ACH-002', 'ACH-003']));
+    expect(m.achievementRoleIds(journey, 'ACH-001')).toEqual([]);
+    expect(m.achievementRoleIds(journey, 'ACH-003').sort()).toEqual(['ROLE-001', 'ROLE-002']);
+    expect(journey.links.timeline_mappings.map((x: any) => [x.entity_id, x.role_id])).toEqual([
+      ['ACH-002', 'ROLE-001'],
+      ['ACH-003', 'ROLE-001'],
+    ]);
+    valid(journey);
+  });
+
   it('delete removes the achievement and its link rows', () => {
     const { journey } = run((d) => m.deleteAchievement(d, 'ACH-001'));
     expect(journey.achievements.map((a: any) => a.id)).toEqual(['ACH-002', 'ACH-003']);
@@ -131,6 +142,31 @@ describe('skills', () => {
     const copy = journey.capabilities[0].functions[0].skills.find((s: any) => s.id === 'SK-001');
     expect(copy).toMatchObject({ name: 'Renamed', proficiency: 'Expert' });
     expect(copy.category).toBeUndefined();
+  });
+
+  it('setSkillRoles writes role.skills and drops stale skill mappings', () => {
+    const cj = fresh();
+    cj.links.timeline_mappings.push({ id: 'MAP-009', entity_type: 'skill', entity_id: 'SK-003', role_id: 'ROLE-003' });
+    expect(m.skillRoleIds(cj, 'SK-003').sort()).toEqual(['ROLE-001', 'ROLE-002', 'ROLE-003']);
+    const { journey } = run((d, ids) => m.setSkillRoles(d, ids, 'SK-003', ['ROLE-002', 'ROLE-003']), cj);
+    expect(m.referrerIds(journey.roles, 'skills', 'SK-003')).toEqual(['ROLE-002', 'ROLE-003']);
+    expect(journey.links.timeline_mappings.filter((x: any) => x.entity_type === 'skill')).toHaveLength(1);
+    const { journey: removed } = run((d, ids) => m.setSkillRoles(d, ids, 'SK-003', []), journey);
+    expect(m.skillRoleIds(removed, 'SK-003')).toEqual([]);
+    valid(removed);
+  });
+
+  it('setSkillFunctions adds index copies and removes from other functions', () => {
+    const { journey } = run((d) => m.setSkillFunctions(d, 'SK-001', ['FUNC-003']));
+    expect(m.skillFunctionIds(journey, 'SK-001')).toEqual(['FUNC-003']);
+    expect(journey.capabilities[2].functions[0].skills.at(-1)).toMatchObject({ id: 'SK-001', name: journey.skills_index[0].name });
+    expect(journey.capabilities[2].functions[0].skills.at(-1).category).toBeUndefined();
+  });
+
+  it('setReferrers edits the other side of an id array', () => {
+    const { journey } = run((d) => m.setReferrers(d.achievements, 'skill_ids', 'SK-001', ['ACH-003']));
+    expect(m.referrerIds(journey.achievements, 'skill_ids', 'SK-001')).toEqual(['ACH-003']);
+    expect(journey.achievements[0].skill_ids).toEqual(['SK-002']);
   });
 
   it('deleteSkill strips every reference to the id', () => {
@@ -160,6 +196,22 @@ describe('capabilities', () => {
     expect(journey.links.deliverable_function.map((k: any) => k.function_id)).toEqual(['FUNC-002']);
     expect(journey.education[0].capability_alignment).toEqual([]);
     expect(JSON.stringify(journey.roles).includes('"CAP-001"')).toBe(false);
+  });
+
+  it('links capabilities and roles through timeline mappings, from either side', () => {
+    const { journey } = run((d, ids) => m.setCapabilityRoles(d, ids, 'CAP-001', ['ROLE-001', 'ROLE-002']));
+    expect(m.capabilityRoleIds(journey, 'CAP-001')).toEqual(['ROLE-001', 'ROLE-002']);
+    expect(journey.links.timeline_mappings.at(-1)).toMatchObject({ id: 'MAP-003', entity_type: 'capability', entity_id: 'CAP-001', role_id: 'ROLE-002' });
+    valid(journey);
+    const { journey: next } = run((d, ids) => m.setRoleCapabilities(d, ids, 'ROLE-001', ['CAP-003']), journey);
+    expect(m.roleCapabilityIds(next, 'ROLE-001')).toEqual(['CAP-003']);
+    expect(m.capabilityRoleIds(next, 'CAP-001')).toEqual(['ROLE-002']);
+    // Achievement mappings on the same role are untouched.
+    expect(m.achievementRoleIds(next, 'ACH-001')).toEqual(['ROLE-001']);
+  });
+
+  it('lists deliverables aligned to a capability', () => {
+    expect(m.capabilityDeliverables(fresh(), 'CAP-002').map((x) => x.deliverable.id)).toEqual(['DEL-001', 'DEL-003']);
   });
 
   it('upgrades a legacy string function in place', () => {

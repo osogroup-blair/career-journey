@@ -18,7 +18,7 @@ export interface EditorContextValue {
   mutate: <T>(recipe: (draft: any, ids: mutations.IdAlloc) => T) => T | undefined;
   /** Navigate to a section, optionally opening one item or pre-filling the search. */
   open: (section: SectionId, itemId?: string, query?: string) => void;
-  options: { skills: PickerOption[]; roles: PickerOption[]; capabilities: PickerOption[] };
+  options: Record<'skills' | 'roles' | 'capabilities' | 'functions' | 'achievements' | 'education', PickerOption[]>;
   vocab: typeof FALLBACK_VOCAB;
   /** Distinct existing values, for free-text suggestions. */
   categories: { skills: string[]; achievements: string[] };
@@ -54,6 +54,13 @@ export function EditorProvider({ open, children }: { open: EditorContextValue['o
         skills: (cj?.skills_index || []).map((s: any) => ({ id: s.id, label: s.name || s.id, hint: s.category })),
         roles: (cj?.roles || []).map((r: any) => ({ id: r.id, label: roleLabel(r), hint: r.dates })),
         capabilities: (cj?.capabilities || []).map((c: any) => ({ id: c.id, label: c.name || c.id, hint: c.maturity_level })),
+        functions: (cj?.capabilities || []).flatMap((c: any) =>
+          (c.functions || [])
+            .filter((f: any) => f && typeof f === 'object')
+            .map((f: any) => ({ id: f.id, label: `${c.name || c.id} › ${f.name || f.id}`, hint: f.competency_level }))
+        ),
+        achievements: (cj?.achievements || []).map((a: any) => ({ id: a.id, label: a.title || a.id, hint: a.category })),
+        education: (cj?.education || []).map((e: any) => ({ id: e.id, label: [e.institution, e.program].filter(Boolean).join(' — ') || e.id, hint: e.end })),
       },
       vocab: {
         proficiency_levels: vocabOr(vocab.proficiency_levels, FALLBACK_VOCAB.proficiency_levels),

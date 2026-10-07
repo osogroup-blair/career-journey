@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Label } from '../../components/ui';
-import { EditField, NumberField, SelectField, DeleteButton, Suggestions } from '../../components/journey/fields';
+import { EditField, EntityPicker, NumberField, SelectField, DeleteButton, Suggestions } from '../../components/journey/fields';
 import * as m from '../../lib/journeyMutations';
 import { roleLabel, type SectionId } from '../../lib/journeySections';
 import { useEditor } from './EditorContext';
@@ -25,9 +25,11 @@ function skillUsage(cj: any, skillId: string) {
 }
 
 export function SkillEditor({ id }: { id: string }) {
-  const { cj, mutate, open, vocab, categories } = useEditor();
+  const { cj, mutate, open, vocab, categories, options } = useEditor();
   const skill = (cj.skills_index || []).find((s: any) => s.id === id);
   const usage = useMemo(() => skillUsage(cj, id), [cj, id]);
+  // Deliverables are edited on their project, so they stay a read-only list here.
+  const projects = usage.filter((u) => u.section === 'projects');
   if (!skill) return null;
   const update = (patch: any) => mutate((d) => m.updateSkill(d, id, patch));
 
@@ -45,12 +47,43 @@ export function SkillEditor({ id }: { id: string }) {
       </div>
       <EditField label="Description" value={skill.description} onCommit={(v) => update({ description: v })} textarea rows={2} placeholder="Optional — what this skill looks like in your work." />
 
+      <div className="grid md:grid-cols-2 gap-4">
+        <EntityPicker
+          label="Roles"
+          options={options.roles}
+          value={m.skillRoleIds(cj, id)}
+          onChange={(roleIds) => mutate((d, ids) => m.setSkillRoles(d, ids, id, roleIds))}
+          onChipClick={(roleId) => open('roles', roleId)}
+        />
+        <EntityPicker
+          label="Capability functions"
+          options={options.functions}
+          value={m.skillFunctionIds(cj, id)}
+          onChange={(fnIds) => mutate((d) => m.setSkillFunctions(d, id, fnIds))}
+          onChipClick={(fnId) => open('capabilities', m.findFunction(cj, fnId)?.capability.id)}
+        />
+        <EntityPicker
+          label="Achievements"
+          options={options.achievements}
+          value={m.referrerIds(cj.achievements, 'skill_ids', id)}
+          onChange={(achIds) => mutate((d) => m.setReferrers(d.achievements, 'skill_ids', id, achIds))}
+          onChipClick={(achId) => open('achievements', achId)}
+        />
+        <EntityPicker
+          label="Education"
+          options={options.education}
+          value={m.referrerIds(cj.education, 'skills_reinforced', id)}
+          onChange={(eduIds) => mutate((d) => m.setReferrers(d.education, 'skills_reinforced', id, eduIds))}
+          onChipClick={(eduId) => open('education', eduId)}
+        />
+      </div>
+
       <div>
-        <Label>Used in ({usage.length})</Label>
+        <Label>Project deliverables ({projects.length})</Label>
         <div className="flex flex-wrap gap-1.5">
-          {usage.length === 0 && <span className="text-xs text-slate-400">Not referenced by any role, project, capability or achievement yet.</span>}
-          {usage.map((u, idx) => (
-            <button key={`${u.section}-${u.id}-${idx}`} type="button" onClick={() => open(u.section, u.id)} className="text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-700 hover:bg-brand-50 hover:text-brand-800">
+          {projects.length === 0 && <span className="text-xs text-slate-400">No deliverables use this skill. Link it from a deliverable on the project.</span>}
+          {projects.map((u, idx) => (
+            <button key={`${u.id}-${idx}`} type="button" onClick={() => open(u.section, u.id)} className="text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-700 hover:bg-brand-50 hover:text-brand-800">
               {u.label}
             </button>
           ))}

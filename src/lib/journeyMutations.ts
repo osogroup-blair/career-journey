@@ -9,6 +9,10 @@ import { createIdAllocator, type IdPrefix } from './careerJourneyIds';
  * - deliverables:  roles[].initiatives[].deliverables[]
  * - function skills: capabilities[].functions[].skills[] — copies of skills_index entries (same id)
  * - achievement <-> role: achievement.role_ids AND links.timeline_mappings (both kept in sync here)
+ * - skill <-> role: role.skills;  capability <-> role: links.timeline_mappings only
+ *
+ * Every many-to-many link has a setter from each side (setSkillRoles / role.skills,
+ * setRoleCapabilities / setCapabilityRoles, …) so either editor can manage it.
  *
  * Every delete runs `purgeReferences`, so removing an entity never leaves dangling ids
  * in links.* or in another entity's id arrays.
@@ -252,41 +256,93 @@ export function deleteDeliverable(d: Draft, deliverableId: string) {
 // Achievements
 // ---------------------------------------------------------------------------
 
+/** `role_id`s of the timeline mappings for one entity. */
+function mappedRoles(d: Draft, entityType: string, entityId: string): string[] {
+  return (d.links?.timeline_mappings || [])
+    .filter((m: any) => m.entity_type === entityType && m.entity_id === entityId && m.role_id)
+    .map((m: any) => m.role_id);
+}
+
+/**
+ * Makes the role-linked timeline mappings of `entityType` that fall in `scope` match the
+ * wanted (entityId, roleId) pairs: unwanted rows go, existing wanted rows are kept as-is
+ * (initiative_id/context intact), and missing ones are added unless `add` is false.
+ */
+function syncRoleMappings(
+  d: Draft,
+  ids: IdAlloc,
+  entityType: string,
+  scope: (m: any) => boolean,
+  wanted: [entityId: string, roleId: string][],
+  add = true
+) {
+  const links = ensureLinks(d);
+  const key = (entityId: string, roleId: string) => `${entityId}\u0000${roleId}`;
+  const want = new Set(wanted.map(([e, r]) => key(e, r)));
+  const inScope = (m: any) => m.entity_type === entityType && m.role_id && scope(m);
+  links.timeline_mappings = links.timeline_mappings.filter((m: any) => !inScope(m) || want.has(key(m.entity_id, m.role_id)));
+  if (!add) return;
+  const have = new Set(links.timeline_mappings.filter(inScope).map((m: any) => key(m.entity_id, m.role_id)));
+  for (const [entityId, roleId] of wanted) {
+    if (have.has(key(entityId, roleId))) continue;
+    have.add(key(entityId, roleId));
+    const role = findRole(d, roleId);
+    links.timeline_mappings.push({
+      id: ids('MAP'),
+      entity_type: entityType,
+      entity_id: entityId,
+      role_id: roleId,
+      initiative_id: null,
+      context: `Linked in the Career Journey editor to ${role?.title || roleId}${role?.organization ? ` at ${role.organization}` : ''}.`,
+    });
+  }
+}
+
+/** Adds or removes `id` from `item[field]` so membership matches `member`. */
+function setMember(item: any, field: string, id: string, member: boolean) {
+  const current: string[] = Array.isArray(item[field]) ? item[field] : [];
+  const has = current.includes(id);
+  if (member && !has) item[field] = [...current, id];
+  else if (!member && has) item[field] = current.filter((x) => x !== id);
+}
+
+/**
+ * The inverse of an id-array field: makes `id` appear in `items[].field` for exactly the
+ * items in `itemIds` — e.g. which roles' `skills` contain a skill.
+ */
+export function setReferrers(items: any[] | undefined, field: string, id: string, itemIds: string[]) {
+  const wanted = new Set(itemIds);
+  for (const item of items || []) setMember(item, field, id, wanted.has(item.id));
+}
+
+/** Ids of the items whose `field` array contains `id`. */
+export function referrerIds(items: any[] | undefined, field: string, id: string): string[] {
+  return (items || []).filter((x: any) => Array.isArray(x[field]) && x[field].includes(id)).map((x: any) => x.id);
+}
+
 /** Role ids an achievement is linked to, via role_ids or timeline_mappings. */
 export function achievementRoleIds(d: Draft, achievementId: string): string[] {
   const ach = (d.achievements || []).find((a: any) => a.id === achievementId);
-  const out = new Set<string>(ach?.role_ids || []);
-  for (const m of d.links?.timeline_mappings || []) {
-    if (m.entity_type === 'achievement' && m.entity_id === achievementId && m.role_id) out.add(m.role_id);
-  }
-  return [...out];
+  return [...new Set<string>([...(ach?.role_ids || []), ...mappedRoles(d, 'achievement', achievementId)])];
 }
 
 /** Sets the achievement's roles, keeping role_ids and timeline_mappings in step. */
 export function setAchievementRoles(d: Draft, ids: IdAlloc, achievementId: string, roleIds: string[]) {
   const ach = (d.achievements || []).find((a: any) => a.id === achievementId);
   if (!ach) return;
-  const wanted = new Set(roleIds);
-  ach.role_ids = [...wanted];
-  const links = ensureLinks(d);
-  links.timeline_mappings = links.timeline_mappings.filter(
-    (m: any) => !(m.entity_type === 'achievement' && m.entity_id === achievementId && m.role_id && !wanted.has(m.role_id))
-  );
-  const mapped = new Set(
-    links.timeline_mappings.filter((m: any) => m.entity_type === 'achievement' && m.entity_id === achievementId).map((m: any) => m.role_id)
-  );
-  for (const roleId of wanted) {
-    if (mapped.has(roleId)) continue;
-    const role = findRole(d, roleId);
-    links.timeline_mappings.push({
-      id: ids('MAP'),
-      entity_type: 'achievement',
-      entity_id: achievementId,
-      role_id: roleId,
-      initiative_id: null,
-      context: `Linked in the Career Journey editor to ${role?.title || roleId}${role?.organization ? ` at ${role.organization}` : ''}.`,
-    });
+  const wanted = [...new Set(roleIds)];
+  ach.role_ids = wanted;
+  syncRoleMappings(d, ids, 'achievement', (m) => m.entity_id === achievementId, wanted.map((r) => [achievementId, r]));
+}
+
+/** The role-side view of the same link: which achievements a role has. */
+export function setRoleAchievements(d: Draft, ids: IdAlloc, roleId: string, achievementIds: string[]) {
+  const wanted = [...new Set(achievementIds)];
+  for (const ach of d.achievements || []) {
+    if (wanted.includes(ach.id)) setMember(ach, 'role_ids', roleId, true);
+    else if (Array.isArray(ach.role_ids)) setMember(ach, 'role_ids', roleId, false);
   }
+  syncRoleMappings(d, ids, 'achievement', (m) => m.role_id === roleId, wanted.map((a) => [a, roleId]));
 }
 
 export function addAchievement(d: Draft, ids: IdAlloc, fields: any = {}, roleIds: string[] = []) {
@@ -340,6 +396,43 @@ export function updateSkill(d: Draft, skillId: string, patch: any) {
   }
 }
 
+/** Roles that use a skill: `role.skills` (canonical), plus any older skill timeline mappings. */
+export function skillRoleIds(d: Draft, skillId: string): string[] {
+  return [...new Set([...referrerIds(d.roles, 'skills', skillId), ...mappedRoles(d, 'skill', skillId)])];
+}
+
+/** Sets which roles use a skill — writes `role.skills` and drops skill mappings to roles no longer wanted. */
+export function setSkillRoles(d: Draft, ids: IdAlloc, skillId: string, roleIds: string[]) {
+  setReferrers(d.roles, 'skills', skillId, roleIds);
+  syncRoleMappings(d, ids, 'skill', (m) => m.entity_id === skillId, roleIds.map((r) => [skillId, r]), false);
+}
+
+/** Function ids (across all capabilities) whose nested skills include this skill. */
+export function skillFunctionIds(d: Draft, skillId: string): string[] {
+  const out: string[] = [];
+  for (const capability of d.capabilities || []) {
+    for (const fn of capability.functions || []) {
+      if (fn && typeof fn === 'object' && (fn.skills || []).some((s: any) => s?.id === skillId)) out.push(fn.id);
+    }
+  }
+  return out;
+}
+
+/** Sets which capability functions carry this skill (as a copy of the index entry). */
+export function setSkillFunctions(d: Draft, skillId: string, functionIds: string[]) {
+  const wanted = new Set(functionIds);
+  const skill = (d.skills_index || []).find((s: any) => s.id === skillId);
+  for (const capability of d.capabilities || []) {
+    for (const fn of capability.functions || []) {
+      if (!fn || typeof fn !== 'object') continue;
+      const skills: any[] = Array.isArray(fn.skills) ? fn.skills : [];
+      const has = skills.some((s: any) => s?.id === skillId);
+      if (wanted.has(fn.id) && !has && skill) fn.skills = [...skills, toFunctionSkill(skill)];
+      else if (!wanted.has(fn.id) && has) fn.skills = skills.filter((s: any) => s?.id !== skillId);
+    }
+  }
+}
+
 export function deleteSkill(d: Draft, skillId: string) {
   d.skills_index = (d.skills_index || []).filter((s: any) => s.id !== skillId);
   purgeReferences(d, new Set([skillId]));
@@ -358,6 +451,45 @@ export function addCapability(d: Draft, ids: IdAlloc, fields: any = {}) {
 export function updateCapability(d: Draft, capabilityId: string, patch: any) {
   const capability = (d.capabilities || []).find((c: any) => c.id === capabilityId);
   if (capability) Object.assign(capability, patch);
+}
+
+/**
+ * Capabilities have no role field of their own: a capability <-> role link is a
+ * `capability` timeline mapping. (Deliverables' `capability_alignment` is separate,
+ * finer-grained evidence — see capabilityDeliverables.)
+ */
+export function capabilityRoleIds(d: Draft, capabilityId: string): string[] {
+  return [...new Set(mappedRoles(d, 'capability', capabilityId))];
+}
+
+export function setCapabilityRoles(d: Draft, ids: IdAlloc, capabilityId: string, roleIds: string[]) {
+  syncRoleMappings(d, ids, 'capability', (m) => m.entity_id === capabilityId, [...new Set(roleIds)].map((r) => [capabilityId, r]));
+}
+
+/** The role-side view of the same link. */
+export function roleCapabilityIds(d: Draft, roleId: string): string[] {
+  return [
+    ...new Set<string>(
+      (d.links?.timeline_mappings || []).filter((m: any) => m.entity_type === 'capability' && m.role_id === roleId).map((m: any) => m.entity_id)
+    ),
+  ];
+}
+
+export function setRoleCapabilities(d: Draft, ids: IdAlloc, roleId: string, capabilityIds: string[]) {
+  syncRoleMappings(d, ids, 'capability', (m) => m.role_id === roleId, [...new Set(capabilityIds)].map((c) => [c, roleId]));
+}
+
+/** Deliverables aligned to a capability, with the project and role they sit under. */
+export function capabilityDeliverables(d: Draft, capabilityId: string) {
+  const out: { role: any; initiative: any; deliverable: any }[] = [];
+  for (const role of d.roles || []) {
+    for (const initiative of role.initiatives || []) {
+      for (const deliverable of initiative.deliverables || []) {
+        if ((deliverable.capability_alignment || []).includes(capabilityId)) out.push({ role, initiative, deliverable });
+      }
+    }
+  }
+  return out;
 }
 
 export function deleteCapability(d: Draft, capabilityId: string) {
