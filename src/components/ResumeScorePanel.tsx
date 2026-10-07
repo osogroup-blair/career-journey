@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { JobAnalysis, ResumeAiScore } from '../types';
 import { ResumeKeywordScore } from '../lib/resumeScore';
+import { KeywordFix } from '../lib/resumeKeywordFix';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, LoadingButton } from './ui';
 import { cn } from '../lib/utils';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, RefreshCw, Sparkles, XCircle } from 'lucide-react';
@@ -11,7 +12,12 @@ interface Props {
   currentFingerprint: string;
   isRebuilding: boolean;
   isScoring: boolean;
+  /** Full strategy + resume rebuild with the missing keywords — replaces manual edits. */
   onRebuild: (keywords: string[]) => void;
+  /** Sections a targeted fix would rewrite (resumeKeywordFix.ts). */
+  fixPlan: KeywordFix[];
+  onFixMissing: () => void;
+  isFixing: boolean;
   onAiScore: () => void;
 }
 
@@ -20,17 +26,25 @@ function scoreTone(score: number, passed: boolean) {
   return score >= 65 ? 'text-amber-600' : 'text-red-600';
 }
 
-export default function ResumeScorePanel({ job, coverage, currentFingerprint, isRebuilding, isScoring, onRebuild, onAiScore }: Props) {
+export default function ResumeScorePanel({ job, coverage, currentFingerprint, isRebuilding, isScoring, onRebuild, fixPlan, onFixMissing, isFixing, onAiScore }: Props) {
   return (
     <div className="space-y-4">
-      <KeywordCard coverage={coverage} isRebuilding={isRebuilding} onRebuild={onRebuild} />
+      <KeywordCard coverage={coverage} isRebuilding={isRebuilding} onRebuild={onRebuild} fixPlan={fixPlan} onFixMissing={onFixMissing} isFixing={isFixing} />
       <AiCard score={job.resumeAiScore} isStale={!!job.resumeAiScore && job.resumeAiScore.resumeFingerprint !== currentFingerprint} isScoring={isScoring} onAiScore={onAiScore} />
     </div>
   );
 }
 
-function KeywordCard({ coverage, isRebuilding, onRebuild }: { coverage: ResumeKeywordScore; isRebuilding: boolean; onRebuild: (k: string[]) => void }) {
+function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing, isFixing }: {
+  coverage: ResumeKeywordScore;
+  isRebuilding: boolean;
+  onRebuild: (k: string[]) => void;
+  fixPlan: KeywordFix[];
+  onFixMissing: () => void;
+  isFixing: boolean;
+}) {
   const [showAll, setShowAll] = useState(false);
+  const [confirmRebuild, setConfirmRebuild] = useState(false);
   const missingCritical = coverage.criticalSkillCoverage.filter((c) => !c.present);
   const nothingToScore = coverage.criticalSkillCoverage.length + coverage.secondaryKeywordCoverage.length === 0;
 
@@ -79,14 +93,32 @@ function KeywordCard({ coverage, isRebuilding, onRebuild }: { coverage: ResumeKe
                 </div>
                 <LoadingButton
                   size="sm"
-                  variant="outline"
                   className="mt-3 w-full"
-                  onClick={() => onRebuild(coverage.missingKeywords)}
-                  isLoading={isRebuilding}
-                  loadingLabel="Rebuilding…"
+                  onClick={onFixMissing}
+                  disabled={isRebuilding || fixPlan.length === 0}
+                  isLoading={isFixing}
+                  loadingLabel="Rewriting sections…"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Rebuild with {coverage.missingKeywords.length} missing keyword{coverage.missingKeywords.length === 1 ? '' : 's'}
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Fix {coverage.missingKeywords.length} missing keyword{coverage.missingKeywords.length === 1 ? '' : 's'}
                 </LoadingButton>
+                {fixPlan.length > 0 && (
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    Rewrites only {fixPlan.map((f) => f.label).join(', ')}. Your edits elsewhere stay as they are.
+                  </p>
+                )}
+                {!confirmRebuild ? (
+                  <button type="button" className="mt-2 text-[11px] font-semibold text-slate-500 hover:text-slate-700" onClick={() => setConfirmRebuild(true)} disabled={isRebuilding || isFixing}>
+                    Full rebuild instead…
+                  </button>
+                ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                    <span className="flex-1 min-w-[140px]">A full rebuild rewrites the whole resume and replaces your manual edits.</span>
+                    <LoadingButton size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => { setConfirmRebuild(false); onRebuild(coverage.missingKeywords); }} isLoading={isRebuilding} loadingLabel="Rebuilding…">
+                      <RefreshCw className="w-3 h-3 mr-1" /> Rebuild anyway
+                    </LoadingButton>
+                    <button type="button" className="font-semibold text-slate-500 hover:text-slate-700" onClick={() => setConfirmRebuild(false)}>Cancel</button>
+                  </div>
+                )}
               </div>
             )}
 

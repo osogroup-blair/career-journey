@@ -7,8 +7,8 @@ import {
 } from '../components/ui';
 import EvidenceTrace from '../components/EvidenceTrace';
 import { KeywordSignal, ExperienceContext } from '../types';
-import { generateId } from '../lib/utils';
-import { diffCareerJourneyRoles } from '../lib/careerJourneyDiff';
+import { generateId, nameSlug } from '../lib/utils';
+import { diffCareerJourney, CollectionDiff } from '../lib/careerJourneyDiff';
 import { needsReanalysis, editKeyword, toggleCritical, removeKeywords, mergeKeywords, addKeyword, MAX_TOP_CRITICAL, type KeywordState } from '../lib/keywordList';
 import { Sparkles, ShieldAlert, ArrowRight, Plus, Minus, Pencil, CheckCircle2, Lock, Star, Trash2, Merge, AlertTriangle } from 'lucide-react';
 
@@ -123,6 +123,19 @@ export default function RatingStage() {
           </LoadingButton>
         )}
       </div>
+
+      {!finalized && canFinalize && keywords.length === 0 && (
+        <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold">No keyword breakdown yet.</p>
+            <p className="text-xs mt-0.5">The resume writer works from it, and without it the keyword score only checks the parse's handful of top skills. Extract keywords on the Keyword Breakdown tab before finalizing.</p>
+          </div>
+          <LoadingButton size="sm" variant="outline" onClick={() => { setTab('keywords'); runKeywordExtraction(job.id); }} isLoading={isBusy('keywords')} loadingLabel="Extracting...">
+            Extract keywords
+          </LoadingButton>
+        </div>
+      )}
 
       <div className="flex border-b border-slate-200">
         {tabDef.map((t) => (
@@ -584,7 +597,8 @@ function PatchTab({ job, careerJourney, isGenerating, onGenerate, setCareerJourn
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(job.pendingCareerJourneyUpdate, null, 2));
       const a = document.createElement('a');
       a.setAttribute('href', dataStr);
-      a.setAttribute('download', `blair_boylan_career_journey_v${(patch.targetVersion || job.pendingCareerJourneyUpdate?.meta?.version || '').replace(/\./g, '_')}.json`);
+      const owner = nameSlug(job.pendingCareerJourneyUpdate?.person?.name || careerJourney?.person?.name, 'my').toLowerCase();
+      a.setAttribute('download', `${owner}_career_journey_v${(patch.targetVersion || job.pendingCareerJourneyUpdate?.meta?.version || '').replace(/\./g, '_')}.json`);
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -651,6 +665,10 @@ function PatchTab({ job, careerJourney, isGenerating, onGenerate, setCareerJourn
         </CardContent>
       </Card>
 
+      {job.pendingCareerJourneyUpdate && patch.approvalStatus !== 'Approved' && (
+        <PatchDiff diff={diffCareerJourney(careerJourney, job.pendingCareerJourneyUpdate)} />
+      )}
+
       <div className="flex justify-end gap-3">
         <Button variant="outline" onClick={onGenerate} disabled={isGenerating}>Regenerate Patch</Button>
         <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleApprove} disabled={patch.approvalStatus === 'Approved'}>
@@ -658,5 +676,53 @@ function PatchTab({ job, careerJourney, isGenerating, onGenerate, setCareerJourn
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Field-level view of what Approve & Merge will change in the Career Journey, per collection. */
+function PatchDiff({ diff }: { diff: CollectionDiff[] }) {
+  return (
+    <Card>
+      <CardHeader className="bg-slate-50 border-b pb-4">
+        <CardTitle className="text-lg">What's changing</CardTitle>
+        <p className="text-xs text-slate-500 mt-1">The exact edits Approve &amp; Merge will make to your Career Journey, compared with what's saved now.</p>
+      </CardHeader>
+      <CardContent className="pt-5 space-y-5 text-sm">
+        {diff.length === 0 && <p className="text-slate-500">No changes to your evidence. This patch would only bump the version.</p>}
+        {diff.map((c) => (
+          <div key={c.collection}>
+            <h4 className="font-bold border-b border-slate-200 mb-2 pb-1">
+              {c.label}{' '}
+              <span className="text-xs font-normal text-slate-500">
+                {[c.added.length && `${c.added.length} added`, c.changed.length && `${c.changed.length} changed`, c.removed.length && `${c.removed.length} removed`].filter(Boolean).join(' · ')}
+              </span>
+            </h4>
+            <ul className="space-y-1.5">
+              {c.added.map((e) => (
+                <li key={`a-${e.id}`} className="flex gap-2 text-emerald-800"><Plus className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span><span className="font-mono text-[10px] text-slate-400 mr-1">{e.id}</span>{e.label}</span></li>
+              ))}
+              {c.changed.map((e) => (
+                <li key={`c-${e.id}`} className="flex gap-2 text-amber-900">
+                  <Pencil className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="font-mono text-[10px] text-slate-400 mr-1">{e.id}</span>{e.label}
+                    <span className="text-[11px] text-slate-500"> ({e.fields.join(', ')})</span>
+                    {e.text && (
+                      <div className="mt-1 text-xs space-y-0.5">
+                        <div className="text-red-700 line-through decoration-red-300">{e.text.before}</div>
+                        <div className="text-emerald-800">{e.text.after}</div>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+              {c.removed.map((e) => (
+                <li key={`r-${e.id}`} className="flex gap-2 text-red-700"><Minus className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span className="line-through decoration-red-300"><span className="font-mono text-[10px] text-slate-400 mr-1">{e.id}</span>{e.label}</span></li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

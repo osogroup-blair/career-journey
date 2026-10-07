@@ -1,116 +1,83 @@
-// Structural, field-level diff between the current Career Journey and a proposed
-// replacement — used by PatchReview so "Approve & Merge JSON" shows exactly what
-// changes per role before it overwrites the user's real data, not just an AI summary.
+// What a staged Career Journey patch actually changes, entity by entity, so the
+// Rating stage's "Approve & Merge" shows the real edits to the candidate's data
+// before they overwrite it — not just the AI's own summary of them.
+//
+// Career Journey evidence is stored by id in several collections (roles hold
+// achievement/skill ids; descriptions live in top-level achievements and
+// skills_index; deliverables sit under roles[].initiatives[]), so the diff
+// works per collection, matching entities by id.
 
-interface EvidenceItem {
-  id?: string;
-  description?: string;
+export interface EntityChange {
+  id: string;
+  label: string;
+  /** Top-level fields whose value differs. */
+  fields: string[];
+  /** Before/after of the main text field, when it's one of the changed fields. */
+  text?: { before: string; after: string };
 }
 
-export interface RoleDiff {
-  roleId: string;
-  roleTitle: string;
-  addedSkills: string[];
-  removedSkills: string[];
-  addedDeliverables: string[];
-  removedDeliverables: string[];
-  changedDeliverables: { before: string; after: string }[];
-  addedAchievements: string[];
-  removedAchievements: string[];
-  changedAchievements: { before: string; after: string }[];
+export interface CollectionDiff {
+  collection: string;
+  label: string;
+  added: { id: string; label: string }[];
+  removed: { id: string; label: string }[];
+  changed: EntityChange[];
 }
 
-function diffStringList(before: string[], after: string[]): { added: string[]; removed: string[] } {
-  const beforeSet = new Set(before);
-  const afterSet = new Set(after);
-  return {
-    added: after.filter((v) => !beforeSet.has(v)),
-    removed: before.filter((v) => !afterSet.has(v)),
-  };
+const COLLECTIONS: { key: string; label: string; collect: (cj: any) => any[] }[] = [
+  { key: 'roles', label: 'Roles', collect: (cj) => (Array.isArray(cj?.roles) ? cj.roles : []) },
+  {
+    key: 'deliverables',
+    label: 'Deliverables',
+    collect: (cj) => [
+      ...(Array.isArray(cj?.deliverables) ? cj.deliverables : []),
+      ...(cj?.roles || []).flatMap((r: any) => [
+        ...(Array.isArray(r?.deliverables) ? r.deliverables.filter((d: any) => d && typeof d === 'object') : []),
+        ...(r?.initiatives || []).flatMap((i: any) => (Array.isArray(i?.deliverables) ? i.deliverables : [])),
+      ]),
+    ],
+  },
+  { key: 'achievements', label: 'Achievements', collect: (cj) => (Array.isArray(cj?.achievements) ? cj.achievements : []) },
+  { key: 'skills_index', label: 'Skills', collect: (cj) => (Array.isArray(cj?.skills_index) ? cj.skills_index : []) },
+  { key: 'capabilities', label: 'Capabilities', collect: (cj) => (Array.isArray(cj?.capabilities) ? cj.capabilities : []) },
+  { key: 'education', label: 'Education', collect: (cj) => (Array.isArray(cj?.education) ? cj.education : []) },
+  { key: 'certifications', label: 'Certifications', collect: (cj) => (Array.isArray(cj?.certifications) ? cj.certifications : []) },
+];
+
+const TEXT_FIELDS = ['description', 'title', 'name'];
+
+function entityLabel(e: any): string {
+  if (e?.title && (e.organization || e.company)) return `${e.title} at ${e.organization || e.company}`;
+  const text = e?.title || e?.name || e?.description || e?.institution || e?.id || '(untitled)';
+  return String(text).length > 140 ? `${String(text).slice(0, 137)}…` : String(text);
 }
 
-function diffEvidenceList(before: EvidenceItem[], after: EvidenceItem[]) {
-  const added: string[] = [];
-  const removed: string[] = [];
-  const changed: { before: string; after: string }[] = [];
+function byId(items: any[]): Map<string, any> {
+  const out = new Map<string, any>();
+  for (const item of items) if (item && typeof item === 'object' && typeof item.id === 'string') out.set(item.id, item);
+  return out;
+}
 
-  const beforeById = new Map(before.filter((b) => b.id).map((b) => [b.id, b]));
-  const beforeWithoutId = before.filter((b) => !b.id);
-  const matchedBeforeIds = new Set<string>();
-
-  for (const item of after) {
-    if (item.id && beforeById.has(item.id)) {
-      matchedBeforeIds.add(item.id);
-      const prev = beforeById.get(item.id)!;
-      if ((prev.description || '') !== (item.description || '')) {
-        changed.push({ before: prev.description || '', after: item.description || '' });
-      }
-    } else if (item.description && beforeWithoutId.some((b) => b.description === item.description)) {
-      // Unchanged item that never had an id — ignore.
-    } else {
-      added.push(item.description || '(no description)');
+/** Collections with at least one added, removed or changed entity. Unchanged collections are left out. */
+export function diffCareerJourney(before: any, after: any): CollectionDiff[] {
+  const out: CollectionDiff[] = [];
+  for (const c of COLLECTIONS) {
+    const prev = byId(c.collect(before));
+    const next = byId(c.collect(after));
+    const added = [...next.entries()].filter(([id]) => !prev.has(id)).map(([id, e]) => ({ id, label: entityLabel(e) }));
+    const removed = [...prev.entries()].filter(([id]) => !next.has(id)).map(([id, e]) => ({ id, label: entityLabel(e) }));
+    const changed: EntityChange[] = [];
+    for (const [id, e] of next) {
+      const p = prev.get(id);
+      if (!p) continue;
+      const keys = new Set([...Object.keys(p), ...Object.keys(e)]);
+      // A role's nested initiatives/deliverables are diffed in their own collection, not as a role field.
+      const fields = [...keys].filter((k) => !(c.key === 'roles' && k === 'initiatives') && JSON.stringify(p[k]) !== JSON.stringify(e[k]));
+      if (fields.length === 0) continue;
+      const textField = TEXT_FIELDS.find((f) => fields.includes(f) && (typeof p[f] === 'string' || typeof e[f] === 'string'));
+      changed.push({ id, label: entityLabel(e), fields, ...(textField ? { text: { before: String(p[textField] ?? ''), after: String(e[textField] ?? '') } } : {}) });
     }
+    if (added.length || removed.length || changed.length) out.push({ collection: c.key, label: c.label, added, removed, changed });
   }
-
-  for (const item of before) {
-    if (item.id && !matchedBeforeIds.has(item.id) && !after.some((a) => a.id === item.id)) {
-      removed.push(item.description || '(no description)');
-    }
-  }
-
-  return { added, removed, changed };
-}
-
-/**
- * Compares roles[] between two Career Journey objects. Matches roles by id when
- * present, falling back to title+organization. Only returns roles with at least
- * one actual change, so an unaffected role never shows up as noise.
- */
-export function diffCareerJourneyRoles(before: any, after: any): RoleDiff[] {
-  const beforeRoles: any[] = Array.isArray(before?.roles) ? before.roles : [];
-  const afterRoles: any[] = Array.isArray(after?.roles) ? after.roles : [];
-
-  const matchKey = (r: any) => r.id || `${r.title || ''}::${r.organization || r.company || ''}`;
-  const beforeByKey = new Map(beforeRoles.map((r) => [matchKey(r), r]));
-
-  const diffs: RoleDiff[] = [];
-
-  for (const afterRole of afterRoles) {
-    const beforeRole = beforeByKey.get(matchKey(afterRole)) || {};
-
-    const skills = diffStringList(
-      Array.isArray(beforeRole.skills) ? beforeRole.skills : [],
-      Array.isArray(afterRole.skills) ? afterRole.skills : []
-    );
-    const deliverables = diffEvidenceList(
-      Array.isArray(beforeRole.deliverables) ? beforeRole.deliverables : [],
-      Array.isArray(afterRole.deliverables) ? afterRole.deliverables : []
-    );
-    const achievements = diffEvidenceList(
-      Array.isArray(beforeRole.achievements) ? beforeRole.achievements : [],
-      Array.isArray(afterRole.achievements) ? afterRole.achievements : []
-    );
-
-    const hasChanges =
-      skills.added.length || skills.removed.length ||
-      deliverables.added.length || deliverables.removed.length || deliverables.changed.length ||
-      achievements.added.length || achievements.removed.length || achievements.changed.length;
-
-    if (hasChanges) {
-      diffs.push({
-        roleId: afterRole.id || matchKey(afterRole),
-        roleTitle: `${afterRole.title || 'Untitled role'}${afterRole.organization || afterRole.company ? ` at ${afterRole.organization || afterRole.company}` : ''}`,
-        addedSkills: skills.added,
-        removedSkills: skills.removed,
-        addedDeliverables: deliverables.added,
-        removedDeliverables: deliverables.removed,
-        changedDeliverables: deliverables.changed,
-        addedAchievements: achievements.added,
-        removedAchievements: achievements.removed,
-        changedAchievements: achievements.changed,
-      });
-    }
-  }
-
-  return diffs;
+  return out;
 }

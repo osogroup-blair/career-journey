@@ -121,6 +121,19 @@ Calibrated on the saved Blitzy runs:
 | 13, 15 (clean) | 0–1 each |
 
 The first version over-flagged "Fortune 500" as a number and keyword mirroring ("post-sale adoption and expansion") as copying. Named lists are now skipped, and a copied run must carry 2+ words beyond JD keywords and filler.
+
+**2026-10-07: Phases 6 and 7 implemented.**
+
+Phase 6:
+- "Fix N missing keywords" is now the keyword gate's main action. `planKeywordFixes` routes each missing keyword to the experience entry holding its evidence, otherwise to the summary (top-critical) or the skills rows.
+- Only those sections are regenerated, in parallel, with a targeted instruction. The panel names them ("Rewrites only Skills, Nymbl, Oso Group").
+- "Full rebuild instead…" sits behind an inline confirm, since it replaces manual edits.
+- On Blitzy run 15, 10 missing keywords become 3 section rewrites.
+
+Phase 7:
+- The patch download is named after the Career Journey's owner (`<name>_career_journey_v…json`), not a hard-coded name.
+- The Patch tab shows "What's changing": an id-based diff of every evidence collection against the saved Career Journey, with before/after text for edited descriptions. This replaces the unused role-only `diffCareerJourneyRoles`, which only saw achievement and skill ids on this schema. On v3.53 → v3.54 it lists 2 roles, 2 achievements, 1 skill and 1 capability changed.
+- Finalizing Rating with no keyword breakdown shows a warning with an "Extract keywords" button.
 ---
 
 ## Phase 0 — Eval harness (do first; every later phase is measured with it)

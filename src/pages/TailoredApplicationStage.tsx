@@ -6,6 +6,7 @@ import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate, ClaimHighlightContext } from '../components/ResumeTemplates';
 import ClaimReviewPanel, { ClaimActions } from '../components/tailored/ClaimReviewPanel';
 import { flagResumeClaims, openClaimFlags, flagItemKey, removeSkillTerm, ClaimFlag } from '../lib/resumeClaims';
+import { planKeywordFixes, keywordFixInstruction } from '../lib/resumeKeywordFix';
 import ResumeBuildSettings from '../components/tailored/ResumeBuildSettings';
 import StrategyReview from '../components/tailored/StrategyReview';
 import { ResumeEditActions } from '../components/tailored/ResumeEditControls';
@@ -300,6 +301,9 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
   const tagline = job.resumeStrategy?.headerTagline || job.roleTitle;
   const coverage = useMemo(() => scoreResumeKeywords(resume, tagline, job.keywords, job.parse), [resume, tagline, job.keywords, job.parse]);
   const fingerprint = useMemo(() => resumeFingerprint(resume), [resume]);
+  const fixPlan = useMemo(() => planKeywordFixes(coverage.missingKeywords, job.keywords, resume, careerJourney), [coverage.missingKeywords, job.keywords, resume, careerJourney]);
+  const isFixing = fixPlan.some((f) => isBusy(resumeSectionTaskKind(f.section)));
+  const fixMissing = () => fixPlan.forEach((f) => runRegenerateResumeSection(job.id, f.section, keywordFixInstruction(f)));
   const pageTarget = job.resumeBuildOptions?.pageTarget ?? defaultBuildOptions(careerJourney).pageTarget;
 
   // Shrink the 8.5in page to fit its column (the score panel sits beside it at xl+).
@@ -510,6 +514,9 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             isRebuilding={isRegenerating}
             isScoring={isScoring}
             onRebuild={onRebuild}
+            fixPlan={fixPlan}
+            onFixMissing={fixMissing}
+            isFixing={isFixing}
             onAiScore={onAiScore}
           />
         </aside>
