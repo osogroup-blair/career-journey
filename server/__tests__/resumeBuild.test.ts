@@ -259,6 +259,7 @@ describe('buildResumeConstraintsBlock', () => {
     expect(block).toContain('Lead with analytics');
     expect(block).toContain('ceilings, not targets');
     expect(block).toContain('at most 110 words');
+    expect(block).toContain('implied first person');
     expect(buildResumeConstraintsBlock(opts, careerJourney(), 'strategy')).not.toContain('ceilings, not targets');
   });
 });

@@ -20,43 +20,40 @@ For hardGates, audit against the Stage 1 / jd_signal_map.md hard-gate checklist 
   },
   keywords: {
     label: "Keyword Breakdown & Evidence Matching",
-    description: "Stage 2 — exhaustively extracts ATS keywords and evaluates evidence against the Career Journey.",
+    description: "Stage 2 — extracts the JD's ATS terms (1–4 words, with aliases) and evaluates evidence for each against the Career Journey.",
     stage: "Rating",
     template: `You are running Stage 2 (Keyword breakdown & experience recognition) of JD_pipeline_SKILL.md for the candidate.
 
 Use jd_signal_map.md's JD-signal-to-anchor-story table wherever a JD phrase matches or closely resembles one of its rows: base "whatCouldCount" on that table's anchor story and bullet framing rather than inventing generic phrasing. Use the role-family positioning guardrail table (jd_signal_map.md) to judge whether a keyword should be a dominant top-third signal or a supporting one for this JD's target role family.
 
-Your task is to exhaustively extract ALL relevant keywords, skills, and signals from the Job Parse, and evaluate if the Candidate's Career Journey supports them.
-Based on industry-standard ATS matching criteria (e.g., Workday, Greenhouse, Taleo), a typical ATS parse yields 20 to 40 distinct keywords and criteria. Extract them ALL.
+Your task is to extract the ATS keywords from the Job Parse and evaluate whether the Candidate's Career Journey supports each one. An ATS (Workday, Greenhouse, Taleo, Lever) matches literal terms, so every keyword must be a term the resume can contain word-for-word. Take the wording from the JD Segments (the raw JD text), not the parse's paraphrase. A typical JD yields 20 to 40 of them.
+
+What a keyword is:
+- "phrase" is the term itself: 1 to 4 words, in the JD's exact wording (or the JD's acronym). Good: "CI/CD", "Proofs of concept", "Product demos", "Microservices", "Post-sale adoption", "Roadmap", "Enterprise SaaS". Bad: "Experience running proofs-of-concept that demonstrate measurable business impact", "Strong data fluency: comfortable writing SQL".
+- Split a compound requirement into one keyword per term: "cloud infrastructure, APIs, DevOps, CI/CD, and microservices" is five keywords.
+- "requirementText" holds the JD clause the term came from, so the candidate can see the context.
+- "aliases" lists other spellings of exactly the same term: the acronym or long form ("CI/CD" / "continuous integration / continuous deployment", "POC" / "proof of concept") or a spelling variant ("Solution consulting" / "Solutions consulting"). Up to 3, usually empty. Never a broader, narrower or related word: not "growth" for "Expansion", "enterprise" for "Fortune 500", "leadership" for "Technical leadership" or "adoption" for "Post-sale adoption".
+- Don't extract company culture or values statements, benefits, compensation, or facts about the hiring company ("move fast", "Series C", "tier 1 investors"). They aren't resume keywords.
+- One keyword per term: never list the same term twice under different wording; use aliases instead.
 
 Instructions:
-1. Identify "Top Critical Skills" & "Hard Gates" (Non-negotiables):
-   - These include core competencies, mandatory tools, non-negotiable domain expertise, work authorization, required licenses, mandatory years of experience, and location/shift constraints.
-   - If a candidate lacks ANY of these, they would fail the initial screening gate.
-   - Flag them with isTopCritical = true.
-   - jdImportance should be 'High'.
-   - Category should be 'Hard gate' or 'Critical skill'.
+1. Top Critical Skills (isTopCritical = true, jdImportance 'High', category 'Critical skill'): the core competencies, mandatory tools and non-negotiable domain expertise a screener would reject the candidate for lacking. At most 8, chosen from the JD's stated requirements.
 
-2. Identify "Secondary Keywords" (Preferred):
-   - These are preferred skills, specific methodologies, soft skills, named technical platforms/tools, acronyms/synonyms, or "nice to haves".
-   - They contribute to the 85% keyword match goal but aren't individual dealbreakers.
-   - Flag them with isTopCritical = false.
-   - Category can be 'Secondary keyword', 'Tool / platform', 'Domain signal', etc.
+2. Secondary keywords (isTopCritical = false): preferred skills, named tools/platforms, methodologies, responsibilities ("Product demos", "Pipeline management"), domain signals, and soft skills the JD names. Category 'Secondary keyword', 'Required keyword', 'Tool / platform' or 'Domain signal'.
 
-3. Identify Required Metrics / Experience Scope:
-   - Extract expected experience levels, team sizes, budget domains, or implied outcomes.
+3. Hard gates (work authorization, required license/clearance, minimum years, required degree, location/shift/travel): category 'Hard gate', evidenceStatus 'HARD GATE', isTopCritical false, phrase a short label such as "7+ years experience". The separate gate audit judges them; don't put CLEAR/UNCERTAIN/FAIL verdicts here.
 
-4. For EACH extracted criterion, evaluate the "evidenceStatus" strictly based on the Candidate Career Journey Context:
-   - "EVIDENCED": Clear proof in a specific project, deliverable, or achievement demonstrating applied experience.
-   - "PARTIAL": Listed as a buzzword or in an unstructured list without applied context.
-   - "MISSING / POSSIBLE": No clear evidence, but candidate's roles imply they might possess it.
-   - "NOT SUPPORTED": Completely missing and unlikely based on background.
+4. For every other keyword, set "evidenceStatus" strictly from the Candidate Career Journey Context:
+   - "EVIDENCED": clear proof in a specific project, deliverable, or achievement demonstrating applied experience.
+   - "PARTIAL": listed as a skill or in an unstructured list without applied context.
+   - "MISSING / POSSIBLE": no clear evidence, but the candidate's roles imply they might have it.
+   - "NOT SUPPORTED": absent and unlikely given the background.
 
-5. Populate "evidenceRefs": the real Career Journey item id(s) (deliverable.id, achievement.id, a skills_index entry's id, or role.id) that provide the evidence — never invent an id, only cite ids that literally appear in the Career Journey Context below. IMPORTANT: True evidence ("EVIDENCED") requires citing a specific deliverable, achievement, or skill id. If EVIDENCED, this must be non-empty.
+5. Populate "evidenceRefs": the real Career Journey item id(s) (deliverable.id, achievement.id, a skills_index entry's id, or role.id) that provide the evidence. Never invent an id; cite only ids that literally appear in the Career Journey Context below. EVIDENCED requires at least one deliverable, achievement, or skill id.
 
-6. Populate "jdRefs": the id(s) of the JD Segments below (from the "JD Segments" list, e.g. "jd-3") where this keyword's requirement actually appears in the JD text. Cite only ids that appear in that list.
+6. Populate "jdRefs": the id(s) of the JD Segments below (e.g. "jd-3") where this term appears in the JD text. Cite only ids from that list.
 
-7. Be EXHAUSTIVE. Extract EVERY named tool, software, methodology, soft skill, and dimension of experience explicitly stated in the JD.`,
+7. Be exhaustive about terms: every named tool, platform, methodology, responsibility, audience, and domain the JD states should appear once.`,
   },
   fitScore: {
     label: "Fit Analysis",

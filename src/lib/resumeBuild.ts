@@ -277,8 +277,8 @@ export function buildResumeConstraintsBlock(options: ResumeBuildOptions, careerJ
     );
   }
   lines.push(
-    `- Summary: at most ${limits.summaryWords} words, written as 3–5 complete sentences (no telegraphic fragments or keyword lists). Include the candidate's strongest quantified outcome for this JD with its real numbers exactly as the Career Journey states them.`,
-    `- Skills: at most ${limits.skillRows} category rows. Rows list skills, tools and methods only — never a JD sentence, an audience ("CTOs"), or a slogan.`
+    `- Summary: at most ${limits.summaryWords} words, written as 3–5 complete sentences in implied first person (no "I", "my" or "me"; no telegraphic fragments or keyword lists). Include the candidate's strongest quantified outcome for this JD with its real numbers exactly as the Career Journey states them.`,
+    `- Skills: at most ${limits.skillRows} category rows. Rows list skills, tools and methods only — never a JD sentence, an audience ("CTOs"), or a slogan — and each term appears once, with no variants or synonyms of a term already listed.`
   );
   if (condensed.length > 0) {
     lines.push(

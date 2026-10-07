@@ -42,9 +42,13 @@ export function sanitizeKeywordsForResume(raw: unknown): KeywordSignal[] {
           .slice(0, 12)
           .map((r: any) => ({ type: r.type, id: r.id.slice(0, 40) }))
       : [];
+    const aliases = Array.isArray((k as any).aliases)
+      ? (k as any).aliases.filter((a: unknown) => typeof a === 'string' && a.trim()).slice(0, 4).map((a: string) => a.trim().slice(0, 80))
+      : [];
     out.push({
       id: str((k as any).id, 40),
       phrase,
+      ...(aliases.length > 0 ? { aliases } : {}),
       category: str((k as any).category, 40) as KeywordSignal['category'],
       jdImportance: str((k as any).jdImportance, 10) as KeywordSignal['jdImportance'],
       evidenceStatus: str((k as any).evidenceStatus, 30) as KeywordSignal['evidenceStatus'],
@@ -71,6 +75,7 @@ export interface ConfirmedContext {
 export function confirmedContext(contextEntries: unknown, keywords: KeywordSignal[]): ConfirmedContext[] {
   if (!contextEntries || typeof contextEntries !== 'object') return [];
   const phraseById = new Map(keywords.map((k) => [k.id, k.phrase]));
+  // keywordPhrase (stamped when the context was saved) keeps an entry meaningful after its keyword id is gone.
   const out: ConfirmedContext[] = [];
   for (const [keywordId, entry] of Object.entries(contextEntries as Record<string, Partial<ExperienceContext>>).slice(0, MAX_CONTEXT_ENTRIES)) {
     if (!entry || typeof entry !== 'object' || entry.approvalStatus !== 'Approved for patch') continue;
@@ -91,13 +96,15 @@ function keywordLine(k: KeywordSignal): string {
     .filter(Boolean)
     .join(', ');
   const refs = (k.evidenceRefs || []).map((r) => r.id).join(', ');
-  return `  - "${k.phrase}"${tags ? ` [${tags}]` : ''}${refs ? ` — evidence: ${refs}` : ''}`;
+  const aliases = (k.aliases || []).length > 0 ? ` (or one of: ${k.aliases!.map((a) => `"${a}"`).join(', ')})` : '';
+  return `  - "${k.phrase}"${aliases}${tags ? ` [${tags}]` : ''}${refs ? ` — evidence: ${refs}` : ''}`;
 }
 
+/** 'resume' is a full build (with the keywordPlan checklist); 'section' rewrites one part of an existing resume. */
 export function buildResumeKeywordBlock(
   keywords: KeywordSignal[],
   contextEntries: unknown,
-  purpose: 'strategy' | 'resume'
+  purpose: 'strategy' | 'resume' | 'section'
 ): string {
   const usable = keywords.filter((k) => keywordUse(k) !== 'skip');
   const context = confirmedContext(contextEntries, keywords);
@@ -119,8 +126,12 @@ export function buildResumeKeywordBlock(
       '- Use every USE keyword at least once in the JD\'s exact wording — in the summary, a skills row, or a bullet for the role its evidence comes from. Top-critical keywords belong in the summary or the strongest bullets of the most relevant role.',
       '- USE IF SUPPORTED keywords appear only where the Career Journey or the candidate-confirmed experience below honestly supports them.',
       '- DO NOT CLAIM keywords stay out of the resume entirely, skills rows included. Also honor every cautionClaims entry in the Resume Strategy.',
-      '- Keep the JD\'s wording but never the JD\'s claims: a keyword only goes where the candidate\'s real work backs it.'
+      '- Keep the JD\'s wording but never the JD\'s claims: a keyword only goes where the candidate\'s real work backs it.',
+      '- A keyword\'s "or one of" forms are alternatives the ATS also accepts, not extra keywords. Use one form, preferring the JD\'s own phrase. Never list a term next to its variants ("solution consulting, solutions consulting, solution consultant") — the resume must read naturally to a recruiter, and stacked variants read as keyword stuffing.'
     );
+    if (purpose === 'resume' && use.length > 0) {
+      lines.push('- Fill keywordPlan first: one entry per USE keyword (not per variant) with the section it goes in (summary, skills, or a roleId). Prefer a bullet or the summary over the skills rows where the evidence supports it. Then write the resume so every one of them appears in that section, word for word.');
+    }
   }
   if (use.length > 0) lines.push('USE:', ...use.map(keywordLine));
   if (ifSupported.length > 0) lines.push('USE IF SUPPORTED:', ...ifSupported.map(keywordLine));

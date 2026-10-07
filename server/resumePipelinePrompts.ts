@@ -5,7 +5,7 @@ import { getPromptAiConfigFor } from "./promptAiConfig";
 import { projectCareerJourney } from "./careerJourneyProjection";
 import { projectCareerJourneyForResume, buildResumeConstraintsBlock, stripCareerJourneyNoise } from "../src/lib/resumeBuild";
 import { buildResumeKeywordBlock } from "../src/lib/resumeKeywordPlan";
-import type { KeywordSignal, ResumeBuildOptions } from "../src/types";
+import type { GeneratedResume, KeywordSignal, ResumeBuildOptions } from "../src/types";
 
 /**
  * Prompt text for the job pipeline's parse → keywords → resumeStrategy →
@@ -102,6 +102,12 @@ ${buildResumeKeywordBlock(keywords, contextEntries, "resume")}
 ${buildResumeConstraintsBlock(options, careerJourney, "resume", keywords)}`;
 }
 
+/** Drops generateResume's planning-only keywordPlan field before the resume is enforced and stored. */
+export function withoutKeywordPlan(raw: any): GeneratedResume {
+  const { keywordPlan: _plan, ...resume } = raw || {};
+  return resume as GeneratedResume;
+}
+
 export interface RegenerateSectionInput {
   target: string;
   instruction: string;
@@ -135,7 +141,7 @@ ${JSON.stringify(parse, null, 2)}
 Career Journey:
 ${JSON.stringify(projectedCareerJourney)}
 
-${buildResumeKeywordBlock(keywords, contextEntries, "resume")}
+${buildResumeKeywordBlock(keywords, contextEntries, "section")}
 
 ${buildResumeConstraintsBlock(options, careerJourney, "resume", keywords)}`;
 }

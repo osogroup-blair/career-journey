@@ -231,6 +231,18 @@ export const RESUME_STRATEGY_SCHEMA = {
 export const GENERATE_RESUME_SCHEMA = {
   type: Type.OBJECT,
   properties: {
+    keywordPlan: {
+      type: Type.ARRAY,
+      description: "Filled FIRST, before the resume: one entry per USE keyword in the JD Keyword Plan, naming where it will appear. Planning only; the server discards it.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          keyword: { type: Type.STRING },
+          section: { type: Type.STRING, description: "'summary', 'skills', or the roleId of the experience entry" },
+        },
+        required: ["keyword", "section"],
+      },
+    },
     name: { type: Type.STRING },
     contactInfo: { type: Type.STRING },
     summary: { type: Type.STRING },
@@ -289,7 +301,7 @@ export const GENERATE_RESUME_SCHEMA = {
       },
     },
   },
-  required: ["name", "contactInfo", "summary", "skills", "experience", "education"],
+  required: ["keywordPlan", "name", "contactInfo", "summary", "skills", "experience", "education"],
 };
 
 /** One section of an existing resume, rewritten on its own. Only the field matching the requested section is expected back. */

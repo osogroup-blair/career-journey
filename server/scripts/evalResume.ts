@@ -93,7 +93,8 @@ async function main() {
   const P = await import('../resumePipelinePrompts');
   const RB = await import('../../src/lib/resumeBuild');
   const { keywordUse } = await import('../../src/lib/resumeKeywordPlan');
-  const { scoreResumeKeywords, resumeToPlainText, containsPhrase, normalize } = await import('../../src/lib/resumeScore');
+  const { cleanKeywordBreakdown, averagePhraseWords } = await import('../../src/lib/keywordList');
+  const { scoreResumeKeywords, resumeToPlainText, containsAny, normalize } = await import('../../src/lib/resumeScore');
   const { segmentJdText } = await import('../../src/lib/jdSegments');
 
   const out = a.out || path.join(os.tmpdir(), 'career-journey-eval', new Date().toISOString().replace(/[:.]/g, '-'));
@@ -120,7 +121,7 @@ async function main() {
   let keywords: any[];
   if (a.reuse) {
     parse = readJson(path.join(a.reuse, 'parse.json'));
-    keywords = readJson(path.join(a.reuse, 'keywords.json'));
+    keywords = cleanKeywordBreakdown(readJson(path.join(a.reuse, 'keywords.json')));
     console.error(`Reusing parse + ${keywords.length} keywords from ${a.reuse}`);
   } else {
     parse = { ...(await legacy('parse', await P.parseContents(null, { jdText, company: a.company, roleTitle: a.role }))), jdSegments: segmentJdText(jdText) };
@@ -130,7 +131,7 @@ async function main() {
     const started = Date.now();
     const { data } = await client.generateStructured({ ...kwPrompt, schema: KeywordsResponseSchema });
     console.error(`keywords: ${tokens.keywords} prompt tokens, ${((Date.now() - started) / 1000).toFixed(1)}s`);
-    keywords = data as any[];
+    keywords = cleanKeywordBreakdown(data as any[]);
   }
   save('parse.json', parse);
   save('keywords.json', keywords);
@@ -141,7 +142,8 @@ async function main() {
   const strategy = await legacy('resumeStrategy', await P.resumeStrategyContents(null, base));
   save('strategy.json', strategy);
   const raw = await legacy('generateResume', await P.generateResumeContents(null, { ...base, strategy }), { thinkingConfig: { thinkingBudget: 1024 } });
-  const { resume, warnings } = RB.enforceResumeConstraints(raw, options, careerJourney, keywords);
+  save('keywordPlan.json', raw.keywordPlan ?? []);
+  const { resume, warnings } = RB.enforceResumeConstraints(P.withoutKeywordPlan(raw), options, careerJourney, keywords);
   save('resume.json', resume);
 
   const text = resumeToPlainText(resume, strategy.headerTagline);
@@ -158,10 +160,11 @@ async function main() {
       const s = scoreResumeKeywords(resume, strategy.headerTagline, keywords, parse);
       return { score: s.score, passed: s.passed, missing: s.missingKeywords };
     })(),
-    keywordPhraseWords: +(keywords.reduce((n, k) => n + String(k.phrase).split(/\s+/).length, 0) / Math.max(1, keywords.length)).toFixed(1),
+    keywordCount: keywords.length,
+    keywordPhraseWords: +averagePhraseWords(keywords).toFixed(1),
     unsupportedKeywordsUsed: keywords
       .filter((k) => keywordUse(k) === 'omit' || keywordUse(k) === 'if-supported')
-      .filter((k) => containsPhrase(normalize(text), k.phrase) && !containsPhrase(normalizedCj, k.phrase))
+      .filter((k) => containsAny(normalize(text), [k.phrase, ...(k.aliases || [])]) && !containsAny(normalizedCj, [k.phrase, ...(k.aliases || [])]))
       .map((k) => k.phrase),
     terms: terms ? termCoverage(terms, text, cjText) : undefined,
     enforcementWarnings: warnings,

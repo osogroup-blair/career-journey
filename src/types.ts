@@ -212,7 +212,12 @@ export interface JdRef {
 
 export interface KeywordSignal {
   id: string;
+  /** The ATS term itself, 1–4 words in the JD's own wording ("CI/CD", "Product demos"). Breakdowns from before 2026-10 may hold whole requirement sentences. */
   phrase: string;
+  /** Other forms an ATS treats as the same term — acronym/long-form pairs, near-synonyms. Counted as a match by the keyword gate. */
+  aliases?: string[];
+  /** The JD sentence this term was taken from, for context in the Keyword Breakdown table. */
+  requirementText?: string;
   category: 'Critical skill' | 'Required keyword' | 'Secondary keyword' | 'Hard gate' | 'Domain signal' | 'Tool / platform';
   jdImportance: 'High' | 'Medium' | 'Low';
   evidenceStatus: EvidenceStatus;
@@ -230,6 +235,8 @@ export interface KeywordSignal {
 export interface ExperienceContext {
   id: string;
   keywordId: string;
+  /** The keyword's phrase when this was saved — keeps the context meaningful after a re-analysis replaces the keyword ids. */
+  keywordPhrase?: string;
   experienceText: string;
   whereItHappened: string;
   whenItHappened: string;

@@ -149,3 +149,14 @@ describe('resumeFingerprint', () => {
     expect(resumeFingerprint(resume())).not.toBe(resumeFingerprint(resume({ summary: 'x' })));
   });
 });
+
+describe('aliases', () => {
+  it('counts a keyword present when only one of its aliases appears', () => {
+    const r = resume({ summary: 'Shipped continuous integration / continuous deployment for 40 services.' });
+    const score = scoreResumeKeywords(r, '', [kw('CI/CD', { aliases: ['continuous integration / continuous deployment'] }), kw('Kafka')], undefined);
+    expect(score.secondaryKeywordCoverage).toEqual([
+      { phrase: 'CI/CD', present: true },
+      { phrase: 'Kafka', present: false },
+    ]);
+  });
+});

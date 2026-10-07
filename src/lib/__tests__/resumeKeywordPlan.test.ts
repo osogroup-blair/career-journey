@@ -69,6 +69,11 @@ describe('buildResumeKeywordBlock', () => {
     expect(block).toContain('honor every cautionClaims entry');
   });
 
+  it('asks a full build, but not a section rewrite, for the keywordPlan checklist', () => {
+    expect(buildResumeKeywordBlock(keywords, {}, 'resume')).toContain('Fill keywordPlan first');
+    expect(buildResumeKeywordBlock(keywords, {}, 'section')).not.toContain('keywordPlan');
+  });
+
   it('tells the strategy to park unsupported keywords in cautionClaims', () => {
     expect(buildResumeKeywordBlock(keywords, {}, 'strategy')).toContain('Every DO NOT CLAIM keyword goes in cautionClaims');
   });
@@ -76,6 +81,16 @@ describe('buildResumeKeywordBlock', () => {
   it('includes candidate-confirmed experience', () => {
     const block = buildResumeKeywordBlock(keywords, { 'KW-Developer tooling': { approvalStatus: 'Approved for patch', experienceText: 'Built internal CLI', measurableOutcome: '40 engineers' } }, 'resume');
     expect(block).toContain('for "Developer tooling": Built internal CLI Outcome: 40 engineers.');
+  });
+
+  it('shows aliases and keeps them through sanitizing', () => {
+    const [k] = sanitizeKeywordsForResume([{ id: 'K', phrase: 'CI/CD', evidenceStatus: 'EVIDENCED', aliases: ['continuous integration / continuous deployment', 7, ' '] }]);
+    expect(k.aliases).toEqual(['continuous integration / continuous deployment']);
+    expect(buildResumeKeywordBlock([k], {}, 'resume')).toContain('"CI/CD" (or one of: "continuous integration / continuous deployment")');
+  });
+
+  it('labels orphaned context with the phrase it was saved against', () => {
+    expect(confirmedContext({ 'OLD-1': { approvalStatus: 'Approved for patch', experienceText: 'Ran POCs', keywordPhrase: 'POCs' } }, [])[0].keyword).toBe('POCs');
   });
 
   it('is empty when there is nothing to say', () => {

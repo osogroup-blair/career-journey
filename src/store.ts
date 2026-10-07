@@ -15,6 +15,7 @@ import { toastBridge } from './components/ui';
 import * as aiClient from './lib/aiClient';
 import { scoreResumeKeywords, resumeFingerprint } from './lib/resumeScore';
 import { defaultBuildOptions } from './lib/resumeBuild';
+import { carryContextForward } from './lib/keywordList';
 import { replaceRoleEntry } from './lib/resumeEdits';
 
 const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
@@ -305,8 +306,9 @@ export const useStore = create<AppState>((set, get) => {
       const job = get().jobs[jobId];
       if (!job || !job.parse) return;
       get().runAiTask(jobId, 'keywords', 'Extracting keywords', async () => {
-        const keywords = await aiClient.generateKeywordBreakdown(job.parse!, get().careerJourney, job.jdSegments);
-        return { keywords };
+        const fresh = await aiClient.generateKeywordBreakdown(job.parse!, get().careerJourney, job.jdSegments);
+        const latest = get().jobs[jobId] ?? job;
+        return carryContextForward(latest.keywords, fresh, latest.contextEntries);
       });
     },
 

@@ -70,6 +70,11 @@ export function containsPhrase(normalizedText: string, phrase: string): boolean 
   return phraseVariants(phrase).some((v) => hay.includes(` ${v} `));
 }
 
+/** True when any of the forms (a keyword's phrase and its aliases) is present. */
+export function containsAny(normalizedText: string, phrases: string[]): boolean {
+  return phrases.some((p) => containsPhrase(normalizedText, p));
+}
+
 /** The text an ATS parser would extract — tagline, summary, skills, experience and education. Name/contact line excluded. */
 export function resumeToPlainText(resume: GeneratedResume | undefined, tagline?: string): string {
   if (!resume) return '';
@@ -86,6 +91,8 @@ export function resumeToPlainText(resume: GeneratedResume | undefined, tagline?:
 
 interface KeywordCheck {
   phrase: string;
+  /** Other forms that count as a match (KeywordSignal.aliases). */
+  aliases: string[];
   weight: number;
   critical: boolean;
   /** Whether the Rating stage found Career Journey evidence — decides "add truthfully" vs. "honest gap" when missing. */
@@ -118,6 +125,7 @@ function buildChecks(keywords: KeywordSignal[] | undefined, parse: JDParse | und
       }
       push({
         phrase: k.phrase,
+        aliases: k.aliases || [],
         critical: !!k.isTopCritical,
         weight: k.isTopCritical ? 3 : k.jdImportance === 'High' ? 2 : 1,
         evidenced: k.evidenceStatus === 'EVIDENCED' || k.evidenceStatus === 'PARTIAL' || k.userContextStatus === 'Approved for patch',
@@ -126,10 +134,10 @@ function buildChecks(keywords: KeywordSignal[] | undefined, parse: JDParse | und
   } else {
     // No keyword breakdown — unknown evidence, so missing items are offered for rebuild,
     // where the generateResume prompt only adds them if the Career Journey supports it.
-    for (const s of parse?.topCriticalSkills || []) push({ phrase: s, critical: true, weight: 3, evidenced: true });
+    for (const s of parse?.topCriticalSkills || []) push({ phrase: s, aliases: [], critical: true, weight: 3, evidenced: true });
   }
 
-  if (parse?.roleTitle) push({ phrase: coreRoleTitle(parse.roleTitle), critical: false, weight: 2, evidenced: true });
+  if (parse?.roleTitle) push({ phrase: coreRoleTitle(parse.roleTitle), aliases: [], critical: false, weight: 2, evidenced: true });
 
   return { checks, unsupported, usedFallback };
 }
@@ -151,7 +159,7 @@ export function scoreResumeKeywords(
   const unsupportedKeywords = [...unsupported];
 
   for (const c of checks) {
-    const present = containsPhrase(text, c.phrase);
+    const present = containsAny(text, [c.phrase, ...c.aliases]);
     total += c.weight;
     if (present) matched += c.weight;
     (c.critical ? criticalSkillCoverage : secondaryKeywordCoverage).push({ phrase: c.phrase, present });

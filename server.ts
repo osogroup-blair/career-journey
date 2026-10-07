@@ -19,7 +19,8 @@ import { resolveModelForPrompt } from "./server/ai/resolveModelForPrompt";
 import { projectCareerJourney, CAREER_JOURNEY_FIELDS, applyCareerJourneyExtractor } from "./server/careerJourneyProjection";
 import { normalizeResumeBuildOptions, enforceResumeConstraints, resolveExperienceRoleId, roleMode } from "./src/lib/resumeBuild";
 import { sanitizeKeywordsForResume } from "./src/lib/resumeKeywordPlan";
-import { projectCareerJourneyForPrompt as projectCareerJourneyForPromptWith, parseContents, keywordsPrompt, resumeStrategyContents, generateResumeContents, regenerateResumeSectionContents } from "./server/resumePipelinePrompts";
+import { cleanKeywordBreakdown } from "./src/lib/keywordList";
+import { projectCareerJourneyForPrompt as projectCareerJourneyForPromptWith, withoutKeywordPlan, parseContents, keywordsPrompt, resumeStrategyContents, generateResumeContents, regenerateResumeSectionContents } from "./server/resumePipelinePrompts";
 import { createLegacyGenAI, type LegacyGenAI } from "./server/ai/legacyGenAIShim";
 import { LEGACY_RESPONSE_SCHEMAS } from "./server/ai/legacySchemas";
 import { buildKnowledgePreamble, buildKnowledgePreambleFromFiles, resolveKnowledgeSelection } from "./server/ai/knowledgePreamble";
@@ -1549,7 +1550,7 @@ async function startServer() {
         schema: KeywordsResponseSchema,
       });
       await trackUsage(req, "keywords", model, usage, client.provider, { actualModel, requestId });
-      res.json(data);
+      res.json(cleanKeywordBreakdown(data as any));
     } catch (e: any) {
       handleAiRouteError(e, res);
     }
@@ -2047,7 +2048,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       });
       await trackUsage(req, "generateResume", resolved.model, response.usageMetadata, resolved.provider, response);
       // The prompt asks for the right roles and bullet counts; this guarantees them.
-      const { resume, warnings } = enforceResumeConstraints(JSON.parse(response.text!), options, careerJourney, keywords);
+      const { resume, warnings } = enforceResumeConstraints(withoutKeywordPlan(JSON.parse(response.text!)), options, careerJourney, keywords);
       if (warnings.length > 0) console.warn("generateResume constraint enforcement:", warnings);
       res.json(resume);
     } catch (e: any) {
@@ -2110,7 +2111,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       };
       if (!resume || !parse) return res.status(400).json({ error: "A tailored resume and job parse are required." });
       const keywordList = (keywords || []).map((k) => ({
-        phrase: k.phrase, category: k.category, jdImportance: k.jdImportance, evidenceStatus: k.evidenceStatus, isTopCritical: k.isTopCritical,
+        phrase: k.phrase, aliases: k.aliases, category: k.category, jdImportance: k.jdImportance, evidenceStatus: k.evidenceStatus, isTopCritical: k.isTopCritical,
       }));
       const projectedCareerJourney = await projectCareerJourneyForPrompt("scoreResume", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("scoreResume", req);

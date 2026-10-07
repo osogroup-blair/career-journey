@@ -68,8 +68,8 @@ const SAMPLE_JD_SEGMENTS = [
 ];
 
 const SAMPLE_KEYWORDS = [
-  { id: "kw-1", keywordPhrase: "Python", isTopCritical: true, evidenceStatus: "EVIDENCED", evidenceRefs: ["SK-001"] },
-  { id: "kw-2", keywordPhrase: "Payments infrastructure", isTopCritical: true, evidenceStatus: "PARTIAL", evidenceRefs: [] },
+  { id: "kw-1", phrase: "Python", aliases: [], category: "Critical skill", jdImportance: "High", isTopCritical: true, evidenceStatus: "EVIDENCED", evidenceRefs: [{ type: "skill", id: "SK-001" }] },
+  { id: "kw-2", phrase: "Payments infrastructure", aliases: ["payment systems"], category: "Critical skill", jdImportance: "High", isTopCritical: true, evidenceStatus: "PARTIAL", evidenceRefs: [] },
 ];
 
 const SAMPLE_FIT_ANALYSIS = {

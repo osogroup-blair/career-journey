@@ -18,7 +18,9 @@ const JdRefSchema = z.object({
 
 export const KeywordSignalSchema = z.object({
   id: z.string(),
-  phrase: z.string(),
+  phrase: z.string().describe("The ATS term itself: 1-4 words, verbatim from the JD (or the JD's acronym). Never a sentence or a requirement description."),
+  aliases: z.array(z.string()).describe("Other spellings of exactly the same term: the acronym or long form ('CI/CD' <-> 'continuous integration / continuous deployment', 'POC' <-> 'proof of concept') or a spelling variant ('Solution consulting' / 'Solutions consulting'). Never a broader or related word ('growth' for 'Expansion', 'enterprise' for 'Fortune 500'). Up to 3; usually empty."),
+  requirementText: z.string().describe("The JD sentence or bullet this term came from, trimmed to the relevant clause."),
   category: z.string().describe("Exactly one of: 'Critical skill' | 'Required keyword' | 'Secondary keyword' | 'Hard gate' | 'Domain signal' | 'Tool / platform'"),
   jdImportance: z.string().describe("'High' | 'Medium' | 'Low'"),
   evidenceStatus: z.string().describe("'EVIDENCED' | 'PARTIAL' | 'MISSING / POSSIBLE' | 'NOT SUPPORTED' | 'HARD GATE'"),

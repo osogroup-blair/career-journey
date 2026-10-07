@@ -9,7 +9,8 @@ import EvidenceTrace from '../components/EvidenceTrace';
 import { KeywordSignal, ExperienceContext } from '../types';
 import { generateId } from '../lib/utils';
 import { diffCareerJourneyRoles } from '../lib/careerJourneyDiff';
-import { Sparkles, ShieldAlert, ArrowRight, Plus, Minus, Pencil, CheckCircle2, Lock } from 'lucide-react';
+import { needsReanalysis, editKeyword, toggleCritical, removeKeywords, mergeKeywords, addKeyword, MAX_TOP_CRITICAL, type KeywordState } from '../lib/keywordList';
+import { Sparkles, ShieldAlert, ArrowRight, Plus, Minus, Pencil, CheckCircle2, Lock, Star, Trash2, Merge, AlertTriangle } from 'lucide-react';
 
 type Tab = 'fit' | 'keywords' | 'gaps' | 'patch';
 
@@ -46,6 +47,7 @@ export default function RatingStage() {
   const saveContext = (keywordId: string, entry: Partial<ExperienceContext>, status: ExperienceContext['approvalStatus']) => {
     const newEntry: ExperienceContext = {
       keywordId,
+      keywordPhrase: keywords.find((k) => k.id === keywordId)?.phrase,
       experienceText: '',
       whereItHappened: '',
       whenItHappened: '',
@@ -164,6 +166,10 @@ export default function RatingStage() {
           formData={formData}
           setFormData={setFormData}
           onSave={saveContext}
+          onEdit={(next: KeywordState) => {
+            updateJob(job.id, { keywords: next.keywords, contextEntries: next.contextEntries });
+            if (selectedKeywordId && !next.keywords.some((k) => k.id === selectedKeywordId)) setSelectedKeywordId(null);
+          }}
         />
       )}
 
@@ -302,9 +308,12 @@ function FitAndGateTab({ job, jdSegments, careerJourney, isScoring, onRescore, f
 
 function KeywordsTab({
   job, keywords, topCritical, secondary, contextEntries, careerJourney, isReanalyzing, onReanalyze,
-  selectedKeywordId, onSelect, onClose, formData, setFormData, onSave,
+  selectedKeywordId, onSelect, onClose, formData, setFormData, onSave, onEdit,
 }: any) {
   const selectedKeyword = keywords.find((k: KeywordSignal) => k.id === selectedKeywordId);
+  const [checked, setChecked] = useState<string[]>([]);
+  const [editing, setEditing] = useState<{ id: string; phrase: string; aliases: string } | null>(null);
+  const [newPhrase, setNewPhrase] = useState('');
 
   if (keywords.length === 0) {
     return (
@@ -317,17 +326,58 @@ function KeywordsTab({
     );
   }
 
+  const state: KeywordState = { keywords, contextEntries };
+  const apply = (next: KeywordState) => {
+    onEdit(next);
+    setChecked((c) => c.filter((id) => next.keywords.some((k) => k.id === id)));
+  };
+  const toggleChecked = (id: string) => setChecked((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  // Merge into whichever selected keyword comes first in the table, so the survivor is the one the user sees on top.
+  const checkedInOrder = keywords.filter((k: KeywordSignal) => checked.includes(k.id)).map((k: KeywordSignal) => k.id);
+  const saveEdit = () => {
+    if (!editing) return;
+    apply(editKeyword(state, editing.id, { phrase: editing.phrase, aliases: editing.aliases.split(',').map((a) => a.trim()).filter(Boolean) }));
+    setEditing(null);
+  };
+  const submitNew = () => {
+    if (!newPhrase.trim()) return;
+    apply(addKeyword(state, { id: generateId('KW'), phrase: newPhrase }));
+    setNewPhrase('');
+  };
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
   const renderRows = (items: KeywordSignal[]) =>
     items.map((kw, idx) => {
       const ctx = contextEntries[kw.id];
       const isSelected = kw.id === selectedKeywordId;
       const isGap = kw.evidenceStatus === 'MISSING / POSSIBLE' || kw.evidenceStatus === 'PARTIAL';
+      const isEditing = editing?.id === kw.id;
       return (
-        <TableRow key={kw.id} className={isSelected ? 'bg-brand-50/50' : ''} onClick={() => onSelect(kw)}>
+        <TableRow key={kw.id} className={isSelected ? 'bg-brand-50/50' : ''} onClick={() => !isEditing && onSelect(kw)}>
+          <TableCell className="align-top py-3 w-8" onClick={stop}>
+            <input type="checkbox" aria-label={`Select ${kw.phrase}`} checked={checked.includes(kw.id)} onChange={() => toggleChecked(kw.id)} className="mt-0.5" />
+          </TableCell>
           <TableCell className="align-top py-3"><span className="text-slate-400 font-mono text-xs">{idx + 1}</span></TableCell>
-          <TableCell className="align-top py-3 max-w-[220px]">
-            <div className="font-bold text-slate-800 text-[13px]">{kw.phrase}</div>
-            <div className="text-[11px] text-slate-500 uppercase tracking-wider">{kw.category}</div>
+          <TableCell className="align-top py-3 max-w-[260px]">
+            {isEditing ? (
+              <div className="space-y-1.5" onClick={stop}>
+                <Input value={editing.phrase} onChange={(e) => setEditing({ ...editing, phrase: e.target.value })} className="h-7 text-xs" aria-label="Keyword" autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(null); }} />
+                <Input value={editing.aliases} onChange={(e) => setEditing({ ...editing, aliases: e.target.value })} className="h-7 text-xs" placeholder="Also counts as (comma-separated)" aria-label="Aliases"
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(null); }} />
+                <div className="flex gap-1.5">
+                  <Button size="sm" className="h-6 text-[10px]" onClick={saveEdit}>Save</Button>
+                  <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setEditing(null)}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="font-bold text-slate-800 text-[13px]">{kw.phrase}</div>
+                {(kw.aliases || []).length > 0 && <div className="text-[11px] text-slate-500">also: {kw.aliases!.join(', ')}</div>}
+                {kw.requirementText && <div className="text-[11px] text-slate-400 italic line-clamp-2" title={kw.requirementText}>“{kw.requirementText}”</div>}
+                <div className="text-[11px] text-slate-500 uppercase tracking-wider">{kw.category}</div>
+              </>
+            )}
           </TableCell>
           <TableCell className="align-top py-3">
             <Badge variant={kw.evidenceStatus === 'EVIDENCED' ? 'success' : kw.evidenceStatus === 'NOT SUPPORTED' ? 'destructive' : 'warning'} className="text-[10px]">
@@ -342,30 +392,76 @@ function KeywordsTab({
               <EvidenceTrace evidenceRefs={kw.evidenceRefs} jdRefs={kw.jdRefs} jdSegments={job.jdSegments} careerJourney={careerJourney} />
             </div>
           </TableCell>
-          <TableCell className="align-top py-3">
-            {isGap && (
-              <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={(e) => { e.stopPropagation(); onSelect(kw); }}>
-                <Plus className="w-3 h-3 mr-1" /> I have this
-              </Button>
-            )}
+          <TableCell className="align-top py-3" onClick={stop}>
+            <div className="flex items-center gap-1 justify-end">
+              {isGap && (
+                <Button size="sm" variant="outline" className="text-[10px] h-6" onClick={() => onSelect(kw)}>
+                  <Plus className="w-3 h-3 mr-1" /> I have this
+                </Button>
+              )}
+              <button type="button" title={kw.isTopCritical ? 'Make secondary' : 'Mark top critical'} aria-label={kw.isTopCritical ? `Make ${kw.phrase} secondary` : `Mark ${kw.phrase} top critical`}
+                onClick={() => apply(toggleCritical(state, kw.id))} className="p-1 text-slate-400 hover:text-amber-500">
+                <Star className={`w-3.5 h-3.5 ${kw.isTopCritical ? 'fill-amber-400 text-amber-500' : ''}`} />
+              </button>
+              <button type="button" title="Edit keyword" aria-label={`Edit ${kw.phrase}`}
+                onClick={() => setEditing({ id: kw.id, phrase: kw.phrase, aliases: (kw.aliases || []).join(', ') })} className="p-1 text-slate-400 hover:text-brand-600">
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button type="button" title="Remove keyword" aria-label={`Remove ${kw.phrase}`}
+                onClick={() => apply(removeKeywords(state, [kw.id]))} className="p-1 text-slate-400 hover:text-red-600">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </TableCell>
         </TableRow>
       );
     });
 
+  const header = (
+    <TableHeader><TableRow><TableHead className="w-8" /><TableHead className="w-8">#</TableHead><TableHead>Keyword</TableHead><TableHead className="w-32">Status</TableHead><TableHead>Matched to</TableHead><TableHead className="w-44" /></TableRow></TableHeader>
+  );
+
   return (
     <div className="flex gap-6">
-      <div className="flex-1 space-y-8">
-        <div className="flex justify-end">
+      <div className="flex-1 space-y-6">
+        {needsReanalysis(keywords) && (
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-sm">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold">These keywords are whole sentences, so the resume can't match them word-for-word.</p>
+              <p className="text-xs mt-0.5">Re-analyze to get short ATS terms like "CI/CD" or "Product demos". Experience you've already added carries over.</p>
+            </div>
+            <LoadingButton size="sm" onClick={onReanalyze} isLoading={isReanalyzing} loadingLabel="Re-analyzing...">Re-analyze</LoadingButton>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input value={newPhrase} onChange={(e) => setNewPhrase(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitNew(); }}
+            placeholder="Add a term from the JD" aria-label="New keyword" className="h-8 text-xs w-56" />
+          <Button size="sm" variant="outline" className="h-8" onClick={submitNew} disabled={!newPhrase.trim()}><Plus className="w-3.5 h-3.5 mr-1" /> Add</Button>
+          {checked.length > 0 && (
+            <>
+              <span className="text-xs text-slate-500 ml-2">{checked.length} selected</span>
+              <Button size="sm" variant="outline" className="h-8" disabled={checked.length < 2} onClick={() => { apply(mergeKeywords(state, checkedInOrder)); setChecked([]); }}
+                title="Keep the first one's wording; the others become aliases">
+                <Merge className="w-3.5 h-3.5 mr-1" /> Merge
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 text-red-700" onClick={() => { apply(removeKeywords(state, checked)); setChecked([]); }}>
+                <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
+              </Button>
+            </>
+          )}
+          <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={onReanalyze} disabled={isReanalyzing}>
             {isReanalyzing ? 'Re-analyzing…' : 'Re-analyze Keywords'}
           </Button>
         </div>
         {topCritical.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-900 border-b-2 border-slate-200 pb-2 mb-1">Top Critical Skills</h4>
+            <h4 className="text-sm font-bold text-slate-900 border-b-2 border-slate-200 pb-2 mb-1">
+              Top Critical Skills <span className={`font-normal text-xs ${topCritical.length > MAX_TOP_CRITICAL ? 'text-amber-700' : 'text-slate-400'}`}>{topCritical.length} of {MAX_TOP_CRITICAL} max</span>
+            </h4>
             <Table>
-              <TableHeader><TableRow><TableHead className="w-8">#</TableHead><TableHead>Keyword</TableHead><TableHead className="w-32">Status</TableHead><TableHead>Matched to</TableHead><TableHead className="w-24" /></TableRow></TableHeader>
+              {header}
               <TableBody>{renderRows(topCritical)}</TableBody>
             </Table>
           </div>
@@ -374,7 +470,7 @@ function KeywordsTab({
           <div>
             <h4 className="text-sm font-bold text-slate-900 border-b-2 border-slate-200 pb-2 mb-1">Secondary Keywords</h4>
             <Table>
-              <TableHeader><TableRow><TableHead className="w-8">#</TableHead><TableHead>Keyword</TableHead><TableHead className="w-32">Status</TableHead><TableHead>Matched to</TableHead><TableHead className="w-24" /></TableRow></TableHeader>
+              {header}
               <TableBody>{renderRows(secondary)}</TableBody>
             </Table>
           </div>

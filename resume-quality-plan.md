@@ -62,6 +62,23 @@ What moved: the evidence quality and the proof points. What didn't: term coverag
 
 The keywords prompt also had to lose the noise. With the full Career Journey it timed out at the Oso router (524 after ~250s) twice in a row. It now uses the same `stripCareerJourneyNoise` projection, at 82K prompt tokens.
 
+
+**2026-10-07: Phase 2 implemented**, plus a fix to Phase 1's writer prompt.
+
+| Measure (Blitzy) | Phases 0, 1, 5 | + Phase 2 (run 2) | + writer checklist, no variant stacking (run 4) | ChatGPT |
+|---|---|---|---|---|
+| Keyword phrase length (avg words) | 7.3 | **1.8** (31 terms) | same list | — |
+| App keyword gate | 9% (meaningless) | 79% | **88%, passes** | — |
+| JD terms covered (38) | 23 | 22 | **28** | 29 |
+| Uncited bullets | 0 / 19 | 0 / 19 | 0 / 19 | — |
+
+The short keywords alone didn't move coverage: the writer still skipped USE keywords (Enterprise SaaS, Developer tooling, Customer feedback). What did move it was making the writer fill a planning-only `keywordPlan` (each USE keyword → section) before writing.
+
+The first try at that (run 3, 29/38) stacked every alias side by side in the skills rows ("solution consulting, solutions consulting, solutions consultant…"). The prompt now treats aliases as alternatives to pick one of, and asks for one checklist entry per keyword. Model aliases that are just a broader or narrower form of the term ("adoption" for "Post-sale adoption") are dropped in `cleanKeywordBreakdown`.
+
+Still open:
+- **First-person summary.** Run 4's summary slipped into first person; a rule now forbids it (not yet re-measured).
+- **Claims needing a second look.** "Drove … an $11M government defense application" is the kind of claim Phase 3 should flag for review.
 ---
 
 ## Phase 0 — Eval harness (do first; every later phase is measured with it)
