@@ -39,6 +39,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 | `/edit` | `EditJourney` | "Simple Editor" — ten sections (Profile, Roles, Projects, Achievements, Skills, Capabilities, Education, Certifications, Methodologies, Client Engagements), each a searchable, filterable, paginated list with inline editors; Cmd/Ctrl-K searches every section; per-section AI assistant. List state lives in the URL (`#/edit?section=skills&q=okr&item=SK-001`), which is how other pages deep-link to one item (`editPathFor` in `src/lib/journeySections.ts`). See below |
 | `/build` | `CareerJourneyBuilder` | Bootstrap a Career Journey: resume extraction, guided chat, or blank template |
 | `/strengthen` | `StrengthenJourney` | Gap-filling flow driven by `careerJourneyGaps.ts` |
+| `/spotlight` | `Spotlight` | Career Spotlight editor: curation settings beside a live preview of the hiring-manager page (`src/components/spotlight/`), built from `buildSpotlightSnapshot` (`src/lib/spotlightSnapshot.ts`, an allowlist projection — never spread journey objects into it). Settings are per browser until publishing ships; see `career-spotlight-plan.md` |
 | `/journey` | `CareerJourney` | "Advanced Editor" — full raw-schema editor, 2929 lines, every section as a tab |
 | `/matches` | `Matches` | Job discovery / bulk AI scan, gated to paid plans |
 | `/discover` | `Discover` | Scheduled StillOpen job search from a CV snapshot; pick listings to light-scan, promote into the pipeline. Admin-only until licensed — see [Job Discovery](#job-discovery-stillopen) |

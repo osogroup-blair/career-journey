@@ -30,6 +30,7 @@ import AdminPrompts from './pages/AdminPrompts';
 import AdminSkills from './pages/AdminSkills';
 import AdminAiCalls from './pages/AdminAiCalls';
 import CareerJourney from './pages/CareerJourney';
+import Spotlight from './pages/Spotlight';
 import Profile from './pages/Profile';
 import Upgrade from './pages/Upgrade';
 import Settings from './pages/Settings';
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="/build" element={<CareerJourneyBuilder />} />
             <Route path="/strengthen" element={<StrengthenJourney />} />
             <Route path="/journey" element={<CareerJourney />} />
+            <Route path="/spotlight" element={<Spotlight />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/matches" element={<Matches />} />
             <Route path="/discover" element={<Discover />} />

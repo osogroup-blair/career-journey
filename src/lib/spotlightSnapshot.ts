@@ -181,6 +181,12 @@ export function suggestOutcomeEvidence(outcome: string, candidates: EvidenceCand
 
 // ---------- settings ----------
 
+/**
+ * Free text the owner is typing: capped but not trimmed, so the editor's controlled inputs
+ * keep a trailing space mid-word. The snapshot trims it.
+ */
+const keepText = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.trim() ? v.slice(0, max) : undefined);
+
 const isRoleMode = (v: unknown): v is SpotlightRoleMode =>
   typeof v === 'string' && (SPOTLIGHT_ROLE_MODES as readonly string[]).includes(v);
 
@@ -211,7 +217,7 @@ export function normalizeSpotlightSettings(raw: unknown, careerJourney: any): Sp
   const outcomes = s.outcomes
     ?.map((o) => ({
       text: o.text.trim(),
-      caption: str(o.caption)?.slice(0, SPOTLIGHT_MAX_CAPTION),
+      caption: keepText(o.caption, SPOTLIGHT_MAX_CAPTION),
       evidence: o.evidence ? unique(strList(o.evidence)).slice(0, 6) : undefined,
     }))
     .filter((o) => o.text && !seenOutcomes.has(o.text) && seenOutcomes.add(o.text))
@@ -220,7 +226,7 @@ export function normalizeSpotlightSettings(raw: unknown, careerJourney: any): Sp
   return {
     ...s,
     slug: str(s.slug)?.toLowerCase(),
-    headline: str(s.headline)?.slice(0, SPOTLIGHT_MAX_HEADLINE),
+    headline: keepText(s.headline, SPOTLIGHT_MAX_HEADLINE),
     outcomes,
     roles,
     pinnedAchievements: s.pinnedAchievements ? unique(strList(s.pinnedAchievements)).slice(0, SPOTLIGHT_MAX_PINNED_ACHIEVEMENTS) : undefined,
@@ -437,7 +443,7 @@ export function buildSpotlightSnapshot(careerJourney: any, rawSettings: unknown,
     } else {
       evidence = suggestOutcomeEvidence(choice.text, candidates);
     }
-    return [{ text: choice.text, lead: extractLeadMetric(choice.text), caption: choice.caption, evidence }];
+    return [{ text: choice.text, lead: extractLeadMetric(choice.text), caption: str(choice.caption), evidence }];
   });
 
   // Capabilities and skills, each with the visible deliverables that demonstrate them.
@@ -517,7 +523,7 @@ export function buildSpotlightSnapshot(careerJourney: any, rawSettings: unknown,
     visibility: settings.visibility,
     person: {
       name: str(person.name) ?? '',
-      headline: settings.headline ?? str(person.brand) ?? str(positioning.primary_tagline),
+      headline: str(settings.headline) ?? str(person.brand) ?? str(positioning.primary_tagline),
       summary,
       location: str(person.location),
       workPreference: str(person.work_preference),

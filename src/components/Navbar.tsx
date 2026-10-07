@@ -7,7 +7,7 @@ import { auth, isFirebaseConfigured } from '../lib/firebase';
 import {
   Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar,
   LogOut, Sparkles, TrendingUp, Menu, X, ChevronDown, CreditCard,
-  Settings as SettingsIcon, User, FileText, Telescope
+  Settings as SettingsIcon, User, FileText, Telescope, Presentation
 } from 'lucide-react';
 import { Button, useToast } from './ui';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
@@ -165,7 +165,7 @@ export default function Navbar() {
                   setJobsOpen(false);
                 }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  resumeOpen || isActive('/build') || isActive('/edit') || isActive('/strengthen') || isActive('/journey')
+                  resumeOpen || isActive('/build') || isActive('/edit') || isActive('/strengthen') || isActive('/spotlight') || isActive('/journey')
                     ? 'bg-brand-50 text-brand-700'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
@@ -188,6 +188,10 @@ export default function Navbar() {
                   <Link to="/strengthen" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
                     <TrendingUp className="h-4 w-4 text-slate-400" />
                     Strengthen
+                  </Link>
+                  <Link to="/spotlight" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <Presentation className="h-4 w-4 text-slate-400" />
+                    Spotlight
                   </Link>
                   <div className="my-1.5 border-t border-slate-100" />
                   <Link to="/journey" className="flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -345,6 +349,9 @@ export default function Navbar() {
           </Link>
           <Link to="/strengthen" className={linkClass('/strengthen') + ' w-full'}>
             <TrendingUp className="h-4 w-4" /> Strengthen
+          </Link>
+          <Link to="/spotlight" className={linkClass('/spotlight') + ' w-full'}>
+            <Presentation className="h-4 w-4" /> Spotlight
           </Link>
           <Link to="/journey" className={linkClass('/journey') + ' w-full'}>
             <Award className="h-4 w-4" /> Advanced Editor

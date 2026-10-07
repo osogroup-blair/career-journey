@@ -2,7 +2,7 @@
 
 A public, read-only page that presents a Career Journey to someone deciding whether to hire its owner. Everything else in the app is a tool the candidate uses on themselves. Spotlight is the one surface built for **someone else**: a hiring manager, recruiter or founder who has never heard of this person and is deciding whether to spend 30 minutes on a call.
 
-Status: Phase 0 built (2026-10-07): `src/types/spotlight.ts`, `src/lib/spotlightSnapshot.ts`, 45 tests in `src/lib/__tests__/spotlightSnapshot.test.ts`. Nothing uses it yet; Phase 1 is next. Clickable mockups, built on the demo persona with a few invented extra initiatives and achievements:
+Status: Phases 0 and 1 built (2026-10-07). Phase 0: `src/types/spotlight.ts`, `src/lib/spotlightSnapshot.ts`. Phase 1: `src/components/spotlight/`, `src/lib/spotlightView.ts`, the `#/spotlight` editor (`src/pages/Spotlight.tsx`). Publishing (Phase 2) is next.
 - Public page: https://claude.ai/artifact/762BiRJbahioftTTx3LceN
 - Owner editor: https://claude.ai/artifact/L5i3Gp5FgYKREnh4F2GyX4
 
@@ -221,9 +221,10 @@ Each phase can ship on its own and is verified before the next starts.
 - `src/lib/spotlightSnapshot.ts` (pure, shared by client and server): `defaultSpotlightSettings`, `normalizeSpotlightSettings`, `buildSpotlightSnapshot` (returns the snapshot plus warnings such as a pinned outcome that no longer exists or a summary whose year count contradicts the dates), `extractLeadMetric`, `suggestOutcomeEvidence`, `diffSpotlightSnapshots` (the named-changes banner) and `validateSpotlightSlug`.
 - Tests (`src/lib/__tests__/spotlightSnapshot.test.ts`): the **privacy allowlist test** (sentinel private fields on every passthrough object never reach the output), hidden roles leaking nowhere, defaults respecting `resume_default` and `display`, achievement/deliverable dedup, figure extraction cases (and non-cases), dates with gaps and "Present", outcome evidence suggestions, the diff, slug rules, and the demo journey producing a sensible snapshot.
 
-### Phase 1: The page and an in-app preview (no public hosting yet)
+### Phase 1: The page and an in-app preview (built)
 - All `src/components/spotlight/*` components, the light/dark tokens, the print stylesheet and the evidence drawer.
-- The `#/spotlight` editor with live preview, using local `useLocalPreference`-backed settings until Phase 2 adds persistence.
+- The `#/spotlight` editor with live preview, using local `useLocalPreference`-backed settings until Phase 2 adds persistence (keyed by uid, so two accounts on one browser don't share them).
+- As built: the page's styles live in one scoped stylesheet (`spotlight.css`, everything under `.sp`) rather than Tailwind, because it has its own theme tokens, container queries and print rules. Container queries make `.sp` the containing block for `position: fixed`, so the evidence drawer renders in a portal (`.sp-layer` carries the theme). In-page navigation uses refs, not `#anchors`, because of the HashRouter. "Print or save as PDF" opens a full-screen preview that prints without the app around it.
 - Works in local-only mode. The candidate can already print/save a good PDF.
 - Verification: unit tests, `npm run lint`, and a browser checklist against the demo account (`npm run seed:demo`) at desktop, 390 px, dark mode, print preview and keyboard-only.
 - **This is the design phase.** Iterate on the real demo data and the real (large) journey before building any publishing plumbing.
