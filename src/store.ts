@@ -8,6 +8,8 @@ import { auth } from './lib/firebase';
 import { generateId } from './lib/utils';
 import { buildJobFromMatch } from './lib/matchScan';
 import { normalizeCareerJourney } from './lib/careerJourneyNormalize';
+import * as journeyMutations from './lib/journeyMutations';
+import { produceJourney, type IdAlloc } from './lib/journeyMutations';
 import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
 import { toastBridge } from './components/ui';
 import * as aiClient from './lib/aiClient';
@@ -93,6 +95,12 @@ interface AppState {
   promoteMatch: (matchId: string) => string | null;
   updateMatchPreferences: (updates: Partial<MatchPreferences>) => void;
   setCareerJourney: (data: any) => void;
+  /**
+   * The one write path for id-keyed Career Journey edits: clones the journey, runs the
+   * recipe (see src/lib/journeyMutations.ts) with a sequential id allocator, stamps
+   * meta.last_updated and persists. Returns whatever the recipe returns (e.g. a new id).
+   */
+  mutateCareerJourney: <T>(recipe: (draft: any, ids: IdAlloc) => T) => T | undefined;
   /** Creates a top-level achievement (with role_ids set) plus a links.timeline_mappings entry — the real cross-referencing model, not an embedded role.achievements[] entry. */
   addAchievementToRole: (roleId: string, achievement: any) => void;
   /** Creates a deliverable nested under the role's first initiative (creating a default initiative if the role has none) — the real model, not an embedded role.deliverables[] entry. */
@@ -104,9 +112,11 @@ interface AppState {
   deleteAchievement: (achievementId: string) => void;
   updateDeliverable: (deliverableId: string, updates: any) => void;
   deleteDeliverable: (deliverableId: string) => void;
+  /** Appends to skills_index with a sequential SK-### id (any id passed in is ignored). */
   addSkillToIndex: (skill: any) => void;
-  updateSkillAtIndex: (index: number, skill: any) => void;
-  deleteSkillAtIndex: (index: number) => void;
+  updateSkill: (skillId: string, updates: any) => void;
+  /** Also removes the skill's copies under capability functions and every reference to its id. */
+  deleteSkill: (skillId: string) => void;
   updateCareerJourneyMeta: (metaUpdates: any) => void;
   updateCareerJourneyPerson: (personUpdates: any) => void;
 }
@@ -512,196 +522,66 @@ export const useStore = create<AppState>((set, get) => {
       set((state) => ({ matchPreferences: { ...state.matchPreferences, ...updates } }));
       dataStore.saveMatchPreferences(get().matchPreferences).catch((err) => console.error('Failed to save match preferences', err));
     },
-    addAchievementToRole: (roleId, achievement) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        const role = copy.roles?.find((r: any) => r.id === roleId);
-        if (role) {
-          const id = achievement.id || generateId('ACH');
-          const newAchievement = {
-            ...achievement,
-            id,
-            title: achievement.title || achievement.label || 'New Achievement',
-            role_ids: [roleId],
-          };
-          if (!Array.isArray(copy.achievements)) copy.achievements = [];
-          copy.achievements.unshift(newAchievement);
-          if (!copy.links) copy.links = { keywords: [], industries: [], education_alignment: [], deliverable_function: [], certification_alignment: [], deliverable_achievement: [], timeline_mappings: [] };
-          if (!Array.isArray(copy.links.timeline_mappings)) copy.links.timeline_mappings = [];
-          copy.links.timeline_mappings.push({
-            id: generateId('MAP'),
-            entity_type: 'achievement',
-            entity_id: id,
-            role_id: roleId,
-            context: `Added via role editor for ${role.organization || role.company || 'this role'}.`,
-          });
-          copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        }
-        return { careerJourney: copy };
-      });
+    mutateCareerJourney: (recipe) => {
+      const current = get().careerJourney;
+      if (!current) return undefined;
+      const { journey, result } = produceJourney(current, recipe);
+      set({ careerJourney: journey });
       persistCareerJourney();
+      return result;
+    },
+    addAchievementToRole: (roleId, achievement) => {
+      get().mutateCareerJourney((d, ids) => {
+        if (!journeyMutations.findRole(d, roleId)) return;
+        const { id: _ignored, ...fields } = achievement || {};
+        journeyMutations.addAchievement(d, ids, { ...fields, title: fields.title || fields.label || 'New Achievement' }, [roleId]);
+      });
     },
     addDeliverableToRole: (roleId, description) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        const role = copy.roles?.find((r: any) => r.id === roleId);
-        if (role) {
-          if (!Array.isArray(role.initiatives)) role.initiatives = [];
-          if (role.initiatives.length === 0) {
-            role.initiatives.push({ id: generateId('INIT'), name: 'General', description: '', deliverables: [] });
-          }
-          const initiative = role.initiatives[0];
-          if (!Array.isArray(initiative.deliverables)) initiative.deliverables = [];
-          initiative.deliverables.unshift({
-            id: generateId('DEL'),
-            description,
-            impact: '',
-            capability_alignment: [],
-            skill_ids: [],
-          });
-          copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        }
-        return { careerJourney: copy };
+      get().mutateCareerJourney((d, ids) => {
+        const role = journeyMutations.findRole(d, roleId);
+        if (!role) return;
+        const initiativeId = role.initiatives?.[0]?.id ?? journeyMutations.addInitiative(d, ids, roleId, { name: 'General' });
+        if (initiativeId) journeyMutations.addDeliverable(d, ids, initiativeId, { description });
       });
-      persistCareerJourney();
     },
     updateRole: (roleId, updates) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        const roleIndex = copy.roles?.findIndex((r: any) => r.id === roleId);
-        if (roleIndex !== -1) {
-          copy.roles[roleIndex] = { ...copy.roles[roleIndex], ...updates };
-          copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        }
-        return { careerJourney: copy };
-      });
-      persistCareerJourney();
+      get().mutateCareerJourney((d) => journeyMutations.updateRole(d, roleId, updates));
     },
     addRole: (role) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        if (!Array.isArray(copy.roles)) copy.roles = [];
-        copy.roles.unshift(role);
-        copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        return { careerJourney: copy };
+      // Callers that pass their own id keep it; otherwise a sequential ROLE-### is allocated.
+      get().mutateCareerJourney((d, ids) => {
+        const id = journeyMutations.addRole(d, ids, role);
+        if (role?.id) d.roles[0].id = role.id;
+        return role?.id || id;
       });
-      persistCareerJourney();
     },
     deleteRole: (roleId) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        copy.roles = (copy.roles || []).filter((r: any) => r.id !== roleId);
-        copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        return { careerJourney: copy };
-      });
-      persistCareerJourney();
+      get().mutateCareerJourney((d) => journeyMutations.deleteRole(d, roleId));
     },
     updateAchievement: (achievementId, updates) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        const idx = (copy.achievements || []).findIndex((a: any) => a.id === achievementId);
-        if (idx !== -1) {
-          copy.achievements[idx] = { ...copy.achievements[idx], ...updates };
-          copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        }
-        return { careerJourney: copy };
-      });
-      persistCareerJourney();
+      get().mutateCareerJourney((d) => journeyMutations.updateAchievement(d, achievementId, updates));
     },
     deleteAchievement: (achievementId) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        copy.achievements = (copy.achievements || []).filter((a: any) => a.id !== achievementId);
-        if (copy.links?.timeline_mappings) {
-          copy.links.timeline_mappings = copy.links.timeline_mappings.filter(
-            (m: any) => !(m.entity_type === 'achievement' && m.entity_id === achievementId)
-          );
-        }
-        copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        return { careerJourney: copy };
-      });
-      persistCareerJourney();
+      get().mutateCareerJourney((d) => journeyMutations.deleteAchievement(d, achievementId));
     },
-    // Deliverables live nested under roles[].initiatives[].deliverables[] — searches
-    // every role/initiative rather than requiring the caller to know where a given
-    // deliverable id lives.
     updateDeliverable: (deliverableId, updates) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        for (const role of copy.roles || []) {
-          for (const initiative of role.initiatives || []) {
-            const idx = (initiative.deliverables || []).findIndex((d: any) => d.id === deliverableId);
-            if (idx !== -1) {
-              initiative.deliverables[idx] = { ...initiative.deliverables[idx], ...updates };
-              copy.meta.last_updated = new Date().toISOString().split('T')[0];
-              return { careerJourney: copy };
-            }
-          }
-        }
-        return state;
-      });
-      persistCareerJourney();
+      get().mutateCareerJourney((d) => journeyMutations.updateDeliverable(d, deliverableId, updates));
     },
     deleteDeliverable: (deliverableId) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        for (const role of copy.roles || []) {
-          for (const initiative of role.initiatives || []) {
-            const before = (initiative.deliverables || []).length;
-            initiative.deliverables = (initiative.deliverables || []).filter((d: any) => d.id !== deliverableId);
-            if (initiative.deliverables.length !== before) {
-              copy.meta.last_updated = new Date().toISOString().split('T')[0];
-              return { careerJourney: copy };
-            }
-          }
-        }
-        return state;
-      });
-      persistCareerJourney();
+      get().mutateCareerJourney((d) => journeyMutations.deleteDeliverable(d, deliverableId));
     },
     addSkillToIndex: (skill) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        if (!Array.isArray(copy.skills_index)) copy.skills_index = [];
-        copy.skills_index.push(skill);
-        copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        return { careerJourney: copy };
+      get().mutateCareerJourney((d, ids) => {
+        const { id: _ignored, ...fields } = skill || {};
+        return journeyMutations.addSkill(d, ids, fields);
       });
-      persistCareerJourney();
     },
-    updateSkillAtIndex: (index, skill) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        if (Array.isArray(copy.skills_index) && copy.skills_index[index] !== undefined) {
-          copy.skills_index[index] = skill;
-          copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        }
-        return { careerJourney: copy };
-      });
-      persistCareerJourney();
+    updateSkill: (skillId, updates) => {
+      get().mutateCareerJourney((d) => journeyMutations.updateSkill(d, skillId, updates));
     },
-    deleteSkillAtIndex: (index) => {
-      set((state) => {
-        if (!state.careerJourney) return state;
-        const copy = JSON.parse(JSON.stringify(state.careerJourney));
-        if (Array.isArray(copy.skills_index)) {
-          copy.skills_index.splice(index, 1);
-          copy.meta.last_updated = new Date().toISOString().split('T')[0];
-        }
-        return { careerJourney: copy };
-      });
-      persistCareerJourney();
+    deleteSkill: (skillId) => {
+      get().mutateCareerJourney((d) => journeyMutations.deleteSkill(d, skillId));
     },
     updateCareerJourneyMeta: (metaUpdates) => {
       set((state) => {

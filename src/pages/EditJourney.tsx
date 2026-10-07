@@ -270,7 +270,7 @@ const RoleEditForm: React.FC<{ role: any; onDeleteRole: () => void }> = ({ role,
 };
 
 function SkillsIndexEditor() {
-  const { careerJourney, addSkillToIndex, updateSkillAtIndex, deleteSkillAtIndex } = useStore();
+  const { careerJourney, addSkillToIndex, updateSkill, deleteSkill } = useStore();
   const skills = careerJourney?.skills_index || [];
 
   return (
@@ -284,7 +284,7 @@ function SkillsIndexEditor() {
           size="sm"
           variant="outline"
           className="bg-white"
-          onClick={() => addSkillToIndex({ name: 'New Skill', category: 'Core Competency', level: 'Intermediate', years: '' })}
+          onClick={() => addSkillToIndex({ name: 'New Skill', category: 'Core Competency', proficiency: 'Intermediate' })}
         >
           <Plus className="w-3.5 h-3.5 mr-1 text-brand-600" /> Add Skill
         </Button>
@@ -293,16 +293,16 @@ function SkillsIndexEditor() {
       {skills.length === 0 && <p className="text-sm text-slate-400">No skills indexed yet.</p>}
 
       <div className="space-y-3">
-        {skills.map((skill: any, idx: number) => (
-          <Card key={idx} className="p-3.5 border-slate-200">
+        {skills.map((skill: any) => (
+          <Card key={skill.id} className="p-3.5 border-slate-200">
             <div className="grid sm:grid-cols-[1fr_1fr_130px_90px_auto] gap-3 items-end">
-              <EditField label="Name" value={skill.name} onCommit={(v) => updateSkillAtIndex(idx, { ...skill, name: v })} />
-              <EditField label="Category" value={skill.category} onCommit={(v) => updateSkillAtIndex(idx, { ...skill, category: v })} />
+              <EditField label="Name" value={skill.name} onCommit={(v) => updateSkill(skill.id, { name: v })} />
+              <EditField label="Category" value={skill.category} onCommit={(v) => updateSkill(skill.id, { category: v })} />
               <div>
                 <Label>Level</Label>
                 <select
-                  value={skill.level || skill.proficiency || 'Intermediate'}
-                  onChange={(e) => updateSkillAtIndex(idx, { ...skill, level: e.target.value })}
+                  value={skill.proficiency || skill.level || 'Intermediate'}
+                  onChange={(e) => updateSkill(skill.id, { proficiency: e.target.value })}
                   className="w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                 >
                   {PROFICIENCY_LEVELS.map((lvl) => (
@@ -310,9 +310,9 @@ function SkillsIndexEditor() {
                   ))}
                 </select>
               </div>
-              <EditField label="Years" value={skill.years} onCommit={(v) => updateSkillAtIndex(idx, { ...skill, years: v })} placeholder="e.g. 5+" />
+              <EditField label="Years" value={skill.years_experience != null ? String(skill.years_experience) : ''} onCommit={(v) => updateSkill(skill.id, { years_experience: v.trim() === '' ? undefined : Number(v) })} placeholder="e.g. 5" />
               <button
-                onClick={() => deleteSkillAtIndex(idx)}
+                onClick={() => deleteSkill(skill.id)}
                 className="h-10 flex items-center justify-center text-slate-400 hover:text-red-600"
                 title="Delete skill"
               >

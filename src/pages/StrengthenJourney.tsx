@@ -19,7 +19,7 @@ function StrengthenJourneyInner() {
   const careerJourney = useStore((state) => state.careerJourney);
   const updateAchievement = useStore((state) => state.updateAchievement);
   const updateRole = useStore((state) => state.updateRole);
-  const updateSkillAtIndex = useStore((state) => state.updateSkillAtIndex);
+  const updateSkill = useStore((state) => state.updateSkill);
 
   const gaps = useMemo(() => (careerJourney ? computeJourneyGaps(careerJourney) : []), [careerJourney]);
   const completeness = useMemo(() => (careerJourney ? computeJourneyCompleteness(careerJourney) : null), [careerJourney]);
@@ -64,16 +64,11 @@ function StrengthenJourneyInner() {
     } else if (currentGap.type === 'role-thin') {
       if (proposed.description) updateRole(currentGap.entityId, { description: proposed.description });
     } else if (currentGap.type === 'skill-stale') {
-      const idx = (careerJourney.skills_index || []).findIndex((s: any) => s.id === currentGap.entityId);
-      if (idx !== -1) {
-        const current = careerJourney.skills_index[idx];
-        updateSkillAtIndex(idx, {
-          ...current,
-          last_used: proposed.last_used ?? current.last_used,
-          proficiency: proposed.proficiency ?? current.proficiency,
-          years_experience: proposed.years_experience ?? current.years_experience,
-        });
-      }
+      const updates: Record<string, any> = {};
+      if (proposed.last_used != null) updates.last_used = proposed.last_used;
+      if (proposed.proficiency != null) updates.proficiency = proposed.proficiency;
+      if (proposed.years_experience != null) updates.years_experience = proposed.years_experience;
+      updateSkill(currentGap.entityId, updates);
     }
     setResolvedCount((c) => c + 1);
     advance();
