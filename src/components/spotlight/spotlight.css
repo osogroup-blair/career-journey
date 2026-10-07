@@ -80,6 +80,7 @@
 .sp-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -10px var(--sp-accent); }
 .sp-btn.sp-ghost { background: transparent; color: var(--sp-ink); border-color: var(--sp-rule); }
 .sp-btn.sp-ghost:hover { border-color: var(--sp-ink-3); box-shadow: none; }
+.sp-btn:disabled { opacity: 0.6; cursor: progress; transform: none; }
 .sp-small-btn { border: 1px solid var(--sp-rule); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--sp-ink-2); white-space: nowrap; text-decoration: none; }
 .sp-small-btn:hover { border-color: var(--sp-accent); color: var(--sp-accent); }
 
@@ -330,7 +331,9 @@
   .sp .sp-nav, .sp .sp-cta, .sp .sp-link, .sp .sp-filters, .sp .sp-small-btn, .sp .sp-collapse-alt, .sp-scrim, .sp-drawer { display: none !important; }
   .sp .sp-collapse { display: block !important; }
   .sp .sp-outcomes, .sp .sp-contact { background: none; }
-  .sp .sp-role, .sp .sp-ach, .sp .sp-cap, .sp .sp-outcome { break-inside: avoid; }
+  /* Keep small blocks whole, but let long roles flow across pages rather than leave gaps. */
+  .sp .sp-ach, .sp .sp-cap, .sp .sp-outcome, .sp .sp-dels li, .sp .sp-impacts li, .sp .sp-channel { break-inside: avoid; }
+  .sp .sp-sec-head, .sp .sp-role h3, .sp .sp-init h4 { break-after: avoid; }
   .sp .sp-block { padding-top: 28pt; }
 }
 
@@ -341,3 +344,22 @@
   html.sp-printing .sp-print-root { position: static !important; overflow: visible !important; height: auto !important; }
   html.sp-printing .sp-print-toolbar { display: none !important; }
 }
+
+/* ---------- Link-preview image (SpotlightCard), screenshotted at exactly 1200×630 ---------- */
+.sp-card {
+  box-sizing: border-box; width: 1200px; height: 630px; overflow: hidden; padding: 72px 80px 56px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: 1fr auto; column-gap: 64px;
+  border-top: 14px solid var(--sp-accent);
+}
+.sp-card-main { align-self: center; min-width: 0; }
+.sp-card .sp-eyebrow { font-size: 18px; }
+.sp-card-name { font-family: var(--sp-f-display); font-size: 92px; line-height: 0.98; letter-spacing: -0.03em; margin-top: 18px; text-wrap: balance; }
+.sp-card-headline { font-family: var(--sp-f-display); font-style: italic; font-size: 36px; line-height: 1.25; color: var(--sp-ink-2); margin-top: 18px; text-wrap: balance;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sp-card-outcome { align-self: center; border-left: 2px solid var(--sp-rule); padding-left: 40px; }
+.sp-card-outcome .sp-numeral { font-size: 112px; }
+.sp-card-outcome p { font-size: 22px; line-height: 1.35; color: var(--sp-ink-2); margin-top: 14px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sp-card[data-solo='true'] { grid-template-columns: minmax(0, 1fr); }
+.sp-card-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; border-top: 1px solid var(--sp-rule); padding-top: 22px;
+  font-family: var(--sp-f-data); font-size: 18px; color: var(--sp-ink-3); }

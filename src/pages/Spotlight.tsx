@@ -93,7 +93,7 @@ const formatDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, {
 export default function Spotlight() {
   const { careerJourney, billing, isAdmin } = useStore();
   const toast = useToast();
-  const { loading, stored, setStored, remote, blocked, published, setPublished, save, cancelPendingSave } = useSpotlightState();
+  const { loading, stored, setStored, remote, blocked, published, setPublished, views, save, cancelPendingSave } = useSpotlightState();
   // Free plans keep the footer mark; the server enforces this on publish, the editor mirrors it so the preview is honest.
   const canHideBadge = isAdmin || !billing || billing.comped === true || billing.plan !== 'free';
   const settings = useMemo(() => {
@@ -202,7 +202,7 @@ export default function Spotlight() {
                 <Printer className="mr-2 h-4 w-4" /> Print or save as PDF
               </Button>
               {published && (
-                <a href={spotlightUrl(published.slug)} target="_blank" rel="noopener noreferrer">
+                <a href={`${spotlightUrl(published.slug)}?from=editor`} target="_blank" rel="noopener noreferrer">
                   <Button variant="outline">
                     <ExternalLink className="mr-2 h-4 w-4" /> Open public page
                   </Button>
@@ -276,7 +276,7 @@ export default function Spotlight() {
             <div className="mt-5 grid items-start gap-6 lg:grid-cols-[400px_minmax(0,1fr)]">
               <div className={`${view === 'preview' ? 'hidden lg:grid' : 'grid'} gap-3.5`}>
                 <BuildWarnings warnings={warnings} />
-                {remote && !blocked && <PublishingPanel settings={settings} slug={slug} published={published} update={update} onUnpublish={unpublish} />}
+                {remote && !blocked && <PublishingPanel settings={settings} slug={slug} published={published} views={views} update={update} onUnpublish={unpublish} />}
                 <VisitorsCanSee settings={settings} snapshot={snapshot} careerJourney={careerJourney} publishing={remote && !blocked} />
                 <IntroductionPanel settings={settings} careerJourney={careerJourney} update={update} />
                 <OutcomesPanel settings={settings} snapshot={snapshot} careerJourney={careerJourney} update={update} />

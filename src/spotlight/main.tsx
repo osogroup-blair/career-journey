@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { SpotlightSnapshot } from '../types/spotlight';
 import { evidenceTargetFromId } from '../lib/spotlightView';
 import SpotlightPage from '../components/spotlight/SpotlightPage';
+import SpotlightCard from '../components/spotlight/SpotlightCard';
 
 /**
  * Entry for the public Career Spotlight page (spotlight.html, served at /s/:slug).
@@ -47,11 +48,42 @@ function Spotlight() {
   if (!snapshot) return <NotFound />;
   // ?evidence=SK-001 opens the drawer on that skill, capability or achievement — a link a candidate can send.
   const evidence = new URLSearchParams(location.search).get('evidence');
-  return <SpotlightPage snapshot={snapshot} initialEvidence={evidence ? evidenceTargetFromId(snapshot, evidence) : null} />;
+  const slug = location.pathname.split('/').filter(Boolean)[1];
+  return (
+    <SpotlightPage
+      snapshot={snapshot}
+      initialEvidence={evidence ? evidenceTargetFromId(snapshot, evidence) : null}
+      pdfUrl={slug ? `/s/${slug}/pdf` : undefined}
+    />
+  );
 }
 
+/**
+ * Server-side renders (server/pdfRenderer.ts) inject the snapshot here instead: "card" is
+ * the link-preview image, "print" the downloadable PDF. The body is marked ready once
+ * React has painted, which is what the renderer waits for.
+ */
+interface RenderRequest {
+  mode: 'card' | 'print';
+  snapshot: SpotlightSnapshot;
+  address?: string;
+}
+
+function Rendered({ request }: { request: RenderRequest }) {
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      document.body.dataset.ready = 'true';
+    });
+  }, []);
+  return request.mode === 'card' ? (
+    <SpotlightCard snapshot={request.snapshot} address={request.address} />
+  ) : (
+    <SpotlightPage snapshot={request.snapshot} mode="light" variant="print" />
+  );
+}
+
+const renderRequest = (window as any).__SPOTLIGHT_RENDER__ as RenderRequest | undefined;
+
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Spotlight />
-  </StrictMode>,
+  <StrictMode>{renderRequest ? <Rendered request={renderRequest} /> : <Spotlight />}</StrictMode>,
 );

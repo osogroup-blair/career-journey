@@ -14,7 +14,44 @@ export function SectionHead({ title, children }: { title: string; children?: Rea
 
 const AVAILABILITY_LABEL = { open_to_work: 'Open to work', open_to_select: 'Open to select opportunities' } as const;
 
-export function Hero({ snapshot, onContact }: { snapshot: SpotlightSnapshot; onContact: (() => void) | null }) {
+/**
+ * Fetches the PDF and saves it, so a failure (no Chromium on the server, rate limit) shows a
+ * message here instead of navigating to an error. The address only exists in the script,
+ * not in the markup, which keeps naive scrapers off the expensive render.
+ */
+function DownloadPdf({ url, name }: { url: string; name: string }) {
+  const [state, setState] = useState<'idle' | 'working' | 'failed'>('idle');
+  const download = async () => {
+    setState('working');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(String(res.status));
+      const href = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `${name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'Career'}-Spotlight.pdf`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(href), 10_000);
+      setState('idle');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <>
+      <button type="button" className="sp-btn sp-ghost" onClick={download} disabled={state === 'working'}>
+        {state === 'working' ? 'Preparing PDF…' : 'Download PDF'}
+      </button>
+      {state === 'failed' && (
+        <span className="sp-data" role="status">
+          The PDF isn't available right now. You can print this page instead.
+        </span>
+      )}
+    </>
+  );
+}
+
+export function Hero({ snapshot, onContact, pdfUrl }: { snapshot: SpotlightSnapshot; onContact: (() => void) | null; pdfUrl?: string }) {
   const { person, glance, contact } = snapshot;
   const rows = glanceRows(snapshot);
   return (
@@ -34,7 +71,7 @@ export function Hero({ snapshot, onContact }: { snapshot: SpotlightSnapshot; onC
             {person.location && <span>{person.location}</span>}
             {person.workPreference && <span>{person.workPreference}</span>}
           </div>
-          {(onContact || contact.linkedin) && (
+          {(onContact || contact.linkedin || pdfUrl) && (
             <div className="sp-cta">
               {onContact && (
                 <button type="button" className="sp-btn" onClick={onContact}>
@@ -46,6 +83,7 @@ export function Hero({ snapshot, onContact }: { snapshot: SpotlightSnapshot; onC
                   LinkedIn ↗
                 </a>
               )}
+              {pdfUrl && <DownloadPdf url={pdfUrl} name={person.name} />}
             </div>
           )}
         </div>
@@ -257,7 +295,11 @@ export function Background({ snapshot }: { snapshot: SpotlightSnapshot }) {
     },
     {
       title: snapshot.engagements.length === 1 ? 'Selected engagement' : 'Selected engagements',
-      items: snapshot.engagements.map((e) => ({ id: e.id, title: e.client, body: [e.project, e.description, e.dates].filter(Boolean).join('. ') })),
+      items: snapshot.engagements.map((e) => ({
+        id: e.id,
+        title: e.client,
+        body: [e.project, e.description].filter(Boolean).map(sentence).join(' ') + (e.dates ? ` ${e.dates}` : ''),
+      })),
     },
   ].filter((c) => c.items.length);
 
@@ -277,6 +319,9 @@ export function Background({ snapshot }: { snapshot: SpotlightSnapshot }) {
     </div>
   );
 }
+
+/** "Ran interviews" → "Ran interviews." — so joined fragments never end up with ".." or no stop at all. */
+const sentence = (s: string) => (/[.!?]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
 
 export function hasBackground(snapshot: SpotlightSnapshot): boolean {
   return snapshot.education.length + snapshot.certifications.length + snapshot.engagements.length > 0;

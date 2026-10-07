@@ -2,7 +2,7 @@
 
 A public, read-only page that presents a Career Journey to someone deciding whether to hire its owner. Everything else in the app is a tool the candidate uses on themselves. Spotlight is the one surface built for **someone else**: a hiring manager, recruiter or founder who has never heard of this person and is deciding whether to spend 30 minutes on a call.
 
-Status: Phases 0–2 built (2026-10-07). Phase 0: `src/types/spotlight.ts`, `src/lib/spotlightSnapshot.ts`. Phase 1: `src/components/spotlight/`, `src/lib/spotlightView.ts`, the `#/spotlight` editor. Phase 2: `server/spotlight.ts`, `spotlight.html` + `src/spotlight/main.tsx`, `src/lib/spotlightClient.ts`. Phase 3 (Open Graph image, PDF download, view counts) is next.
+Status: Phases 0–3 built (2026-10-07). Phase 3 added the link-preview image, the PDF download and view counts (`server/spotlight.ts`, `server/pdfRenderer.ts`, `src/components/spotlight/SpotlightCard.tsx`). Phase 4 items are optional and undecided.
 - Public page: https://claude.ai/artifact/762BiRJbahioftTTx3LceN
 - Owner editor: https://claude.ai/artifact/L5i3Gp5FgYKREnh4F2GyX4
 
@@ -236,7 +236,9 @@ Each phase can ship on its own and is verified before the next starts.
 - Tests: `server/__tests__/spotlight.test.ts` (publish derives uid from the token; an unpublished slug and a missing slug return the same 404; the kill switch 404s; slug collision and reserved words; snapshot built server-side ignores client-sent journey content) plus a `userData` purge test.
 - Docs: ARCHITECTURE.md (route table, data model, Spotlight section) and AGENTS.md env/feature table.
 
-### Phase 3: First-impression polish
+### Phase 3: First-impression polish (built)
+- As built: the image is stored under the account (`users/{uid}/spotlight/ogImage`) rather than per slug, so it survives address changes and account deletion removes it with everything else; same for view counts (`users/{uid}/spotlight/stats`). The PDF isn't stored: it's rendered on demand and cached in memory per published version, behind a 6/min per-IP limit.
+- The PDF shows the email address when the owner has turned email on, because a printed page can't be clicked. The web page still keeps it behind a click.
 - Generated OG image per spotlight (1200×630: name, tagline, top outcome), rendered with the existing `puppeteer-core` pipeline and cached on publish.
 - A "Download résumé (PDF)" button that renders the spotlight's print view through `server/pdfRenderer.ts`.
 - Privacy-respecting view counts for the owner (a counter increment per day per slug, no cookies, no IP storage).

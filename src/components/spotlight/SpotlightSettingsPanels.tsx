@@ -11,7 +11,7 @@ import {
   SpotlightSnapshot,
 } from '../../types/spotlight';
 import { buildSpotlightSnapshot, defaultSpotlightRoleModes, extractLeadMetric, validateSpotlightSlug } from '../../lib/spotlightSnapshot';
-import { checkSpotlightSlug, PublishedSpotlightSummary, spotlightUrl } from '../../lib/spotlightClient';
+import { checkSpotlightSlug, PublishedSpotlightSummary, spotlightUrl, SpotlightViews } from '../../lib/spotlightClient';
 import { SPOTLIGHT_ACCENT_COLORS, formatRoleDates } from '../../lib/spotlightView';
 import { rolesRecentFirst } from '../../lib/resumeBuild';
 import { Badge, Button, Input, Label, SearchInput } from '../ui';
@@ -560,6 +560,7 @@ export function PublishingPanel({
   settings,
   slug,
   published,
+  views,
   update,
   onUnpublish,
 }: {
@@ -567,6 +568,7 @@ export function PublishingPanel({
   /** The address the next publish will use: the setting, or one suggested from the name. */
   slug: string;
   published: PublishedSpotlightSummary | null;
+  views: SpotlightViews | null;
   update: SettingsUpdate;
   onUnpublish: () => Promise<void>;
 }) {
@@ -612,6 +614,24 @@ export function PublishingPanel({
   const status = availability?.slug === slug ? availability : null;
   return (
     <Panel title="Publishing" hint="link and who can find it">
+      {views && views.total > 0 && (
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-center">
+          {[
+            ['Last 7 days', views.last7],
+            ['Last 30 days', views.last30],
+            ['All time', views.total],
+          ].map(([label, n]) => (
+            <div key={label as string}>
+              <div className="text-lg font-bold tabular-nums text-slate-900">{n}</div>
+              <div className="text-[11px] text-slate-500">{label}</div>
+            </div>
+          ))}
+          <p className="col-span-3 text-[11px] text-slate-500">
+            Page views. Link previews and search engines aren't counted, and neither are visits from "Open public page" here. No visitor
+            details are stored.
+          </p>
+        </div>
+      )}
       <div>
         <Label htmlFor="sp-slug">Page address</Label>
         <div className="flex h-10 items-center overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">

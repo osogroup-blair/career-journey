@@ -49,6 +49,7 @@ export default function SpotlightPage({
   variant = 'screen',
   now = new Date(),
   initialEvidence = null,
+  pdfUrl,
 }: {
   snapshot: SpotlightSnapshot;
   mode?: 'light' | 'dark';
@@ -56,6 +57,8 @@ export default function SpotlightPage({
   now?: Date;
   /** Opens the evidence drawer on load (the public page's ?evidence= link). */
   initialEvidence?: EvidenceTarget | null;
+  /** The public page's PDF download; the editor's preview has none. */
+  pdfUrl?: string;
 }) {
   const [evidence, setEvidence] = useState<EvidenceTarget | null>(initialEvidence);
   const [flashRole, setFlashRole] = useState<string | null>(null);
@@ -161,7 +164,7 @@ export default function SpotlightPage({
 
       <main>
         <div data-region="hero">
-          <Hero snapshot={snapshot} onContact={contactable ? () => scrollTo(sections.current.get('contact')) : null} />
+          <Hero snapshot={snapshot} pdfUrl={pdfUrl} onContact={contactable ? () => scrollTo(sections.current.get('contact')) : null} />
         </div>
         <div ref={heroEnd} />
 

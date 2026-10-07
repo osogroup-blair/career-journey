@@ -1,6 +1,6 @@
 import express from "express";
 import type { App } from "firebase-admin/app";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 import { getAdminApp } from "./firebaseAdmin";
 import { getFeatureFlags } from "./featureFlags";
 import { getBillingState, isPaidPlan } from "./billing";
@@ -11,14 +11,18 @@ import {
   validateSpotlightSlug,
 } from "../src/lib/spotlightSnapshot";
 import type { SpotlightSettings, SpotlightSnapshot } from "../src/types/spotlight";
+import { renderSpotlightImage, renderSpotlightPdf } from "./pdfRenderer";
 
 /**
  * Career Spotlight publishing (career-spotlight-plan.md, Phase 2).
  *
  * Data:
  * - users/{uid}/spotlight/settings — { settings, publishedSlug, updatedAt }. Server-written only.
- * - spotlights/{slug} — { ownerUid, slug, visibility, snapshot, publishedAt, updatedAt }. The public
- *   copy. Fully denied to clients in firestore.rules; read and written only here.
+ * - spotlights/{slug} — { ownerUid, slug, visibility, snapshot, publishedAt, updatedAt, imageVersion? }.
+ *   The public copy. Fully denied to clients in firestore.rules; read and written only here.
+ * - users/{uid}/spotlight/ogImage — the link-preview JPEG for the current publish (Phase 3).
+ * - users/{uid}/spotlight/stats — { total, days: { "YYYY-MM-DD": n } } view counts. No visitor data.
+ *   Both live under the account, so they survive address changes and account deletion removes them.
  *
  * Every owner route takes the uid from the verified token (req.uid), never the body. The
  * snapshot is always built here, from the Career Journey this server reads from Firestore —
@@ -38,6 +42,8 @@ export interface PublishedSpotlight {
   snapshot: SpotlightSnapshot;
   publishedAt: string;
   updatedAt: string;
+  /** Set to `updatedAt` once the link-preview image for this publish exists. */
+  imageVersion?: string;
 }
 
 /** What the owner's editor sees about their published page. */
@@ -58,6 +64,8 @@ export class SpotlightError extends Error {
 const settingsRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("settings");
 const journeyRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("careerJourney").doc("current");
 const pageRef = (db: Firestore, slug: string) => db.collection(SPOTLIGHTS).doc(slug);
+const imageRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("ogImage");
+const statsRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("stats");
 
 /** Firestore rejects `undefined` fields; the snapshot and settings use them for "not set". */
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -78,16 +86,20 @@ async function readJourney(db: Firestore, uid: string): Promise<any> {
 
 // ---------- owner operations ----------
 
-export async function loadOwnerSpotlight(app: App, uid: string): Promise<{ settings: SpotlightSettings | null; published: PublishedSummary | null }> {
+export async function loadOwnerSpotlight(
+  app: App,
+  uid: string,
+  now: Date = new Date(),
+): Promise<{ settings: SpotlightSettings | null; published: PublishedSummary | null; views: ViewSummary }> {
   const db = getFirestore(app);
-  const stored = await settingsRef(db, uid).get();
+  const [stored, stats] = await Promise.all([settingsRef(db, uid).get(), statsRef(db, uid).get()]);
   const data = stored.exists ? (stored.data() as any) : null;
   let published: PublishedSummary | null = null;
   if (typeof data?.publishedSlug === "string") {
     const page = await pageRef(db, data.publishedSlug).get();
     if (page.exists && (page.data() as PublishedSpotlight).ownerUid === uid) published = summaryOf(page.data() as PublishedSpotlight);
   }
-  return { settings: data?.settings ?? null, published };
+  return { settings: data?.settings ?? null, published, views: summarizeViews(stats.exists ? stats.data() : null, now) };
 }
 
 export async function saveSpotlightSettings(app: App, uid: string, raw: unknown): Promise<SpotlightSettings> {
@@ -167,6 +179,7 @@ export async function unpublishSpotlight(app: App, uid: string): Promise<void> {
     const page = slug ? await tx.get(pageRef(db, slug)) : null;
     if (page?.exists && (page.data() as PublishedSpotlight).ownerUid === uid) tx.delete(pageRef(db, slug!));
     if (stored.exists) tx.set(settingsRef(db, uid), { publishedSlug: null, updatedAt: new Date().toISOString() }, { merge: true });
+    tx.delete(imageRef(db, uid));
   });
 }
 
@@ -178,12 +191,83 @@ export async function deleteSpotlightsOwnedBy(app: App, uid: string): Promise<vo
 }
 
 /** For the GDPR export (GET /api/user/export-data). */
-export async function exportSpotlight(app: App, uid: string): Promise<{ settings: SpotlightSettings | null; published: PublishedSummary[] }> {
+export async function exportSpotlight(
+  app: App,
+  uid: string,
+): Promise<{ settings: SpotlightSettings | null; published: PublishedSummary[]; viewsByDay: Record<string, number> }> {
   const db = getFirestore(app);
-  const [stored, owned] = await Promise.all([settingsRef(db, uid).get(), db.collection(SPOTLIGHTS).where("ownerUid", "==", uid).get()]);
+  const [stored, owned, stats] = await Promise.all([
+    settingsRef(db, uid).get(),
+    db.collection(SPOTLIGHTS).where("ownerUid", "==", uid).get(),
+    statsRef(db, uid).get(),
+  ]);
   return {
     settings: stored.exists ? ((stored.data() as any).settings ?? null) : null,
     published: owned.docs.map((d) => summaryOf(d.data() as PublishedSpotlight)),
+    viewsByDay: (stats.exists ? (stats.data() as any)?.days : null) ?? {},
+  };
+}
+
+// ---------- link-preview image ----------
+
+/**
+ * Renders and stores the link-preview image for the page as it is now, then points the page
+ * at it. Runs after a publish has been answered (it takes a second or two in Chromium); if a
+ * newer publish lands meanwhile, this one gives up rather than overwrite it. Without Chromium
+ * it does nothing and pages simply have no image.
+ */
+export async function refreshSpotlightImage(app: App, uid: string, slug: string, version: string, opts: { renderOrigin: string; appUrl: string }): Promise<void> {
+  const db = getFirestore(app);
+  const page = await pageRef(db, slug).get();
+  const data = page.exists ? (page.data() as PublishedSpotlight) : null;
+  if (!data || data.ownerUid !== uid || data.updatedAt !== version) return;
+  const address = `${new URL(opts.appUrl).host}/s/${slug}`;
+  const image = await renderSpotlightImage(opts.renderOrigin, data.snapshot, address);
+  await imageRef(db, uid).set({ data: image, contentType: "image/jpeg", slug, version, createdAt: new Date().toISOString() });
+  await db.runTransaction(async (tx) => {
+    const latest = await tx.get(pageRef(db, slug));
+    const current = latest.exists ? (latest.data() as PublishedSpotlight) : null;
+    if (current?.ownerUid === uid && current.updatedAt === version) tx.set(pageRef(db, slug), { imageVersion: version }, { merge: true });
+  });
+}
+
+// ---------- view counts ----------
+
+/** Link unfurlers, crawlers and scripts — not people reading the page. */
+const NOT_A_READER = /bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|whatsapp|telegram|discord|skype|headless|curl|wget|python|axios|node-fetch|go-http|java\//i;
+
+export function isCountableView(req: express.Request): boolean {
+  if (req.method !== "GET") return false;
+  if (req.query.from === "editor") return false; // the owner's own "Open public page"
+  const ua = req.get("user-agent") || "";
+  return ua !== "" && !NOT_A_READER.test(ua);
+}
+
+/** One more view today, on the owner's stats doc. Stores a count and nothing about the visitor. */
+export async function recordSpotlightView(app: App, ownerUid: string, now: Date = new Date()): Promise<void> {
+  const day = now.toISOString().slice(0, 10);
+  await statsRef(getFirestore(app), ownerUid).set({ total: FieldValue.increment(1), days: { [day]: FieldValue.increment(1) } }, { merge: true });
+}
+
+export interface ViewSummary {
+  total: number;
+  last7: number;
+  last30: number;
+  /** The last 30 days, oldest first, including days with no views. */
+  days: { date: string; count: number }[];
+}
+
+export function summarizeViews(stats: any, now: Date = new Date()): ViewSummary {
+  const byDay: Record<string, number> = stats?.days && typeof stats.days === "object" ? stats.days : {};
+  const days = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(now.getTime() - (29 - i) * 86_400_000).toISOString().slice(0, 10);
+    return { date: d, count: Number(byDay[d]) || 0 };
+  });
+  return {
+    total: Number(stats?.total) || 0,
+    last7: days.slice(-7).reduce((n, d) => n + d.count, 0),
+    last30: days.reduce((n, d) => n + d.count, 0),
+    days,
   };
 }
 
@@ -227,6 +311,7 @@ export function renderSpotlightHtml(template: string, page: PublishedSpotlight |
     const title = p.headline ? `${p.name} — ${p.headline}` : p.name || "Career Spotlight";
     const description = clip(p.summary || p.headline || `${p.name}'s career highlights`, 200);
     const url = `${appUrl.replace(/\/+$/, "")}/s/${page.slug}`;
+    const image = page.imageVersion ? `${url}/og.jpg?v=${Date.parse(page.imageVersion) || 0}` : null;
     head = [
       `<title>${escapeHtml(title)}</title>`,
       `<meta name="description" content="${escapeHtml(description)}" />`,
@@ -235,7 +320,15 @@ export function renderSpotlightHtml(template: string, page: PublishedSpotlight |
       `<meta property="og:title" content="${escapeHtml(title)}" />`,
       `<meta property="og:description" content="${escapeHtml(description)}" />`,
       `<meta property="og:url" content="${escapeHtml(url)}" />`,
-      `<meta name="twitter:card" content="summary" />`,
+      ...(image
+        ? [
+            `<meta property="og:image" content="${escapeHtml(image)}" />`,
+            `<meta property="og:image:width" content="1200" />`,
+            `<meta property="og:image:height" content="630" />`,
+            `<meta property="og:image:alt" content="${escapeHtml(title)}" />`,
+            `<meta name="twitter:card" content="summary_large_image" />`,
+          ]
+        : [`<meta name="twitter:card" content="summary" />`]),
       page.visibility === "public" ? `<meta name="robots" content="index, follow" />` : `<meta name="robots" content="noindex, nofollow" />`,
     ].join("\n");
   }
@@ -284,8 +377,15 @@ function needsFirebase(res: express.Response): void {
   res.status(501).json({ error: "Publishing a Spotlight needs an account. This copy of Career Journey runs without one.", code: "no_firebase" });
 }
 
+export interface SpotlightRenderOptions {
+  /** This server's own address, for headless Chromium to load spotlight.html from. */
+  renderOrigin: string;
+}
+
+const appUrl = () => process.env.APP_URL || "http://localhost:47293";
+
 /** /api/spotlight/* — mounted in server.ts behind requireFirebaseAuth + requireFeature("career_spotlight"). */
-export function createSpotlightRouter(): express.Router {
+export function createSpotlightRouter(opts: SpotlightRenderOptions): express.Router {
   const router = express.Router();
 
   router.get("/", async (req, res) => {
@@ -328,7 +428,11 @@ export function createSpotlightRouter(): express.Router {
     try {
       const billing = await getBillingState(app, uid);
       const canHideBadge = (req as any).isAdmin === true || billing.comped === true || isPaidPlan(billing.plan);
-      res.json({ published: await publishSpotlight(app, uid, req.body?.settings, { canHideBadge }) });
+      const published = await publishSpotlight(app, uid, req.body?.settings, { canHideBadge });
+      res.json({ published });
+      refreshSpotlightImage(app, uid, published.slug, published.updatedAt, { renderOrigin: opts.renderOrigin, appUrl: appUrl() }).catch((e) =>
+        console.warn(`Spotlight image for /s/${published.slug} not rendered: ${e?.message ?? e}`),
+      );
     } catch (e) {
       fail(res, e);
     }
@@ -371,23 +475,83 @@ export function createPublicSpotlightRouter(): express.Router {
   return router;
 }
 
+/** Rendered PDFs, by page and publish time, so repeat downloads of the same version don't re-render. */
+const pdfCache = new Map<string, Buffer>();
+const PDF_CACHE_SIZE = 20;
+
+function pdfFileName(name: string): string {
+  const base = name.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${base || "Career"}-Spotlight.pdf`;
+}
+
 /**
- * GET /s/:slug — the public page's HTML, with its metadata and data filled in on the server
- * (link unfurlers in Slack and LinkedIn don't run JavaScript). Register before the SPA fallback.
+ * The public page and its files, registered before the SPA fallback:
+ * - GET /s/:slug — HTML with metadata and data filled in on the server (link unfurlers in
+ *   Slack and LinkedIn don't run JavaScript). Counts a view for real readers.
+ * - GET /s/:slug/og.jpg — the link-preview image, when one has been rendered for this publish.
+ * - GET /s/:slug/pdf — the page's print view as a PDF, rendered on demand and cached.
  * `loadTemplate` returns spotlight.html: through Vite in dev, from dist/ in production.
  */
-export function registerSpotlightPage(app: express.Express, loadTemplate: (url: string) => Promise<string>): void {
+export function registerSpotlightPage(app: express.Express, loadTemplate: (url: string) => Promise<string>, opts: SpotlightRenderOptions): void {
   app.get("/s/:slug", ipRateLimit(120), async (req, res, next) => {
     try {
       const admin = getAdminApp();
       const page = admin ? await getPublicSpotlight(admin, req.params.slug) : null;
-      const html = renderSpotlightHtml(await loadTemplate(req.originalUrl), page, process.env.APP_URL || "http://localhost:47293");
+      const html = renderSpotlightHtml(await loadTemplate(req.originalUrl), page, appUrl());
       res.status(page ? 200 : 404);
       res.set("Cache-Control", page ? "public, max-age=60" : "no-store");
       if (!page || page.visibility !== "public") res.set("X-Robots-Tag", "noindex, nofollow");
       res.type("html").send(html);
+      if (admin && page && isCountableView(req))
+        recordSpotlightView(admin, page.ownerUid).catch((e) => console.warn(`Spotlight view not counted: ${e?.message ?? e}`));
     } catch (e) {
       next(e);
+    }
+  });
+
+  app.get("/s/:slug/og.jpg", ipRateLimit(120), async (req, res) => {
+    const admin = getAdminApp();
+    try {
+      const page = admin ? await getPublicSpotlight(admin, req.params.slug) : null;
+      const image = page?.imageVersion ? await imageRef(getFirestore(admin!), page.ownerUid).get() : null;
+      const data = image?.exists ? (image.data() as any) : null;
+      if (!page || !data || data.version !== page.imageVersion) return res.status(404).set("Cache-Control", "no-store").json(NOT_FOUND);
+      res.set("Cache-Control", "public, max-age=3600");
+      res.type(data.contentType || "image/jpeg").send(Buffer.from(data.data));
+    } catch (e) {
+      console.error("Spotlight image read failed", e);
+      res.status(500).json({ error: "Something went wrong. Try again." });
+    }
+  });
+
+  // Rendering is expensive, so this one is limited much more tightly than page views.
+  app.get("/s/:slug/pdf", ipRateLimit(6), async (req, res) => {
+    const admin = getAdminApp();
+    try {
+      const page = admin ? await getPublicSpotlight(admin, req.params.slug) : null;
+      if (!page) return res.status(404).set("Cache-Control", "no-store").json(NOT_FOUND);
+      const key = `${page.slug}@${page.updatedAt}`;
+      let pdf = pdfCache.get(key);
+      if (!pdf) {
+        try {
+          pdf = await renderSpotlightPdf(opts.renderOrigin, page.snapshot);
+        } catch (e: any) {
+          console.warn(`Spotlight PDF for /s/${page.slug} not rendered: ${e?.message ?? e}`);
+          return res.status(503).json({ error: "The PDF isn't available right now. You can print the page instead." });
+        }
+        pdfCache.set(key, pdf);
+        if (pdfCache.size > PDF_CACHE_SIZE) pdfCache.delete(pdfCache.keys().next().value!);
+      }
+      res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${pdfFileName(page.snapshot.person.name)}"`,
+        "Cache-Control": "private, max-age=300",
+        "X-Robots-Tag": "noindex, nofollow",
+      });
+      res.send(pdf);
+    } catch (e) {
+      console.error("Spotlight PDF failed", e);
+      res.status(500).json({ error: "Something went wrong. Try again." });
     }
   });
 }

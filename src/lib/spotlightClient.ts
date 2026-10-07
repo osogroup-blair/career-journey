@@ -16,6 +16,13 @@ export interface PublishedSpotlightSummary {
   snapshot: SpotlightSnapshot;
 }
 
+export interface SpotlightViews {
+  total: number;
+  last7: number;
+  last30: number;
+  days: { date: string; count: number }[];
+}
+
 export type SlugAvailability = { ok: true; slug: string } | { ok: false; reason: 'too_short' | 'too_long' | 'invalid_characters' | 'reserved' | 'taken' };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -35,7 +42,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return parsed as T;
 }
 
-export function getSpotlight(): Promise<{ settings: SpotlightSettings | null; published: PublishedSpotlightSummary | null }> {
+export function getSpotlight(): Promise<{ settings: SpotlightSettings | null; published: PublishedSpotlightSummary | null; views: SpotlightViews }> {
   return call('GET', '/api/spotlight');
 }
 

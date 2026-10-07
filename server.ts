@@ -232,7 +232,7 @@ async function startServer() {
   // Job Discovery (StillOpen) — admin-only until STILLOPEN_LICENSED is set; see server/discovery/.
   app.use("/api/discovery", requireFirebaseAuth, requireFeature("job_discovery"), createDiscoveryRouter());
   // Career Spotlight — owner routes behind auth + the feature gate; the public read needs neither. See server/spotlight.ts.
-  app.use("/api/spotlight", requireFirebaseAuth, requireFeature("career_spotlight"), createSpotlightRouter());
+  app.use("/api/spotlight", requireFirebaseAuth, requireFeature("career_spotlight"), createSpotlightRouter({ renderOrigin: `http://127.0.0.1:${PORT}` }));
   app.use("/api/public/spotlights", createPublicSpotlightRouter());
 
   app.post("/api/billing/createCheckoutSession", async (req, res) => {
@@ -2698,12 +2698,16 @@ User's answer: ${answer}`,
       appType: "spa",
     });
     // Public Career Spotlight pages, ahead of the SPA fallback.
-    registerSpotlightPage(app, async (url) => vite.transformIndexHtml(url, await readFile(path.resolve("spotlight.html"), "utf8")));
+    registerSpotlightPage(app, async (url) => vite.transformIndexHtml(url, await readFile(path.resolve("spotlight.html"), "utf8")), {
+      renderOrigin: `http://127.0.0.1:${PORT}`,
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     let spotlightTemplate: Promise<string> | null = null;
-    registerSpotlightPage(app, () => (spotlightTemplate ??= readFile(path.join(distPath, "spotlight.html"), "utf8")));
+    registerSpotlightPage(app, () => (spotlightTemplate ??= readFile(path.join(distPath, "spotlight.html"), "utf8")), {
+      renderOrigin: `http://127.0.0.1:${PORT}`,
+    });
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { auth, isFirebaseConfigured } from '../../lib/firebase';
 import { useLocalPreference } from '../../hooks/useLocalPreference';
-import { getSpotlight, PublishedSpotlightSummary, saveSpotlightSettings, SpotlightApiError } from '../../lib/spotlightClient';
+import { getSpotlight, PublishedSpotlightSummary, saveSpotlightSettings, SpotlightApiError, SpotlightViews } from '../../lib/spotlightClient';
 import type { SpotlightSettings } from '../../types/spotlight';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -22,6 +22,7 @@ export function useSpotlightState() {
   const [remote, setRemote] = useState(false);
   const [blocked, setBlocked] = useState<SpotlightApiError | null>(null);
   const [published, setPublished] = useState<PublishedSpotlightSummary | null>(null);
+  const [views, setViews] = useState<SpotlightViews | null>(null);
   const [save, setSave] = useState<SaveState>('idle');
   const timer = useRef<number | undefined>(undefined);
   const pending = useRef<SpotlightSettings | null>(null);
@@ -46,6 +47,7 @@ export function useSpotlightState() {
         if (cancelled) return;
         setRemote(true);
         setPublished(r.published);
+        setViews(r.views ?? null);
         if (r.settings) setStoredState(r.settings);
         else {
           setStoredState(local);
@@ -96,5 +98,5 @@ export function useSpotlightState() {
     setSave('saved');
   }, []);
 
-  return { loading, stored, setStored, remote, blocked, published, setPublished, save, cancelPendingSave };
+  return { loading, stored, setStored, remote, blocked, published, setPublished, views, save, cancelPendingSave };
 }

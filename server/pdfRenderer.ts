@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import puppeteer, { Browser } from "puppeteer-core";
 import type { GeneratedResume } from "../src/types";
+import type { SpotlightSnapshot } from "../src/types/spotlight";
 
 /**
  * Renders the resume PDF by loading the app's own /print.html (which mounts the
@@ -92,26 +93,38 @@ function release(): void {
   waiters.shift()?.();
 }
 
-export async function renderResumePdf(
-  origin: string,
-  input: { resume: GeneratedResume; tagline?: string; template: ResumeTemplateId }
-): Promise<Buffer> {
+type RenderPage = Awaited<ReturnType<Browser["newPage"]>>;
+
+/**
+ * A fresh Chromium page for one render, within the concurrency limit, that may only load
+ * our own origin — so page content (e.g. a pasted URL) can never make the server fetch
+ * third-party hosts. Always closed afterwards.
+ */
+async function withPage<T>(origin: string, render: (page: RenderPage) => Promise<T>): Promise<T> {
   await acquire();
-  let page: Awaited<ReturnType<Browser["newPage"]>> | undefined;
+  let page: RenderPage | undefined;
   try {
     const browser = await getBrowser();
     page = await browser.newPage();
     page.setDefaultTimeout(RENDER_TIMEOUT_MS);
-
-    // The page only ever needs our own origin; refuse everything else so resume
-    // content (e.g. a pasted URL) can never make the server fetch third-party hosts.
     await page.setRequestInterception(true);
     page.on("request", (req) => {
       const url = req.url();
       if (url.startsWith(origin) || url.startsWith("data:") || url.startsWith("blob:")) req.continue();
       else req.abort();
     });
+    return await render(page);
+  } finally {
+    await page?.close().catch(() => {});
+    release();
+  }
+}
 
+export async function renderResumePdf(
+  origin: string,
+  input: { resume: GeneratedResume; tagline?: string; template: ResumeTemplateId }
+): Promise<Buffer> {
+  return withPage(origin, async (page) => {
     // 1000px keeps the md: breakpoints the Modern/Executive templates rely on active, as on desktop.
     await page.setViewport({ width: 1000, height: 1200 });
     await page.evaluateOnNewDocument((payload) => {
@@ -128,8 +141,44 @@ export async function renderResumePdf(
       margin: { top: "0.5in", bottom: "0.5in", left: "0.5in", right: "0.5in" },
     });
     return Buffer.from(pdf);
-  } finally {
-    await page?.close().catch(() => {});
-    release();
-  }
+  });
+}
+
+/**
+ * Career Spotlight renders load /spotlight.html with the snapshot injected as
+ * window.__SPOTLIGHT_RENDER__ (src/spotlight/main.tsx), the same components the public
+ * page uses, and wait for it to mark the body ready.
+ */
+async function loadSpotlight(page: RenderPage, origin: string, payload: { mode: "card" | "print"; snapshot: SpotlightSnapshot; address?: string }) {
+  await page.evaluateOnNewDocument((p) => {
+    (window as any).__SPOTLIGHT_RENDER__ = p;
+  }, payload as any);
+  await page.goto(`${origin}/spotlight.html`, { waitUntil: "networkidle0" });
+  await page.waitForFunction(() => document.body.dataset.ready === "true");
+  await page.evaluate(() => (document as any).fonts.ready);
+}
+
+/** The 1200×630 link-preview image (Open Graph) for a published Spotlight, as JPEG. */
+export async function renderSpotlightImage(origin: string, snapshot: SpotlightSnapshot, address: string): Promise<Buffer> {
+  return withPage(origin, async (page) => {
+    await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
+    await loadSpotlight(page, origin, { mode: "card", snapshot, address });
+    const image = await page.screenshot({ type: "jpeg", quality: 88, clip: { x: 0, y: 0, width: 1200, height: 630 } });
+    return Buffer.from(image);
+  });
+}
+
+/** The Spotlight's print view as a PDF, for the public page's download button. */
+export async function renderSpotlightPdf(origin: string, snapshot: SpotlightSnapshot): Promise<Buffer> {
+  return withPage(origin, async (page) => {
+    // Wide enough for the desktop layout; print styles then expand every role.
+    await page.setViewport({ width: 1100, height: 1400 });
+    await loadSpotlight(page, origin, { mode: "print", snapshot });
+    const pdf = await page.pdf({
+      format: "letter",
+      printBackground: true,
+      margin: { top: "0.5in", bottom: "0.5in", left: "0.4in", right: "0.4in" },
+    });
+    return Buffer.from(pdf);
+  });
 }
