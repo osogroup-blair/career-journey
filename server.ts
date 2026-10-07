@@ -58,7 +58,7 @@ import type { TicketType, TicketContext, TicketStatus, TicketTriageType, TicketP
 import { createCheckoutSession, createPortalSession, handleStripeWebhook } from "./server/stripe";
 import { getAIClientForRequest, buildProviderClient, MissingByomKeyError } from "./server/ai/getAIClient";
 import { OsoRouterError, fetchOsoModels, fetchOsoStatus, isOsoConfigured } from "./server/ai/osoClient";
-import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema } from "./server/ai/schemas";
+import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema, sectionAssistSchema } from "./server/ai/schemas";
 import { isByomPlan, isByomProvider, AIProviderId, PlanId, BillingState } from "./src/types/billing";
 import { getFeatureFlags, setFeatureFlags, validateFeatureFlagsUpdate } from "./server/featureFlags";
 import { getAuth } from "firebase-admin/auth";
@@ -74,6 +74,8 @@ import { deleteAllDiscoveryData, loadDiscoveredJobs, profileRef as discoveryProf
 import { sanitizeAiSearchProfile } from "./server/discovery/searchProfile";
 import { htmlToText } from "./server/htmlToText";
 import { segmentJdText } from "./src/lib/jdSegments";
+import { buildSectionContext, sanitizeProposals, sectionGuidance } from "./src/lib/journeyAssist";
+import { isSectionId } from "./src/lib/journeySections";
 
 /** Distinguishes "your BYOM key is missing/invalid" (actionable, 400) from an actual server error (500). */
 function handleAiRouteError(e: any, res: express.Response) {
@@ -2525,6 +2527,51 @@ ${transcriptText}`,
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // The Career Journey editor's per-section assistant (/edit). On the Zod
+  // abstraction, so it honours BYOM. Only a per-section slice of the journey is
+  // sent (buildSectionContext), and proposals are cleaned before they reach the
+  // client: allowed fields only, links to existing ids only, no model-made ids.
+  app.post("/api/ai/journeySectionAssist", requireFeature("strengthen_journey"), async (req, res) => {
+    try {
+      const { section, transcript, careerJourney, focusItemId } = req.body as {
+        section: string;
+        transcript: { role: "user" | "assistant"; content: string }[];
+        careerJourney: any;
+        focusItemId?: string | null;
+      };
+      if (!isSectionId(section)) {
+        res.status(400).json({ error: "Unknown Career Journey section." });
+        return;
+      }
+      const transcriptText = (Array.isArray(transcript) ? transcript : [])
+        .slice(-20)
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${String(m.content || "").slice(0, 4000)}`)
+        .join("\n");
+      const context = buildSectionContext(careerJourney || {}, section, focusItemId);
+
+      const client = await getAIClientForRequest(req, "journeySectionAssist");
+      const { data, usage, model, actualModel, requestId } = await client.generateStructured({
+        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "journeySectionAssist")}${getActivePromptFilled("journeySectionAssist", { section: context.section })}
+
+${sectionGuidance(section)}`,
+        prompt: `Career Journey context for this section:
+${JSON.stringify(context, null, 2)}
+
+Conversation so far:
+${transcriptText}`,
+        schema: sectionAssistSchema(section),
+      });
+      await trackUsage(req, "journeySectionAssist", model, usage, client.provider, { actualModel, requestId });
+      res.json({
+        reply: data.reply,
+        followUpQuestion: data.followUpQuestion ?? null,
+        proposals: sanitizeProposals(section, data.proposals, careerJourney || {}),
+      });
+    } catch (e: any) {
+      handleAiRouteError(e, res);
     }
   });
 

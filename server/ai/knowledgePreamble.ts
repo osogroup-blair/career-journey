@@ -9,7 +9,7 @@ const PIPELINE_PREAMBLE_INTRO =
 // buildJourneyChat, refineFromInterviewAnswer) use only the Builder file by
 // default — the pipeline prompts' project_instructions.md/JD_pipeline_SKILL.md/
 // etc. don't apply to extracting a fresh Career Journey from a resume.
-const BUILDER_PROMPT_IDS = new Set(["buildJourneyFromResume", "buildJourneyChat", "refineFromInterviewAnswer"]);
+const BUILDER_PROMPT_IDS = new Set(["buildJourneyFromResume", "buildJourneyChat", "refineFromInterviewAnswer", "journeySectionAssist"]);
 
 // Prompts that need none of the pipeline reference material by default —
 // discoverySearchProfile only turns a CV into search keywords, and the

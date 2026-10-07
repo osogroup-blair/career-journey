@@ -4,7 +4,7 @@ dotenv.config();
 import { createLegacyGenAI } from '../ai/legacyGenAIShim';
 import { LEGACY_RESPONSE_SCHEMAS } from '../ai/legacySchemas';
 import { OsoClient } from '../ai/osoClient';
-import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema } from '../ai/schemas';
+import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema, sectionAssistSchema } from '../ai/schemas';
 import { SAMPLE_INPUTS, renderSampleContents } from '../ai/promptSampleInputs';
 import { DEFAULT_PROMPTS } from '../promptStore';
 import { osoAliasForPrompt } from '../ai/osoAliasMap';
@@ -22,6 +22,7 @@ const ZOD_SCHEMAS: Record<string, any> = {
   keywords: KeywordsResponseSchema,
   fitScore: FitAnalysisSchema,
   discoverySearchProfile: DiscoverySearchProfileAiSchema,
+  journeySectionAssist: sectionAssistSchema('achievements'),
 };
 
 async function main() {

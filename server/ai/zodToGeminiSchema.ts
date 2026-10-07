@@ -27,6 +27,14 @@ export function zodToGeminiSchema<T>(schema: ZodType<T>): any {
 }
 
 function convertNode(node: any): any {
+  // z.nullable() comes out as anyOf [X, {type:"null"}]; Gemini spells that X + nullable: true.
+  if (Array.isArray(node.anyOf)) {
+    const nonNull = node.anyOf.filter((n: any) => n?.type !== "null");
+    if (nonNull.length === 1 && nonNull.length < node.anyOf.length) {
+      const inner = convertNode({ ...nonNull[0], description: nonNull[0].description ?? node.description });
+      return { ...inner, nullable: true };
+    }
+  }
   if (node.enum) {
     return { type: Type.STRING, description: node.description, enum: node.enum };
   }

@@ -2,6 +2,7 @@ import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, Key
 import { auth } from './firebase';
 import { getStoredByomKey } from './byomKeyStorage';
 import { AIProviderId } from '../types/billing';
+import type { SectionAssistResponse } from './journeyAssist';
 
 // No-op when Firebase isn't configured; once it is, every API call carries the
 // signed-in user's ID token so server.ts's requireFirebaseAuth can verify it.
@@ -366,6 +367,18 @@ export async function buildJourneyChat(
   currentDraft: any
 ): Promise<{ assistantMessage: string; updatedDraft: any; readyForReview: boolean }> {
   const res = await apiPost('/api/ai/buildJourneyChat', { transcript, currentDraft });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return await res.json();
+}
+
+/** One turn of the Career Journey editor's per-section assistant (/edit). Proposals come back cleaned server-side (see src/lib/journeyAssist.ts). */
+export async function journeySectionAssist(
+  section: string,
+  transcript: { role: 'user' | 'assistant'; content: string }[],
+  careerJourney: any,
+  focusItemId?: string | null
+): Promise<SectionAssistResponse> {
+  const res = await apiPost('/api/ai/journeySectionAssist', { section, transcript, careerJourney, focusItemId: focusItemId || null });
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
 }

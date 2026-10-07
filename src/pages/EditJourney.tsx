@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ArrowUpRight,
   Search,
+  Sparkles,
   Plus,
   UserRound,
   Briefcase,
@@ -31,6 +32,7 @@ import { SkillEditor } from './editJourney/SkillEditor';
 import { CapabilityEditor } from './editJourney/CapabilityEditor';
 import { EducationEditor, CertificationEditor, MethodologyEditor, EngagementEditor } from './editJourney/ListEditors';
 import { JourneySearchPalette } from '../components/JourneySearchPalette';
+import { SectionAssistant } from './editJourney/SectionAssistant';
 
 /**
  * Simple Career Journey editor. One section at a time, each a searchable, paginated
@@ -168,6 +170,15 @@ function EditorBody({ section, state, patchList }: { section: SectionId; state: 
   const { items, open } = useEditor();
   const def = SECTION_BY_ID[section];
   const Editor = EDITORS[section];
+  // The assistant drawer, optionally focused on one item ("Ask AI about this").
+  const [assistant, setAssistant] = useState<{ focusItemId: string | null } | null>(null);
+  useEffect(() => setAssistant((a) => (a ? { focusItemId: null } : a)), [section]);
+
+  const askAi = (
+    <Button size="sm" variant="outline" className="bg-white whitespace-nowrap border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setAssistant({ focusItemId: null })}>
+      <Sparkles className="w-3.5 h-3.5 mr-1" /> Ask AI
+    </Button>
+  );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 items-start">
@@ -209,9 +220,12 @@ function EditorBody({ section, state, patchList }: { section: SectionId; state: 
       </select>
 
       <div className="min-w-0 space-y-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900">{def.label}</h2>
-          <p className="text-xs text-slate-500 mt-0.5">{def.description}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">{def.label}</h2>
+            <p className="text-xs text-slate-500 mt-0.5">{def.description}</p>
+          </div>
+          {!def.list && askAi}
         </div>
         {def.list && Editor ? (
           <SectionList
@@ -220,13 +234,35 @@ function EditorBody({ section, state, patchList }: { section: SectionId; state: 
             items={items[section]}
             state={state}
             onChange={patchList}
-            renderEditor={(id) => <Editor id={id} />}
-            actions={<AddControl section={section} facets={state.facets} />}
+            renderEditor={(id) => (
+              <>
+                <div className="flex justify-end -mt-1 mb-2">
+                  <button type="button" onClick={() => setAssistant({ focusItemId: id })} className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5" /> Ask AI about this
+                  </button>
+                </div>
+                <Editor id={id} />
+              </>
+            )}
+            actions={
+              <>
+                {askAi}
+                <AddControl section={section} facets={state.facets} />
+              </>
+            }
           />
         ) : (
           <ProfileEditor />
         )}
       </div>
+      {assistant && (
+        <SectionAssistant
+          section={section}
+          focusItemId={assistant.focusItemId}
+          onClearFocus={() => setAssistant({ focusItemId: null })}
+          onClose={() => setAssistant(null)}
+        />
+      )}
     </div>
   );
 }

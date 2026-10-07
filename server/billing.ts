@@ -235,6 +235,7 @@ export const FEATURE_NAMES: Record<string, string> = {
   buildJourneyFromResume: "Master Journey Resume Ingestion",
   buildJourneyChat: "Journey Discovery Chat",
   refineFromInterviewAnswer: "Interview Answer Extraction",
+  journeySectionAssist: "Career Journey Section Assistant",
 };
 
 /**

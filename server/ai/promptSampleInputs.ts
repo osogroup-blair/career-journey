@@ -133,6 +133,11 @@ export const SAMPLE_INPUTS: Record<string, Record<string, unknown>> = {
   discoverySearchProfile: { cvText: "Sample Candidate\nLead Software Engineer\n\nTARGET ROLES\nStaff Engineer; Engineering Manager\n\nLOCATION & WORK PREFERENCE\nLocation: Austin, TX\nPreference: Remote\n\nEXPERIENCE\nLead Software Engineer — Stripe (2023-01 – Present)\n  - Redesigned the payment routing service — Cut failed-transaction rate by 30%" },
   buildJourneyFromResume: { resumeText: "Jane Doe — Senior Software Engineer at Stripe (2023-Present). Led payments routing rebuild, cut failed-transaction rate by 30%. BS Computer Science, University of Texas." },
   buildJourneyChat: { transcript: SAMPLE_TRANSCRIPT, currentDraft: {} },
+  journeySectionAssist: {
+    section: "achievements",
+    transcript: [{ role: "user" as const, content: "At Stripe I rebuilt the payment retry logic and failed transactions dropped by about 30% in one quarter." }],
+    careerJourney: SAMPLE_CAREER_JOURNEY,
+  },
   refineFromInterviewAnswer: { entityType: "achievement", current: SAMPLE_CAREER_JOURNEY.achievements[0], question: "What was the measurable impact?", answer: "It cut failed-transaction rate by 30% within one quarter." },
 };
 
