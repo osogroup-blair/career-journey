@@ -1,8 +1,6 @@
-import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Card } from '../ui';
-import { CareerJourney } from '../../types/careerJourney';
-import { averageCompleteness, computeJourneyCompleteness, computeJourneyGaps } from '../../lib/careerJourneyGaps';
+import { JourneyCompleteness } from '../../lib/careerJourneyGaps';
 import { ArrowRight, HeartPulse } from 'lucide-react';
 
 function barColor(pct: number) {
@@ -11,11 +9,15 @@ function barColor(pct: number) {
   return 'bg-red-500';
 }
 
-export default function JourneyHealthCard({ careerJourney }: { careerJourney: CareerJourney }) {
-  const completeness = useMemo(() => computeJourneyCompleteness(careerJourney), [careerJourney]);
-  const gapCount = useMemo(() => computeJourneyGaps(careerJourney).length, [careerJourney]);
-  const overall = averageCompleteness(completeness);
-
+export default function JourneyHealthCard({
+  completeness,
+  overall,
+  gapCount,
+}: {
+  completeness: JourneyCompleteness;
+  overall: number;
+  gapCount: number;
+}) {
   const bars = [
     { label: 'Achievements with a number', ...completeness.achievementsWithMetric },
     { label: 'Skills used recently', ...completeness.skillsWithRecentUse },
@@ -24,15 +26,26 @@ export default function JourneyHealthCard({ careerJourney }: { careerJourney: Ca
 
   return (
     <Card className="p-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
           <HeartPulse className="w-4 h-4 text-brand-600" />
-          Career Journey health
+          Health
+          <span className="ml-1 text-2xl font-extrabold text-slate-900">{overall}%</span>
         </h2>
-        <span className="text-2xl font-extrabold text-slate-900">{overall}%</span>
+        {gapCount > 0 ? (
+          <Link
+            to="/strengthen"
+            className="flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-800 hover:bg-brand-100 transition-colors"
+          >
+            {gapCount} gap{gapCount === 1 ? '' : 's'} to strengthen
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        ) : (
+          <p className="text-xs text-slate-500">No gaps found. Your evidence is in good shape.</p>
+        )}
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
         {bars.map((b) => (
           <div key={b.label}>
             <div className="flex justify-between text-xs mb-1">
@@ -47,20 +60,6 @@ export default function JourneyHealthCard({ careerJourney }: { careerJourney: Ca
           </div>
         ))}
       </div>
-
-      {gapCount > 0 ? (
-        <Link
-          to="/strengthen"
-          className="mt-4 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-800 hover:bg-brand-100 transition-colors"
-        >
-          <span>
-            {gapCount} gap{gapCount === 1 ? '' : 's'} to strengthen
-          </span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
-      ) : (
-        <p className="mt-4 text-xs text-slate-500">No gaps found. Your evidence is in good shape.</p>
-      )}
     </Card>
   );
 }

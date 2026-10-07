@@ -35,7 +35,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 
 | Path | Component | Notes |
 |---|---|---|
-| `/` | `Dashboard` | Home / action hub: next step (`computeJourneyProgress`), pipeline by stage with stalled-job flags, matches to review, Career Journey health + summary — derived in `src/lib/dashboardSummary.ts`, cards in `src/components/dashboard/` |
+| `/` | `Dashboard` | Home / action hub: title row with the next-step CTA (`computeJourneyProgress`; full / compact / hidden), then two collapsible sections — **Career Journey** (summary, health) and **Job search** (count tiles that filter the pipeline in place, Discover CTA (same gate as the Navbar link) + matches to review beside the pipeline with stalled-job flags). Section and CTA state persist per browser via `useLocalPreference`. Derived in `src/lib/dashboardSummary.ts`, cards in `src/components/dashboard/` |
 | `/edit` | `EditJourney` | "Simple Editor" — ten sections (Profile, Roles, Projects, Achievements, Skills, Capabilities, Education, Certifications, Methodologies, Client Engagements), each a searchable, filterable, paginated list with inline editors; Cmd/Ctrl-K searches every section; per-section AI assistant. List state lives in the URL (`#/edit?section=skills&q=okr&item=SK-001`), which is how other pages deep-link to one item (`editPathFor` in `src/lib/journeySections.ts`). See below |
 | `/build` | `CareerJourneyBuilder` | Bootstrap a Career Journey: resume extraction, guided chat, or blank template |
 | `/strengthen` | `StrengthenJourney` | Gap-filling flow driven by `careerJourneyGaps.ts` |

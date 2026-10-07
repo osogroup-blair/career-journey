@@ -37,7 +37,7 @@ export default function PipelineCard({
   const rows = showAll ? filtered : filtered.slice(0, MAX_ROWS);
 
   return (
-    <Card id="pipeline" className="overflow-hidden scroll-mt-20">
+    <Card id="pipeline" className="h-full overflow-hidden scroll-mt-20">
       <div className="flex items-center justify-between gap-3 px-5 pt-5">
         <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
           <Briefcase className="w-4 h-4 text-brand-600" />

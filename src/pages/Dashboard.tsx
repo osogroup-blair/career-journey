@@ -10,11 +10,19 @@ import PipelineCard from '../components/dashboard/PipelineCard';
 import MatchesCard from '../components/dashboard/MatchesCard';
 import JourneyHealthCard from '../components/dashboard/JourneyHealthCard';
 import JourneySummaryCard from '../components/dashboard/JourneySummaryCard';
-import { ArrowRight, FileText, MessagesSquare, FileDown, Sparkles } from 'lucide-react';
+import DiscoverCard from '../components/dashboard/DiscoverCard';
+import DashboardSection from '../components/dashboard/DashboardSection';
+import JobStatTiles from '../components/dashboard/JobStatTiles';
+import { averageCompleteness, computeJourneyCompleteness, computeJourneyGaps } from '../lib/careerJourneyGaps';
+import { useFeatureAccess } from '../hooks/useFeatureAccess';
+import { isFirebaseConfigured } from '../lib/firebase';
+import { ArrowRight, FileText, MessagesSquare, FileDown, Sparkles, Compass, Briefcase } from 'lucide-react';
 
 export default function Dashboard() {
   const { careerJourney, jobs, matches, matchPreferences } = useStore();
   const navigate = useNavigate();
+  // Same gate as the Navbar's Discover link: needs server-side storage and feature access.
+  const showDiscover = useFeatureAccess('job_discovery').allowed && isFirebaseConfigured;
 
   const [stageFilter, setStageFilter] = useState<JobStage | null>(null);
 
@@ -33,6 +41,28 @@ export default function Dashboard() {
     return p;
   }, [careerJourney, matches, jobs, summary]);
 
+  const health = useMemo(() => {
+    if (!careerJourney) return null;
+    const completeness = computeJourneyCompleteness(careerJourney);
+    return { completeness, overall: averageCompleteness(completeness), gapCount: computeJourneyGaps(careerJourney).length };
+  }, [careerJourney]);
+
+  const { tiles } = summary;
+  const roleCount = careerJourney?.roles?.length || 0;
+  const journeySummary = [
+    health ? `${health.overall}% health` : null,
+    `${roleCount} role${roleCount === 1 ? '' : 's'}`,
+    health && health.gapCount > 0 ? `${health.gapCount} gap${health.gapCount === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const jobSearchSummary = [
+    `${tiles.active} active`,
+    `${tiles.interviewing} interviewing`,
+    `${tiles.offers} offer${tiles.offers === 1 ? '' : 's'}`,
+    `${tiles.matchesToReview} match${tiles.matchesToReview === 1 ? '' : 'es'} to review`,
+  ].join(' · ');
+
   const meta: any = careerJourney?.meta || {};
   const person = careerJourney?.person;
   const targetRole =
@@ -41,15 +71,8 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
-        <DashboardHeader
-          name={person?.name}
-          targetRole={targetRole}
-          progress={progress}
-          tiles={summary.tiles}
-          stageFilter={stageFilter}
-          onStageFilterChange={setStageFilter}
-        />
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-8">
+        <DashboardHeader name={person?.name} targetRole={targetRole} progress={progress} />
 
         {needsJourney ? (
           <div className="grid gap-6 lg:grid-cols-3">
@@ -83,21 +106,32 @@ export default function Dashboard() {
                 Build your Career Journey <ArrowRight className="h-4 w-4 ml-1.5" />
               </Button>
             </Card>
-            <div>
+            <div className="space-y-6">
+              {showDiscover && <DiscoverCard />}
               <MatchesCard matches={summary.matchesToReview} />
             </div>
           </div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-3 items-start">
-            <div className="lg:col-span-2">
-              <PipelineCard summary={summary} stageFilter={stageFilter} onStageFilterChange={setStageFilter} />
-            </div>
-            <div className="space-y-6">
-              <MatchesCard matches={summary.matchesToReview} />
-              {careerJourney && <JourneyHealthCard careerJourney={careerJourney} />}
+          <>
+            <DashboardSection id="journey" title="Career Journey" icon={Compass} summary={journeySummary}>
               {careerJourney && <JourneySummaryCard careerJourney={careerJourney} />}
-            </div>
-          </div>
+              {health && <JourneyHealthCard {...health} />}
+            </DashboardSection>
+
+            <DashboardSection id="job-search" title="Job search" icon={Briefcase} summary={jobSearchSummary}>
+              <JobStatTiles tiles={tiles} stageFilter={stageFilter} onStageFilterChange={setStageFilter} />
+              {/* Rows stretch so New matches ends level with the bottom of the pipeline */}
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div className="flex flex-col gap-6">
+                  {showDiscover && <DiscoverCard />}
+                  <MatchesCard matches={summary.matchesToReview} fill />
+                </div>
+                <div className="lg:col-span-2">
+                  <PipelineCard summary={summary} stageFilter={stageFilter} onStageFilterChange={setStageFilter} />
+                </div>
+              </div>
+            </DashboardSection>
+          </>
         )}
       </div>
     </div>

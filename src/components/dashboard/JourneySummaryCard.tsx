@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 import { Card } from '../ui';
 import { CareerJourney } from '../../types/careerJourney';
 import { toRoleView } from '../../lib/careerJourneyRoleEvidence';
-import { ArrowRight, Compass } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 const MAX_ROLES = 3;
-const MAX_SKILLS = 8;
+const MAX_SKILLS = 14;
 
 // Parses "2022-01" / "2019-04" / "Present" style strings into a rough month count.
 function parseMonthIndex(value?: string): number | null {
@@ -56,32 +56,27 @@ export default function JourneySummaryCard({ careerJourney }: { careerJourney: C
 
   return (
     <Card className="p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <Compass className="w-4 h-4 text-brand-600" />
-          Your Career Journey
-        </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-600">
+          {[
+            years !== null ? `${years}+ years` : null,
+            `${roles.length} role${roles.length === 1 ? '' : 's'}`,
+            `${achievementCount} achievement${achievementCount === 1 ? '' : 's'}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
         <Link to="/edit" className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1">
           Open editor <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
 
-      <p className="mt-1 text-xs text-slate-500">
-        {[
-          years !== null ? `${years}+ years` : null,
-          `${roles.length} role${roles.length === 1 ? '' : 's'}`,
-          `${achievementCount} achievement${achievementCount === 1 ? '' : 's'}`,
-        ]
-          .filter(Boolean)
-          .join(' · ')}
-      </p>
-
-      <ul className="mt-3 space-y-1">
+      <ul className="mt-4 grid gap-3 sm:grid-cols-3">
         {recentRoles.map((role: any) => (
           <li key={role.id}>
             <Link
               to={`/edit?section=roles&item=${encodeURIComponent(role.id)}`}
-              className="group block rounded-lg px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors"
+              className="group block h-full rounded-xl border border-slate-200 px-4 py-3 hover:border-brand-300 hover:bg-slate-50 transition-colors"
             >
               <div className="text-sm font-semibold text-slate-900 truncate group-hover:text-brand-700">{role.title}</div>
               <div className="text-xs text-slate-500 truncate">
@@ -94,7 +89,7 @@ export default function JourneySummaryCard({ careerJourney }: { careerJourney: C
       </ul>
 
       {topSkills.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-4 flex flex-wrap gap-1.5">
           {topSkills.map((s: string) => (
             <span key={s} className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
               {s}
