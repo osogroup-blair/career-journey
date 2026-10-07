@@ -100,3 +100,8 @@ export function computeJourneyCompleteness(cj: CareerJourney): JourneyCompletene
     rolesWithFullDescription: { count: rolesWithFullDescriptionCount, total: roles.length, pct: pct(rolesWithFullDescriptionCount, roles.length) },
   };
 }
+
+/** One headline number for "how well-evidenced is this journey" — the plain mean of the three checks. */
+export function averageCompleteness(c: JourneyCompleteness): number {
+  return Math.round((c.achievementsWithMetric.pct + c.skillsWithRecentUse.pct + c.rolesWithFullDescription.pct) / 3);
+}

@@ -1,6 +1,6 @@
 import { CareerJourney } from '../types/careerJourney';
 import { JobAnalysis, JobMatch } from '../types';
-import { computeJourneyCompleteness } from './careerJourneyGaps';
+import { averageCompleteness, computeJourneyCompleteness } from './careerJourneyGaps';
 
 export type JourneyStage = 'build' | 'strengthen' | 'matches' | 'applications' | 'steady-state';
 
@@ -37,10 +37,7 @@ export function computeJourneyProgress(
     };
   }
 
-  const completeness = computeJourneyCompleteness(careerJourney);
-  const avgCompleteness = Math.round(
-    (completeness.achievementsWithMetric.pct + completeness.skillsWithRecentUse.pct + completeness.rolesWithFullDescription.pct) / 3
-  );
+  const avgCompleteness = averageCompleteness(computeJourneyCompleteness(careerJourney));
 
   if (avgCompleteness < THIN_COMPLETENESS_PCT) {
     return {
