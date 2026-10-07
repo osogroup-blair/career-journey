@@ -157,7 +157,7 @@ export default function Navbar() {
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-2 ml-4">
             
-            {/* Resume Dropdown */}
+            {/* Journey Dropdown */}
             <div className="relative" ref={resumeRef}>
               <button
                 onClick={() => {
@@ -171,7 +171,7 @@ export default function Navbar() {
                 }`}
               >
                 <FileText className="h-4 w-4" />
-                Resume
+                Journey
                 <ChevronDown className={`h-3 w-3 transition-transform ${resumeOpen ? 'rotate-180' : ''}`} />
               </button>
 
@@ -336,7 +336,7 @@ export default function Navbar() {
       {/* Mobile Navigation Panel */}
       {mobileOpen && (
         <nav className="md:hidden border-t border-slate-200 bg-white px-4 py-3 space-y-1 max-h-[calc(100vh-4rem)] overflow-y-auto">
-          <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Resume</div>
+          <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Journey</div>
           <Link to="/build" className={linkClass('/build') + ' w-full'}>
             <Sparkles className="h-4 w-4" /> Build
           </Link>
