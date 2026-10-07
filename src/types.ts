@@ -20,16 +20,25 @@ export interface GeneratedResume {
   contactInfo: string;
   summary: string;
   skills: { category: string; terms: string }[];
+  /** "Selected Outcomes" proof points shown before Experience — present only when the build's selectedOutcomes format is on. */
+  selectedOutcomes?: ResumeOutcome[];
+  /** Where the skills block renders. Absent = 'top' (after the summary), as on every resume built before this existed. */
+  skillsPosition?: 'top' | 'bottom';
   experience: {
-    /** The Career Journey role this entry was written from. Missing on resumes generated before role-level build controls existed. */
+    /** The Career Journey role this entry was written from — for a combined employer entry, its lead role. Missing on resumes generated before role-level build controls existed. */
     roleId?: string;
+    /** Every Career Journey role a combined employer entry covers (lead role first). Absent for a single-role entry. */
+    roleIds?: string[];
     company: string;
     companyDescriptor?: string;
     companyUrl?: string;
     title: string;
     dates: string;
     location: string;
-    bullets: { text: string; evidenceRefs?: EvidenceRef[] }[];
+    /** 1–2 sentence scope paragraph under the role header — present only when the roleNarratives format is on. */
+    narrative?: string;
+    /** `lead` is a short bold label shown before the text ("POC & technical validation") — only when the boldLeads format is on. */
+    bullets: { text: string; lead?: string; evidenceRefs?: EvidenceRef[] }[];
   }[];
   education: {
     institution: string;
@@ -41,6 +50,21 @@ export interface GeneratedResume {
 }
 
 export type ResumeExperienceEntry = GeneratedResume['experience'][number];
+
+export interface ResumeOutcome {
+  lead: string;
+  text: string;
+}
+
+/** Layout choices for a tailored resume — Build Settings toggles, defaulting from person.resume_preferences.format. */
+export interface ResumeFormat {
+  /** Concurrent or successive roles at one employer become a single entry with a hybrid title. */
+  combineEmployerRoles: boolean;
+  selectedOutcomes: boolean;
+  roleNarratives: boolean;
+  boldLeads: boolean;
+  skillsPosition: 'top' | 'bottom';
+}
 
 export interface EarlierExperienceEntry {
   roleId: string;
@@ -63,6 +87,8 @@ export interface ResumeBuildOptions {
   roles: Record<string, { mode: ResumeRoleMode; maxBullets?: number }>;
   /** Free-text steer for this resume ("lead with platform work", "skip the consulting stint's tooling"). */
   guidance?: string;
+  /** Layout toggles; any field left out falls back to DEFAULT_RESUME_FORMAT. */
+  format?: Partial<ResumeFormat>;
 }
 
 export interface InterviewPrep {

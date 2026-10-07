@@ -35,6 +35,12 @@ function BulletList({ resume, roleIndex, onUpdate, className, careerJourney, rea
           <li key={bi} className={`break-inside-avoid ${className || ''} ${readOnly ? '' : 'relative group/bullet'}`}>
             <span className="inline-flex items-start gap-1.5 w-full">
               <span className="flex-1">
+                {b.lead && (
+                  <>
+                    <EditableText tagName="strong" readOnly={readOnly} value={b.lead} onChange={(v) => onUpdate(edits.updateBulletLead(resume, roleIndex, bi, v))} className="font-semibold" />
+                    {': '}
+                  </>
+                )}
                 <EditableText multiline readOnly={readOnly} value={b.text} onChange={(v) => onUpdate(edits.updateBullet(resume, roleIndex, bi, v))} />
               </span>
               {!readOnly && b.evidenceRefs && b.evidenceRefs.length > 0 && (
@@ -47,12 +53,69 @@ function BulletList({ resume, roleIndex, onUpdate, className, careerJourney, rea
                 count={bullets.length}
                 onMove={(delta) => onUpdate(edits.moveBullet(resume, roleIndex, bi, delta))}
                 onRemove={() => onUpdate(edits.removeBullet(resume, roleIndex, bi))}
+                lead={{ has: !!b.lead, onToggle: () => onUpdate(edits.updateBulletLead(resume, roleIndex, bi, b.lead ? '' : 'Label')) }}
               />
             )}
           </li>
         );
       })}
     </>
+  );
+}
+
+/** "Selected Outcomes" — bold-lead proof points before Experience, present only when the build's selectedOutcomes format was on. */
+function OutcomesSection({ resume, onUpdate, readOnly, heading, className, listClassName, itemClassName }: {
+  resume: GeneratedResume;
+  onUpdate: (r: GeneratedResume) => void;
+  readOnly?: boolean;
+  heading: React.ReactNode;
+  className?: string;
+  listClassName?: string;
+  itemClassName?: string;
+}) {
+  const outcomes = resume.selectedOutcomes || [];
+  if (outcomes.length === 0) return null;
+  return (
+    <div className={className}>
+      {heading}
+      <ul className={listClassName}>
+        {outcomes.map((o, i) => (
+          <li key={i} className={`break-inside-avoid ${itemClassName || ''} ${readOnly ? '' : 'relative group/bullet'}`}>
+            {o.lead && (
+              <>
+                <EditableText tagName="strong" readOnly={readOnly} value={o.lead} onChange={(v) => onUpdate(edits.updateOutcome(resume, i, { lead: v }))} className="font-semibold" />
+                {': '}
+              </>
+            )}
+            <EditableText multiline readOnly={readOnly} value={o.text} onChange={(v) => onUpdate(edits.updateOutcome(resume, i, { text: v }))} />
+            {!readOnly && (
+              <BulletToolbar
+                index={i}
+                count={outcomes.length}
+                onMove={(delta) => onUpdate(edits.moveOutcome(resume, i, delta))}
+                onRemove={() => onUpdate(edits.removeOutcome(resume, i))}
+                removeLabel="Delete outcome"
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** A role's 1–2 sentence scope paragraph, present only when the build's roleNarratives format was on. */
+function RoleNarrative({ resume, index, onUpdate, readOnly, className }: {
+  resume: GeneratedResume;
+  index: number;
+  onUpdate: (r: GeneratedResume) => void;
+  readOnly?: boolean;
+  className?: string;
+}) {
+  const narrative = resume.experience[index]?.narrative;
+  if (!narrative) return null;
+  return (
+    <EditableText tagName="p" multiline readOnly={readOnly} value={narrative} onChange={(v) => onUpdate(edits.updateNarrative(resume, index, v))} className={`break-inside-avoid ${className || ''}`} />
   );
 }
 
@@ -172,6 +235,19 @@ function CompanyName({ exp, className }: { exp: ResumeExperienceEntry; className
 }
 
 export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney, readOnly, actions }) => {
+  const skillsTop = resume.skillsPosition !== 'bottom';
+  const skillsBlock = (
+    <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-5">
+      <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Core Competencies</h3>
+      <div className="grid grid-cols-1 gap-1 text-[13px]">
+        {resume.skills.map((s, i) => (
+          <div key={i}>
+            <span className="font-semibold text-slate-900">{s.category}:</span> <SkillTerms resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-slate-700" />
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
   return (
     <div className="text-black font-sans leading-relaxed">
       {/* Header */}
@@ -207,17 +283,13 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
         />
       </Section>
 
-      {/* Core Skills */}
-      <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-5">
-        <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Core Competencies</h3>
-        <div className="grid grid-cols-1 gap-1 text-[13px]">
-          {resume.skills.map((s, i) => (
-            <div key={i}>
-              <span className="font-semibold text-slate-900">{s.category}:</span> <SkillTerms resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-slate-700" />
-            </div>
-          ))}
-        </div>
-      </Section>
+      {skillsTop && skillsBlock}
+
+      <OutcomesSection
+        resume={resume} onUpdate={onUpdate} readOnly={readOnly} className="mb-5"
+        heading={<h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Selected Outcomes</h3>}
+        listClassName="list-disc pl-5 space-y-1 text-[13px] text-slate-800" itemClassName="leading-snug"
+      />
 
       {/* Professional Experience — hidden when every role was condensed or removed */}
       <div className={`mb-5${resume.experience.length ? '' : ' hidden'}`}>
@@ -238,6 +310,7 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
                   <div className="text-[12px] text-slate-500">{exp.location}</div>
                 </div>
               </div>
+              <RoleNarrative resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-[13px] leading-snug text-slate-700 mt-1" />
               <ul className="list-disc pl-5 mt-1.5 space-y-1 text-[13px] text-slate-800">
                 <BulletList
                   readOnly={readOnly}
@@ -272,6 +345,8 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
         </div>
       )}
 
+      {!skillsTop && skillsBlock}
+
       {/* Education */}
       <div className="mb-2">
         <h3 className="break-after-avoid text-sm font-bold uppercase tracking-widest text-slate-900 border-b-2 border-slate-900 pb-1 mb-2">Education</h3>
@@ -291,6 +366,20 @@ export const ClassicTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUp
 };
 
 export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney, readOnly, actions }) => {
+  const skillsTop = resume.skillsPosition !== 'bottom';
+  const skillsBlock = (
+    <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-8">
+      <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Skills & Technologies</h3>
+      <div className="grid grid-cols-1 gap-2 text-[13px]">
+        {resume.skills.map((s, i) => (
+          <div key={i} className="flex gap-2">
+            <span className="font-bold text-zinc-900 min-w-[120px]">{s.category}</span>
+            <SkillTerms resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-zinc-600" />
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
   return (
     <div className="text-zinc-800 font-sans leading-relaxed">
       {/* Header */}
@@ -328,18 +417,13 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
         />
       </Section>
 
-      {/* Core Skills */}
-      <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-8">
-        <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Skills & Technologies</h3>
-        <div className="grid grid-cols-1 gap-2 text-[13px]">
-          {resume.skills.map((s, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="font-bold text-zinc-900 min-w-[120px]">{s.category}</span>
-              <SkillTerms resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-zinc-600" />
-            </div>
-          ))}
-        </div>
-      </Section>
+      {skillsTop && skillsBlock}
+
+      <OutcomesSection
+        resume={resume} onUpdate={onUpdate} readOnly={readOnly} className="mb-8"
+        heading={<h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Selected Outcomes</h3>}
+        listClassName="list-disc pl-4 space-y-1.5 text-[13px] text-zinc-700" itemClassName="leading-relaxed"
+      />
 
       {/* Professional Experience — hidden when every role was condensed or removed */}
       <div className={`mb-8${resume.experience.length ? '' : ' hidden'}`}>
@@ -360,6 +444,7 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
                   <div className="text-[12px] text-zinc-500">{exp.location}</div>
                 </div>
               </div>
+              <RoleNarrative resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-[13px] leading-relaxed text-zinc-600 mb-2" />
               <ul className="list-disc pl-4 space-y-1.5 text-[13px] text-zinc-700">
                 <BulletList
                   readOnly={readOnly}
@@ -394,6 +479,8 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
         </div>
       )}
 
+      {!skillsTop && skillsBlock}
+
       {/* Education */}
       <div className="mb-2">
         <h3 className="break-after-avoid text-sm font-bold text-zinc-400 uppercase tracking-widest mb-3">Education</h3>
@@ -414,6 +501,18 @@ export const ModernTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpd
 };
 
 export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, onUpdate, careerJourney, readOnly, actions }) => {
+  const skillsTop = resume.skillsPosition !== 'bottom';
+  const skillsBlock = (
+    <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-6 px-4">
+      <div className="border-t border-b border-gray-300 py-3 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-[12px] font-sans">
+        {resume.skills.map((s, i) => (
+          <div key={i}>
+            <span className="font-bold text-gray-900">{s.category}:</span> <SkillTerms resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-gray-700" />
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
   return (
     <div className="text-gray-900 font-serif leading-relaxed">
       {/* Header */}
@@ -449,16 +548,13 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
         />
       </Section>
 
-      {/* Core Skills */}
-      <Section kind="skills" label="the skills" actions={actions} readOnly={readOnly} className="mb-6 px-4">
-        <div className="border-t border-b border-gray-300 py-3 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-[12px] font-sans">
-          {resume.skills.map((s, i) => (
-            <div key={i}>
-              <span className="font-bold text-gray-900">{s.category}:</span> <SkillTerms resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-gray-700" />
-            </div>
-          ))}
-        </div>
-      </Section>
+      {skillsTop && skillsBlock}
+
+      <OutcomesSection
+        resume={resume} onUpdate={onUpdate} readOnly={readOnly} className="mb-6 flex"
+        heading={<div className="w-1/4 pr-4 border-r border-gray-300"><h3 className="text-xs font-bold uppercase tracking-widest text-gray-900 font-sans mt-1">Outcomes</h3></div>}
+        listClassName="w-3/4 pl-9 list-disc space-y-1 text-[13px] text-gray-800" itemClassName="leading-normal"
+      />
 
       {/* Professional Experience — hidden when every role was condensed or removed */}
       <div className={`mb-6 flex${resume.experience.length ? '' : ' hidden'}`}>
@@ -483,6 +579,7 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
                   <div className="text-[11px] text-gray-500 font-sans uppercase tracking-wider">{exp.location}</div>
                 </div>
               </div>
+              <RoleNarrative resume={resume} index={i} onUpdate={onUpdate} readOnly={readOnly} className="text-[13px] leading-normal text-gray-700 mb-1.5" />
               <ul className="list-disc pl-5 space-y-1 text-[13px] text-gray-800">
                 <BulletList
                   readOnly={readOnly}
@@ -518,6 +615,8 @@ export const ExecutiveTemplate: React.FC<TemplateProps> = ({ resume, tagline, on
           </div>
         </div>
       )}
+
+      {!skillsTop && skillsBlock}
 
       {/* Education */}
       <div className="mb-2 flex">

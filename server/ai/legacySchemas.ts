@@ -254,23 +254,38 @@ export const GENERATE_RESUME_SCHEMA = {
         required: ["category", "terms"],
       },
     },
+    selectedOutcomes: {
+      type: Type.ARRAY,
+      description: "Only when Resume Constraints ask for Selected Outcomes; otherwise empty.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          lead: { type: Type.STRING, description: "2-5 word bold label, no colon" },
+          text: { type: Type.STRING, description: "One sentence stating the result with its real numbers" },
+        },
+        required: ["lead", "text"],
+      },
+    },
     experience: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
           roleId: { type: Type.STRING, description: "The Career Journey role id this entry is written from, exactly as listed in Resume Constraints." },
+          roleIds: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For a combined employer entry: every roleId it covers, as listed in Resume Constraints. Omit for a single role." },
           company: { type: Type.STRING },
           companyDescriptor: { type: Type.STRING, description: "The canonical resume_company_descriptor for this role's employer, verbatim from the Career Journey, if one exists." },
           companyUrl: { type: Type.STRING, description: "The canonical resume_company_url for this role's employer, verbatim from the Career Journey, if one exists." },
           title: { type: Type.STRING },
           dates: { type: Type.STRING },
           location: { type: Type.STRING },
+          narrative: { type: Type.STRING, description: "1-2 sentence scope paragraph, only when Resume Constraints ask for narratives; otherwise empty." },
           bullets: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
+                lead: { type: Type.STRING, description: "Short bold label shown before the bullet, only when Resume Constraints ask for leads; otherwise empty." },
                 text: { type: Type.STRING },
                 evidenceRefs: {
                   type: Type.ARRAY,

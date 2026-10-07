@@ -2048,7 +2048,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       });
       await trackUsage(req, "generateResume", resolved.model, response.usageMetadata, resolved.provider, response);
       // The prompt asks for the right roles and bullet counts; this guarantees them.
-      const { resume, warnings } = enforceResumeConstraints(withoutKeywordPlan(JSON.parse(response.text!)), options, careerJourney, keywords);
+      const { resume, warnings } = enforceResumeConstraints(withoutKeywordPlan(JSON.parse(response.text!)), options, careerJourney, keywords, strategy);
       if (warnings.length > 0) console.warn("generateResume constraint enforcement:", warnings);
       res.json(resume);
     } catch (e: any) {
@@ -2075,7 +2075,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       const target =
         kind === "summary" ? 'the summary (return "summary")'
         : kind === "skills" ? 'the skills rows (return "skills")'
-        : `the experience entry for roleId ${roleId} (return "experienceEntry" with that roleId; write it from the Career Journey even if the current resume doesn't include it)`;
+        : `the experience entry for roleId ${roleId} (return "experienceEntry" with that roleId — if Resume Constraints list it as a combined entry, write the one combined entry with its roleIds; write it from the Career Journey even if the current resume doesn't include it)`;
       const { client, resolved } = await getLegacyClientForPrompt("regenerateResumeSection", req);
       const response = await client.models.generateContent({
         model: resolved.model,

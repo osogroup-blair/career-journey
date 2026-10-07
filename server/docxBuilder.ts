@@ -106,12 +106,19 @@ const bulletLevel = (left: number) => ({
   style: { paragraph: { indent: { left, hanging: 180 } } },
 });
 
-function bulletPara(text: string, o: RunOpts, spacing: { after: number; line: number }, reference: string): Paragraph {
+function bulletPara(text: string, o: RunOpts, spacing: { after: number; line: number }, reference: string, lead?: string): Paragraph {
   // keepLines: a bullet never splits across a page break (ats_tactics.md "page continuity").
-  return new Paragraph({ keepLines: true, numbering: { reference, level: 0 }, spacing: { after: spacing.after, line: spacing.line }, children: [run(text, o)] });
+  const children = lead ? [run(`${lead}: `, { ...o, bold: true }), run(text, o)] : [run(text, o)];
+  return new Paragraph({ keepLines: true, numbering: { reference, level: 0 }, spacing: { after: spacing.after, line: spacing.line }, children });
 }
 
 const bulletText = (b: any): string => (typeof b === "string" ? b : b?.text || "");
+const bulletLead = (b: any): string | undefined => (typeof b === "string" ? undefined : b?.lead || undefined);
+
+/** A role's narrative paragraph (roleNarratives format), styled like the template's body text. */
+function narrativePara(text: string | undefined, o: RunOpts, spacing: { after: number; line: number }): Paragraph[] {
+  return text ? [new Paragraph({ keepLines: true, keepNext: true, spacing, children: [run(text, o)] })] : [];
+}
 
 /** Collapses to ~1pt so a table-to-table gap can be set precisely with `after`. */
 function spacer(after: number): Paragraph {
@@ -146,10 +153,18 @@ function classicChildren(resume: GeneratedResume, tagline?: string): (Paragraph 
   out.push(classicSection("Executive Summary", 360, 120));
   out.push(new Paragraph({ spacing: { line: body }, children: [run(resume.summary || "", { color: C.slate800 })] }));
 
-  out.push(classicSection("Core Competencies", 300, 120));
-  (resume.skills || []).forEach((s) => {
-    out.push(new Paragraph({ spacing: { after: 60 }, children: [run(`${s.category}:`, { bold: true, color: C.slate900 }), run(` ${s.terms}`, { color: C.slate700 })] }));
-  });
+  const skills = () => {
+    out.push(classicSection("Core Competencies", 300, 120));
+    (resume.skills || []).forEach((s) => {
+      out.push(new Paragraph({ spacing: { after: 60 }, children: [run(`${s.category}:`, { bold: true, color: C.slate900 }), run(` ${s.terms}`, { color: C.slate700 })] }));
+    });
+  };
+  if (resume.skillsPosition !== "bottom") skills();
+
+  if ((resume.selectedOutcomes || []).length > 0) {
+    out.push(classicSection("Selected Outcomes", 300, 120));
+    resume.selectedOutcomes!.forEach((o) => out.push(bulletPara(o.text, { color: C.slate800 }, { after: 60, line: lh(1.375) }, BULLETS.pl5, o.lead || undefined)));
+  }
 
   if ((resume.experience || []).length > 0) out.push(classicSection("Professional Experience", 300, 180));
   (resume.experience || []).forEach((exp, i) => {
@@ -165,7 +180,8 @@ function classicChildren(resume: GeneratedResume, tagline?: string): (Paragraph 
         { after: 90 }
       )
     );
-    (exp.bullets || []).forEach((b) => out.push(bulletPara(bulletText(b), { color: C.slate800 }, { after: 60, line: lh(1.375) }, BULLETS.pl5)));
+    out.push(...narrativePara(exp.narrative, { color: C.slate700 }, { after: 60, line: lh(1.375) }));
+    (exp.bullets || []).forEach((b) => out.push(bulletPara(bulletText(b), { color: C.slate800 }, { after: 60, line: lh(1.375) }, BULLETS.pl5, bulletLead(b))));
   });
 
   const earlier = resume.earlierExperience || [];
@@ -175,6 +191,8 @@ function classicChildren(resume: GeneratedResume, tagline?: string): (Paragraph 
       out.push(splitLine([run(e.title, { bold: true, color: C.slate900 }), run(" — ", {}), run(e.company, { color: C.slate700 })], [run(e.dates, { color: C.slate800 })], CONTENT_W, { after: 60 }, false));
     });
   }
+
+  if (resume.skillsPosition === "bottom") skills();
 
   out.push(classicSection("Education", 300, 120));
   (resume.education || []).forEach((edu) => {
@@ -239,18 +257,26 @@ function modernChildren(resume: GeneratedResume, tagline?: string): (Paragraph |
 
   out.push(new Paragraph({ spacing: { before: 480, line: relaxed }, children: [run(resume.summary || "", { px: 14, color: C.zinc700 })] }));
 
-  out.push(modernSection("Skills & Technologies", 360, 180));
-  const hang = tw(128); // min-w-[120px] + gap-2
-  (resume.skills || []).forEach((s) => {
-    out.push(
-      new Paragraph({
-        spacing: { after: 120 },
-        indent: { left: hang, hanging: hang },
-        tabStops: [{ type: TabStopType.LEFT, position: hang }],
-        children: [run(s.category, { bold: true, color: C.zinc900 }), tab(), run(s.terms, { color: C.zinc600 })],
-      })
-    );
-  });
+  const skills = () => {
+    out.push(modernSection("Skills & Technologies", 360, 180));
+    const hang = tw(128); // min-w-[120px] + gap-2
+    (resume.skills || []).forEach((s) => {
+      out.push(
+        new Paragraph({
+          spacing: { after: 120 },
+          indent: { left: hang, hanging: hang },
+          tabStops: [{ type: TabStopType.LEFT, position: hang }],
+          children: [run(s.category, { bold: true, color: C.zinc900 }), tab(), run(s.terms, { color: C.zinc600 })],
+        })
+      );
+    });
+  };
+  if (resume.skillsPosition !== "bottom") skills();
+
+  if ((resume.selectedOutcomes || []).length > 0) {
+    out.push(modernSection("Selected Outcomes", 480, 180));
+    resume.selectedOutcomes!.forEach((o) => out.push(bulletPara(o.text, { color: C.zinc700 }, { after: 90, line: relaxed }, BULLETS.pl4, o.lead || undefined)));
+  }
 
   if ((resume.experience || []).length > 0) out.push(modernSection("Experience", 480, 240));
   (resume.experience || []).forEach((exp, i) => {
@@ -266,7 +292,8 @@ function modernChildren(resume: GeneratedResume, tagline?: string): (Paragraph |
         { after: 120 }
       )
     );
-    (exp.bullets || []).forEach((b) => out.push(bulletPara(bulletText(b), { color: C.zinc700 }, { after: 90, line: relaxed }, BULLETS.pl4)));
+    out.push(...narrativePara(exp.narrative, { color: C.zinc600 }, { after: 120, line: relaxed }));
+    (exp.bullets || []).forEach((b) => out.push(bulletPara(bulletText(b), { color: C.zinc700 }, { after: 90, line: relaxed }, BULLETS.pl4, bulletLead(b))));
   });
 
   const earlier = resume.earlierExperience || [];
@@ -276,6 +303,8 @@ function modernChildren(resume: GeneratedResume, tagline?: string): (Paragraph |
       out.push(splitLine([run(e.title, { bold: true, color: C.zinc900 }), run(` ${e.company}`, { bold: true, color: C.brand600 })], [run(e.dates, { color: C.zinc900 })], CONTENT_W, { after: 90 }, false));
     });
   }
+
+  if (resume.skillsPosition === "bottom") skills();
 
   out.push(modernSection("Education", 480, 180));
   (resume.education || []).forEach((edu) => {
@@ -355,26 +384,35 @@ function executiveChildren(resume: GeneratedResume, tagline?: string): (Paragrap
   out.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { before: 360, line: lh(1.625) }, children: [run(resume.summary || "", { px: 13, font: SERIF, color: C.gray800 })] }));
 
   // Skills: two-column grid between thin rules, inset px-4 like the screen.
-  const skills = resume.skills || [];
-  if (skills.length > 0) {
-    const inset = 240;
-    const tableW = CONTENT_W - inset * 2;
-    const colW = Math.round(tableW / 2);
-    const rows: TableRow[] = [];
-    for (let i = 0; i < skills.length; i += 2) {
-      const first = i === 0;
-      const last = i + 2 >= skills.length;
-      const cell = (s?: { category: string; terms: string }) =>
-        new TableCell({
-          width: { size: colW, type: WidthType.DXA },
-          borders: { ...NO_BORDERS, ...(first ? { top: { style: BorderStyle.SINGLE, size: 6, color: C.gray300 } } : {}), ...(last ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: C.gray300 } } : {}) },
-          margins: { top: first ? 180 : 60, bottom: last ? 180 : 60, left: 0, right: 120 },
-          children: [new Paragraph({ children: s ? [run(`${s.category}:`, { px: 12, bold: true, color: C.gray900 }), run(` ${s.terms}`, { px: 12, color: C.gray700 })] : [] })],
-        });
-      rows.push(new TableRow({ cantSplit: true, children: [cell(skills[i]), cell(skills[i + 1])] }));
+  const skillsGrid = () => {
+    const skills = resume.skills || [];
+    if (skills.length > 0) {
+      const inset = 240;
+      const tableW = CONTENT_W - inset * 2;
+      const colW = Math.round(tableW / 2);
+      const rows: TableRow[] = [];
+      for (let i = 0; i < skills.length; i += 2) {
+        const first = i === 0;
+        const last = i + 2 >= skills.length;
+        const cell = (s?: { category: string; terms: string }) =>
+          new TableCell({
+            width: { size: colW, type: WidthType.DXA },
+            borders: { ...NO_BORDERS, ...(first ? { top: { style: BorderStyle.SINGLE, size: 6, color: C.gray300 } } : {}), ...(last ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: C.gray300 } } : {}) },
+            margins: { top: first ? 180 : 60, bottom: last ? 180 : 60, left: 0, right: 120 },
+            children: [new Paragraph({ children: s ? [run(`${s.category}:`, { px: 12, bold: true, color: C.gray900 }), run(` ${s.terms}`, { px: 12, color: C.gray700 })] : [] })],
+          });
+        rows.push(new TableRow({ cantSplit: true, children: [cell(skills[i]), cell(skills[i + 1])] }));
+      }
+      out.push(spacer(360));
+      out.push(new Table({ width: { size: tableW, type: WidthType.DXA }, indent: { size: inset, type: WidthType.DXA }, columnWidths: [colW, colW], layout: TableLayoutType.FIXED, borders: TableBorders.NONE, rows }));
     }
+  };
+  if (resume.skillsPosition !== "bottom") skillsGrid();
+
+  if ((resume.selectedOutcomes || []).length > 0) {
+    const outcomes = resume.selectedOutcomes!.map((o) => [bulletPara(o.text, { px: 13, font: SERIF, color: C.gray800 }, { after: 60, line: lh(1.5) }, BULLETS.pl5, o.lead || undefined)]);
     out.push(spacer(360));
-    out.push(new Table({ width: { size: tableW, type: WidthType.DXA }, indent: { size: inset, type: WidthType.DXA }, columnWidths: [colW, colW], layout: TableLayoutType.FIXED, borders: TableBorders.NONE, rows }));
+    out.push(executiveSideBySide("Outcomes", outcomes));
   }
 
   // One row group per bullet; the role header rides in the same group as the first bullet so it never ends a page.
@@ -387,7 +425,8 @@ function executiveChildren(resume: GeneratedResume, tagline?: string): (Paragrap
     header.push(splitLine([company], [run(exp.dates, { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 360 : 0 }));
     if (exp.companyDescriptor) header.push(new Paragraph({ keepNext: true, spacing: { after: 30 }, children: [run(exp.companyDescriptor, { px: 11, color: C.gray500 })] }));
     header.push(splitLine([run(exp.title, { px: 14, font: SERIF, italics: true, color: C.gray800 })], [run(exp.location || "", { px: 11, caps: true, tracking: 0.05, color: C.gray500 })], rightW, { after: 120 }));
-    const bullets = (exp.bullets || []).map((b) => bulletPara(bulletText(b), { px: 13, font: SERIF, color: C.gray800 }, { after: 60, line: lh(1.5) }, BULLETS.pl5));
+    header.push(...narrativePara(exp.narrative, { px: 13, font: SERIF, color: C.gray700 }, { after: 90, line: lh(1.5) }));
+    const bullets = (exp.bullets || []).map((b) => bulletPara(bulletText(b), { px: 13, font: SERIF, color: C.gray800 }, { after: 60, line: lh(1.5) }, BULLETS.pl5, bulletLead(b)));
     entries.push([...header, ...bullets.slice(0, 1)], ...bullets.slice(1).map((b) => [b]));
   });
   if (entries.length > 0) {
@@ -403,6 +442,8 @@ function executiveChildren(resume: GeneratedResume, tagline?: string): (Paragrap
     out.push(spacer(360));
     out.push(executiveSideBySide("Earlier", rows.map((r) => [r])));
   }
+
+  if (resume.skillsPosition === "bottom") skillsGrid();
 
   const edu: Paragraph[][] = (resume.education || []).map((e, i) => [
     splitLine([run(e.institution, { px: 14, font: SERIF, bold: true, color: C.gray900 })], [run(e.graduationDate || "", { px: 12, color: C.gray600 })], rightW, { before: i > 0 ? 180 : 0 }),

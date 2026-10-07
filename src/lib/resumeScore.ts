@@ -80,9 +80,10 @@ export function resumeToPlainText(resume: GeneratedResume | undefined, tagline?:
   if (!resume) return '';
   const parts: string[] = [tagline || '', resume.summary || ''];
   for (const s of resume.skills || []) parts.push(s.category, s.terms);
+  for (const o of resume.selectedOutcomes || []) parts.push(o.lead, o.text);
   for (const e of resume.experience || []) {
-    parts.push(e.title, e.company, e.companyDescriptor || '');
-    for (const b of e.bullets || []) parts.push(typeof b === 'string' ? b : b?.text || '');
+    parts.push(e.title, e.company, e.companyDescriptor || '', e.narrative || '');
+    for (const b of e.bullets || []) parts.push(typeof b === 'string' ? b : [b?.lead, b?.text].filter(Boolean).join(' '));
   }
   for (const e of resume.earlierExperience || []) parts.push(e.title, e.company);
   for (const ed of resume.education || []) parts.push(ed.degree, ed.institution);

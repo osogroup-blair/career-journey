@@ -1,10 +1,17 @@
 import { useMemo } from 'react';
 import { AlertTriangle, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useStore } from '../../store';
-import { JobAnalysis, ResumeBuildOptions, ResumeRoleMode } from '../../types';
+import { JobAnalysis, ResumeBuildOptions, ResumeFormat, ResumeRoleMode } from '../../types';
 import { Badge, Card, CardContent, CardHeader, CardTitle, Label, Textarea } from '../ui';
 import { cn } from '../../lib/utils';
-import { computeBulletBudget, keywordsAtRisk, MAX_BULLETS_PER_ROLE, resumePreferences, roleCompany, roleMode, rolesRecentFirst } from '../../lib/resumeBuild';
+import { computeBulletBudget, keywordsAtRisk, MAX_BULLETS_PER_ROLE, resumeFormat, resumePreferences, resumeUnits, roleCompany, roleMode, rolesRecentFirst } from '../../lib/resumeBuild';
+
+const FORMAT_TOGGLES: { key: Exclude<keyof ResumeFormat, 'skillsPosition'>; label: string; help: string }[] = [
+  { key: 'combineEmployerRoles', label: 'Combine roles at the same employer', help: 'Several roles at one company become one entry with a hybrid title and a shared set of bullets.' },
+  { key: 'selectedOutcomes', label: 'Selected Outcomes', help: '4–5 bold-labelled proof points before Experience, taken from the plan you review.' },
+  { key: 'roleNarratives', label: 'Role narratives', help: 'A 1–2 sentence scope paragraph under each role, before its bullets.' },
+  { key: 'boldLeads', label: 'Bold bullet labels', help: 'A short bold label on the 3–5 bullets per role that hit the JD\'s top signals.' },
+];
 
 const MODE_LABELS: Record<ResumeRoleMode, string> = { full: 'Full', condensed: 'One line', excluded: 'Leave off' };
 const MODE_HELP: Record<ResumeRoleMode, string> = {
@@ -62,6 +69,18 @@ export default function ResumeBuildSettings({ job, value, onChange }: {
   const roles = useMemo(() => rolesRecentFirst(careerJourney).filter((r) => r?.id), [careerJourney]);
   const budget = useMemo(() => computeBulletBudget(value, careerJourney, job.keywords), [value, careerJourney, job.keywords]);
   const savedPageTarget = resumePreferences(careerJourney).pageTarget;
+  const format = resumeFormat(value);
+  const savedFormat = resumeFormat({ ...value, format: resumePreferences(careerJourney).format });
+  const formatIsDefault = (Object.keys(format) as (keyof ResumeFormat)[]).every((k) => format[k] === savedFormat[k]);
+  const setFormat = (patch: Partial<ResumeFormat>) => onChange({ ...value, format: { ...format, ...patch } });
+  // Roles folded into another role's combined employer entry: roleId -> the entry's lead role.
+  const combinedInto = useMemo(() => {
+    const out: Record<string, { primaryId: string; count: number }> = {};
+    for (const unit of resumeUnits(value, careerJourney, job.keywords)) {
+      if (unit.roleIds.length > 1) unit.roleIds.forEach((id) => { out[id] = { primaryId: unit.primaryId, count: unit.roleIds.length }; });
+    }
+    return out;
+  }, [value, careerJourney, job.keywords]);
 
   const counts = roles.reduce(
     (acc, r) => ({ ...acc, [roleMode(value, r.id)]: acc[roleMode(value, r.id)] + 1 }),
@@ -109,6 +128,48 @@ export default function ResumeBuildSettings({ job, value, onChange }: {
 
       <Card>
         <CardHeader className="border-b pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Format</CardTitle>
+              <p className="text-xs text-slate-500 mt-0.5">Layout choices for this resume. All three templates and the Word/PDF exports follow them.</p>
+            </div>
+            {formatIsDefault ? (
+              <span className="text-[11px] text-slate-400">Your default</span>
+            ) : (
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-brand-600 hover:text-brand-800"
+                onClick={() => updateCareerJourneyPerson({ resume_preferences: { ...(careerJourney?.person?.resume_preferences || {}), format } })}
+              >
+                Make default
+              </button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-4 space-y-3">
+          {FORMAT_TOGGLES.map((t) => (
+            <label key={t.key} className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={format[t.key]} onChange={(e) => setFormat({ [t.key]: e.target.checked })} />
+              <span>
+                <span className="block text-sm font-medium text-slate-900">{t.label}</span>
+                <span className="block text-xs text-slate-500">{t.help}</span>
+              </span>
+            </label>
+          ))}
+          <div className="flex items-center gap-3 pt-1">
+            <span className="text-sm font-medium text-slate-900">Skills section</span>
+            <Segmented
+              size="sm"
+              value={format.skillsPosition}
+              options={[{ value: 'top' as const, label: 'After summary' }, { value: 'bottom' as const, label: 'Before education' }]}
+              onChange={(skillsPosition) => setFormat({ skillsPosition })}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="border-b pb-4">
           <CardTitle className="text-base">Roles on this resume</CardTitle>
           <p className="text-xs text-slate-500 mt-0.5">
             {counts.full} full ({totalBullets} bullets max) · {counts.condensed} one-line · {counts.excluded} left off
@@ -120,6 +181,8 @@ export default function ResumeBuildSettings({ job, value, onChange }: {
             {roles.map((role) => {
               const mode = roleMode(value, role.id);
               const override = value.roles[role.id]?.maxBullets;
+              const combined = mode === 'full' ? combinedInto[role.id] : undefined;
+              const isFollower = !!combined && combined.primaryId !== role.id;
               const bullets = budget[role.id];
               const atRisk = mode !== 'full' ? keywordsAtRisk(job.keywords, careerJourney, value, role.id) : [];
               const isDefault = (role.resume_default || 'full') === mode;
@@ -131,8 +194,13 @@ export default function ResumeBuildSettings({ job, value, onChange }: {
                       <div className="text-xs text-slate-500">{roleCompany(role)}{roleDates(role) ? ` · ${roleDates(role)}` : ''}</div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      {mode === 'full' && (
-                        <div className="flex items-center gap-1 text-xs text-slate-600" title="Max bullets for this role">
+                      {isFollower && (
+                        <span className="text-xs text-slate-500" title="Shares one entry and bullet budget with the other roles at this employer">
+                          Combined with {roles.find((r) => r.id === combined!.primaryId)?.title || 'another role'}
+                        </span>
+                      )}
+                      {mode === 'full' && !isFollower && (
+                        <div className="flex items-center gap-1 text-xs text-slate-600" title={combined ? `Max bullets for the combined ${roleCompany(role)} entry (${combined.count} roles)` : 'Max bullets for this role'}>
                           <button type="button" aria-label="Fewer bullets" className="p-1 rounded hover:bg-slate-100 disabled:opacity-30" disabled={bullets <= 0} onClick={() => setRole(role.id, { maxBullets: Math.max(0, bullets - 1) })}>
                             <Minus className="w-3 h-3" />
                           </button>

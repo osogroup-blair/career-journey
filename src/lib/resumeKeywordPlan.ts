@@ -127,6 +127,7 @@ export function buildResumeKeywordBlock(
       '- USE IF SUPPORTED keywords appear only where the Career Journey or the candidate-confirmed experience below honestly supports them.',
       '- DO NOT CLAIM keywords stay out of the resume entirely, skills rows included. Also honor every cautionClaims entry in the Resume Strategy.',
       '- Keep the JD\'s wording but never the JD\'s claims: a keyword only goes where the candidate\'s real work backs it.',
+      '- Mirror the JD\'s terms, never its sentences or slogans: a phrase like "convert technical curiosity into commercial momentum" copied from the JD reads as fake. Describe what the candidate actually did, in their own words, with the term placed inside.',
       '- A keyword\'s "or one of" forms are alternatives the ATS also accepts, not extra keywords. Use one form, preferring the JD\'s own phrase. Never list a term next to its variants ("solution consulting, solutions consulting, solution consultant") — the resume must read naturally to a recruiter, and stacked variants read as keyword stuffing.'
     );
     if (purpose === 'resume' && use.length > 0) {

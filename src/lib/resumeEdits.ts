@@ -40,6 +40,43 @@ export function updateBullet(resume: GeneratedResume, roleIndex: number, bulletI
   });
 }
 
+/** Sets a bullet's bold lead label; an empty value removes it. */
+export function updateBulletLead(resume: GeneratedResume, roleIndex: number, bulletIndex: number, lead: string): GeneratedResume {
+  return withRole(resume, roleIndex, (entry) => {
+    const bullets = [...(entry.bullets || [])];
+    if (bulletIndex < 0 || bulletIndex >= bullets.length) return entry;
+    const { lead: _old, ...rest } = normalizeBullet(bullets[bulletIndex]);
+    const trimmed = lead.trim();
+    bullets[bulletIndex] = trimmed ? { ...rest, lead: trimmed } : rest;
+    return { ...entry, bullets };
+  });
+}
+
+/** Sets a role's narrative paragraph; an empty value removes it. */
+export function updateNarrative(resume: GeneratedResume, roleIndex: number, narrative: string): GeneratedResume {
+  return withRole(resume, roleIndex, (entry) => {
+    const { narrative: _old, ...rest } = entry;
+    return narrative.trim() ? { ...rest, narrative: narrative.trim() } : rest;
+  });
+}
+
+export function updateOutcome(resume: GeneratedResume, index: number, patch: { lead?: string; text?: string }): GeneratedResume {
+  const outcomes = [...(resume.selectedOutcomes || [])];
+  if (index < 0 || index >= outcomes.length) return resume;
+  outcomes[index] = { ...outcomes[index], ...patch };
+  return { ...resume, selectedOutcomes: outcomes };
+}
+
+export function removeOutcome(resume: GeneratedResume, index: number): GeneratedResume {
+  const outcomes = (resume.selectedOutcomes || []).filter((_, i) => i !== index);
+  const { selectedOutcomes: _old, ...rest } = resume;
+  return outcomes.length > 0 ? { ...rest, selectedOutcomes: outcomes } : rest;
+}
+
+export function moveOutcome(resume: GeneratedResume, index: number, delta: number): GeneratedResume {
+  return { ...resume, selectedOutcomes: move(resume.selectedOutcomes || [], index, delta) };
+}
+
 export function removeBullet(resume: GeneratedResume, roleIndex: number, bulletIndex: number): GeneratedResume {
   return withRole(resume, roleIndex, (entry) => ({ ...entry, bullets: (entry.bullets || []).filter((_, i) => i !== bulletIndex) }));
 }

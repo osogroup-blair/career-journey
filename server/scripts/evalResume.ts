@@ -59,6 +59,21 @@ function termCoverage(terms: Record<string, string[]>, resumeText: string, cjTex
   };
 }
 
+/** Numbers (%, $, counts with +, multiples) in the resume that appear nowhere in the Career Journey — invented-metric candidates. Years and single digits are skipped. */
+function numbersNotInCareerJourney(resume: any, cjText: string): string[] {
+  const { earlierExperience: _e, education: _ed, contactInfo: _c, ...body } = resume || {};
+  const squash = (t: string) => t.toLowerCase().replace(/[\u00a0\u202f\s]+/g, '');
+  const cj = squash(cjText);
+  const found = new Set<string>();
+  for (const m of JSON.stringify(body).replace(/[\u00a0\u202f]/g, ' ').toLowerCase().matchAll(/\$?\d[\d,.]*\s?(?:%|m\b|k\b|x\b|\+)?/g)) {
+    const tok = m[0].trim().replace(/[.,]+$/, '');
+    if (/^(19|20)\d\d$/.test(tok) || /^\d$/.test(tok)) continue;
+    const t = squash(tok);
+    if (![t, t.replace(/^\$/, ''), t.replace(/%$/, 'percent')].some((v) => v && cj.includes(v))) found.add(tok);
+  }
+  return [...found].sort();
+}
+
 function buildOptions(raw: any, careerJourney: any, normalize: (raw: any, cj: any) => any) {
   if (!raw) return normalize(undefined, careerJourney);
   if (!Array.isArray(raw.full)) return normalize(raw, careerJourney);
@@ -66,7 +81,7 @@ function buildOptions(raw: any, careerJourney: any, normalize: (raw: any, cj: an
   for (const role of careerJourney.roles || []) {
     roles[role.id] = { mode: raw.full.includes(role.id) ? 'full' : (raw.condensed || []).includes(role.id) ? 'condensed' : 'excluded' };
   }
-  return normalize({ pageTarget: raw.pageTarget ?? 2, roles, guidance: raw.guidance }, careerJourney);
+  return normalize({ pageTarget: raw.pageTarget ?? 2, roles, guidance: raw.guidance, format: raw.format }, careerJourney);
 }
 
 async function main() {
@@ -142,8 +157,9 @@ async function main() {
   const strategy = await legacy('resumeStrategy', await P.resumeStrategyContents(null, base));
   save('strategy.json', strategy);
   const raw = await legacy('generateResume', await P.generateResumeContents(null, { ...base, strategy }), { thinkingConfig: { thinkingBudget: 1024 } });
+  save('raw-resume.json', raw);
   save('keywordPlan.json', raw.keywordPlan ?? []);
-  const { resume, warnings } = RB.enforceResumeConstraints(P.withoutKeywordPlan(raw), options, careerJourney, keywords);
+  const { resume, warnings } = RB.enforceResumeConstraints(P.withoutKeywordPlan(raw), options, careerJourney, keywords, strategy);
   save('resume.json', resume);
 
   const text = resumeToPlainText(resume, strategy.headerTagline);
@@ -162,6 +178,7 @@ async function main() {
     })(),
     keywordCount: keywords.length,
     keywordPhraseWords: +averagePhraseWords(keywords).toFixed(1),
+    numbersNotInCareerJourney: numbersNotInCareerJourney(resume, cjText),
     unsupportedKeywordsUsed: keywords
       .filter((k) => keywordUse(k) === 'omit' || keywordUse(k) === 'if-supported')
       .filter((k) => containsAny(normalize(text), [k.phrase, ...(k.aliases || [])]) && !containsAny(normalizedCj, [k.phrase, ...(k.aliases || [])]))

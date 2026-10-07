@@ -1,7 +1,7 @@
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import { ResumeBuildOptions, ResumeStrategy } from '../../types';
 import { Badge, Card, CardContent, CardHeader, CardTitle, Input, Label, Textarea } from '../ui';
-import { sectionLimits } from '../../lib/resumeBuild';
+import { resumeFormat, sectionLimits } from '../../lib/resumeBuild';
 import { cn } from '../../lib/utils';
 
 function wordCount(text: string): number {
@@ -18,7 +18,7 @@ export default function StrategyReview({ strategy, options, onChange }: {
   options: ResumeBuildOptions;
   onChange: (next: ResumeStrategy) => void;
 }) {
-  const limits = sectionLimits(options.pageTarget);
+  const limits = sectionLimits(options.pageTarget, resumeFormat(options));
   const summaryWords = wordCount(strategy.executiveSummary || '');
   const set = <K extends keyof ResumeStrategy>(key: K, v: ResumeStrategy[K]) => onChange({ ...strategy, [key]: v });
 
@@ -110,7 +110,11 @@ export default function StrategyReview({ strategy, options, onChange }: {
           <Card>
             <CardHeader className="border-b pb-4">
               <CardTitle className="text-base">Proof points to feature</CardTitle>
-              <p className="text-xs text-slate-500 mt-0.5">Remove any you don't want leaned on.</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {resumeFormat(options).selectedOutcomes
+                  ? 'These appear on the resume as Selected Outcomes, as written here. Remove any you don\'t want leaned on.'
+                  : 'Remove any you don\'t want leaned on.'}
+              </p>
             </CardHeader>
             <CardContent className="pt-4">
               <ul className="space-y-2">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronsDownUp, ChevronsUpDown, Loader2, MoreVertical, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Bold, ChevronsDownUp, ChevronsUpDown, Loader2, MoreVertical, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { ResumeRoleMode, ResumeSectionRef } from '../../types';
 
 /**
@@ -218,7 +218,15 @@ function HandleMenu({ title, icon, opensTo, items = [], regenerate, startWithReg
 
 const ico = 'w-3.5 h-3.5';
 
-export function BulletToolbar({ index, count, onMove, onRemove }: { index: number; count: number; onMove: (delta: number) => void; onRemove: () => void }) {
+export function BulletToolbar({ index, count, onMove, onRemove, lead, removeLabel = 'Delete bullet' }: {
+  index: number;
+  count: number;
+  onMove: (delta: number) => void;
+  onRemove: () => void;
+  /** Bold lead-label toggle; omitted where a lead doesn't apply. */
+  lead?: { has: boolean; onToggle: () => void };
+  removeLabel?: string;
+}) {
   return (
     <Gutter side="right" group="bullet">
       <HandleMenu
@@ -227,8 +235,9 @@ export function BulletToolbar({ index, count, onMove, onRemove }: { index: numbe
         items={[
           { label: 'Move up', icon: <ArrowUp className={ico} />, onSelect: () => onMove(-1), disabled: index === 0 },
           { label: 'Move down', icon: <ArrowDown className={ico} />, onSelect: () => onMove(1), disabled: index === count - 1 },
+          ...(lead ? [{ label: lead.has ? 'Remove bold label' : 'Add bold label', icon: <Bold className={ico} />, onSelect: lead.onToggle }] : []),
           'divider',
-          { label: 'Delete bullet', icon: <Trash2 className={ico} />, onSelect: onRemove, danger: true },
+          { label: removeLabel, icon: <Trash2 className={ico} />, onSelect: onRemove, danger: true },
         ]}
       />
     </Gutter>

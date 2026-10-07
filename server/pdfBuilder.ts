@@ -105,14 +105,19 @@ function splitRow(
   doc.y = y + doc.currentLineHeight() + gap;
 }
 
-function bullet(doc: PDFKit.PDFDocument, text: string, gap = 2.5): void {
+function bullet(doc: PDFKit.PDFDocument, text: string, gap = 2.5, lead?: string): void {
   const x = doc.page.margins.left;
   const w = contentWidth(doc);
   doc.font(REGULAR).fontSize(BODY_SIZE);
-  ensureSpace(doc, doc.heightOfString(text, { width: w - BULLET_INDENT }) + 2);
+  ensureSpace(doc, doc.heightOfString(lead ? `${lead}: ${text}` : text, { width: w - BULLET_INDENT }) + 2);
   const y = doc.y;
   doc.fillColor(INK).text("•", x + 2, y, { lineBreak: false });
-  doc.text(text, x + BULLET_INDENT, y, { width: w - BULLET_INDENT });
+  if (lead) {
+    doc.font(BOLD).text(`${lead}: `, x + BULLET_INDENT, y, { width: w - BULLET_INDENT, continued: true });
+    doc.font(REGULAR).text(text);
+  } else {
+    doc.text(text, x + BULLET_INDENT, y, { width: w - BULLET_INDENT });
+  }
   doc.x = x;
   doc.y += gap;
 }
@@ -139,13 +144,21 @@ export async function buildResumePdf(resume: GeneratedResume, strategy?: ResumeS
   sectionHeader(doc, "Executive Summary");
   doc.font(REGULAR).fontSize(BODY_SIZE).fillColor(INK).text(toWinAnsi(resume.summary), x, doc.y, { width: w });
 
-  sectionHeader(doc, "Core Competencies");
-  (resume.skills || []).forEach((s) => {
-    ensureSpace(doc, BODY_SIZE * 2);
-    doc.font(BOLD).fontSize(BODY_SIZE).fillColor(INK).text(`${toWinAnsi(s.category)}: `, x, doc.y, { continued: true, width: w });
-    doc.font(REGULAR).text(toWinAnsi(s.terms), { width: w });
-    doc.moveDown(0.15);
-  });
+  const skills = () => {
+    sectionHeader(doc, "Core Competencies");
+    (resume.skills || []).forEach((s) => {
+      ensureSpace(doc, BODY_SIZE * 2);
+      doc.font(BOLD).fontSize(BODY_SIZE).fillColor(INK).text(`${toWinAnsi(s.category)}: `, x, doc.y, { continued: true, width: w });
+      doc.font(REGULAR).text(toWinAnsi(s.terms), { width: w });
+      doc.moveDown(0.15);
+    });
+  };
+  if (resume.skillsPosition !== "bottom") skills();
+
+  if ((resume.selectedOutcomes || []).length > 0) {
+    sectionHeader(doc, "Selected Outcomes");
+    resume.selectedOutcomes!.forEach((o) => bullet(doc, toWinAnsi(o.text), 2.5, o.lead ? toWinAnsi(o.lead) : undefined));
+  }
 
   if ((resume.experience || []).length > 0) sectionHeader(doc, "Professional Experience");
   (resume.experience || []).forEach((exp) => {
@@ -162,7 +175,11 @@ export async function buildResumePdf(resume: GeneratedResume, strategy?: ResumeS
       1
     );
     splitRow(doc, [{ text: toWinAnsi(exp.title), font: ITALIC }], { text: toWinAnsi(exp.location), font: ITALIC, color: "#6B7280" }, 3);
-    (exp.bullets || []).forEach((b: any) => bullet(doc, toWinAnsi(typeof b === "string" ? b : b.text)));
+    if (exp.narrative) {
+      doc.font(REGULAR).fontSize(BODY_SIZE).fillColor(INK).text(toWinAnsi(exp.narrative), x, doc.y, { width: w });
+      doc.moveDown(0.2);
+    }
+    (exp.bullets || []).forEach((b: any) => bullet(doc, toWinAnsi(typeof b === "string" ? b : b.text), 2.5, typeof b !== "string" && b.lead ? toWinAnsi(b.lead) : undefined));
   });
 
   if ((resume.earlierExperience || []).length > 0) {
@@ -171,6 +188,8 @@ export async function buildResumePdf(resume: GeneratedResume, strategy?: ResumeS
       splitRow(doc, [{ text: toWinAnsi(e.title), font: BOLD }, { text: ` — ${toWinAnsi(e.company)}` }], { text: toWinAnsi(e.dates) }, 2);
     });
   }
+
+  if (resume.skillsPosition === "bottom") skills();
 
   sectionHeader(doc, "Education");
   (resume.education || []).forEach((edu) => {

@@ -79,6 +79,32 @@ The first try at that (run 3, 29/38) stacked every alias side by side in the ski
 Still open:
 - **First-person summary.** Run 4's summary slipped into first person; a rule now forbids it (not yet re-measured).
 - **Claims needing a second look.** "Drove … an $11M government defense application" is the kind of claim Phase 3 should flag for review.
+
+**2026-10-07: Phase 4 implemented.** Build Settings has a Format card:
+- combine employer roles (on by default)
+- Selected Outcomes, role narratives, bold bullet labels (off by default)
+- skills after the summary or before education
+- "Make default" saves the choices to `person.resume_preferences.format`
+
+Everything renders in all three templates and in the .docx and fallback PDF exports.
+
+Measured with every format on, using `blitzy-senior-solution-consultant.all-formats.options.json` and the run-2 keywords. Each run was rendered through the real headless-Chrome export:
+
+| Runs | JD terms (38) | Invented numbers | Pages (Classic / Modern / Executive) |
+|---|---|---|---|
+| 5–9 (first version) | 24–31, median 26 | **1 of 5 runs**: "70%", "80%", "30% expansion revenue", "20+", "100-person" | 3 / 3 / 3 |
+| 10–12 (+ format-aware budget, no-derived-numbers rule) | 26, 29, 26 | none | run 11: 2 / 3 / 2 |
+| 13, 15 (+ section length limits; run 14 hit an Oso router outage) | **29, 28** | none | 2 / 3 / 3 (Modern ~8 lines over, Executive only the Education line) |
+
+Findings and fixes along the way:
+- **Nymbl** renders as one entry ("Chief Strategy Officer | Head of …", January 2022 – March 2026) with a narrative.
+- **Combining shrinks the bullet budget.** A combined employer gets one ladder rung plus one bullet per extra role (max 8), so combined Nymbl carries fewer bullets than the three separate entries did.
+- **Selected Outcomes** come from the writer as structured lead/text built from the reviewed strategy outcomes. Parsing the strategy's free-text lines mislabelled outcomes written as "Claim: numbers".
+- **Bold labels** are capped at 5 per entry and never applied to every bullet.
+- **Education** fills from the Career Journey when the model returns none. One run put the education item inside `experience`; enforcement now drops malformed entries like that.
+- **Page fit:** with outcomes or narratives on, each entry loses one bullet per setting, and the summary cap drops to 80 words (45 for 1 page). Narratives are limited to 35 words, outcomes to 20, skills rows to 8 terms. The budget is set before the template is chosen, so Modern and Executive can still run a few lines over on 2 pages. The editor's page estimate shows it.
+- **Copied JD sentences** ("converted technical curiosity into commercial momentum") still appear in about half of runs despite the prompt rule. Phase 3 `jd-copy` flag.
+- **Port 47293** is the Docker deployment (`career-journey:latest`), not a dev server. Use the `career-journey-dev-47294` launch config to run current code next to it.
 ---
 
 ## Phase 0 — Eval harness (do first; every later phase is measured with it)
@@ -131,6 +157,8 @@ Commit the Blitzy and Kestrel JDs as fixtures under `server/scripts/fixtures/`. 
    - `unknown-evidence`: a cited id that doesn't exist in the Career Journey
    - `unsupported-term`: the text contains a keyword marked NOT SUPPORTED / MISSING or in `omitKeywords`, and that term appears nowhere in the Career Journey text
    - `title-reframe`: a hybrid-title segment that isn't a real Career Journey title, so the user can confirm the reframe is honest
+   - `invented-number`: a percentage, dollar amount, count or multiple that appears nowhere in the Career Journey or confirmed context, including figures derived from real ones ("2 weeks → 3 days" restated as "80% faster"). Added 2026-10-07: 1 of 8 Blitzy runs invented "70%", "80%", "30% expansion revenue", "20+ solutions" and "100-person firm", and it was the run with the best keyword coverage. `npm run eval:resume` already reports `numbersNotInCareerJourney`.
+   - `jd-copy`: 5+ consecutive words copied from the JD ("converted technical curiosity into commercial momentum"). Added 2026-10-07: every all-formats run did this at least once despite a prompt rule against it.
 3. **UI**: flag chips inline in the resume editor, reusing the existing hover controls, with **Keep** / **Remove** / **Rewrite** actions. Rewrite calls `regenerateResumeSection` with an instruction. "Keep" is stored as `job.resumeClaimDecisions` (keyed by flag kind + normalized text) so the flag doesn't come back. `ResumeScorePanel` adds "N claims need your review". Export isn't blocked, but the download button notes unreviewed flags.
 
 **Effort** M. **Tests**: `resumeClaims.test.ts` covering each flag kind, plus Keep persistence.

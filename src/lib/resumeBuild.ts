@@ -1,4 +1,4 @@
-import { EarlierExperienceEntry, EvidenceRef, GeneratedResume, KeywordSignal, ResumeBuildOptions, ResumeRoleMode } from '../types';
+import { EarlierExperienceEntry, EvidenceRef, GeneratedResume, KeywordSignal, ResumeBuildOptions, ResumeFormat, ResumeOutcome, ResumeRoleMode } from '../types';
 import { formatContactLine } from './utils';
 
 /**
@@ -21,8 +21,10 @@ const BULLET_LADDER: Record<1 | 2, number[]> = {
   2: [6, 5, 4, 4, 3],
 };
 
-export function sectionLimits(pageTarget: 1 | 2): { summaryWords: number; skillRows: number } {
-  return pageTarget === 1 ? { summaryWords: 60, skillRows: 4 } : { summaryWords: 110, skillRows: 6 };
+/** Summary and skills limits for a page target. With Selected Outcomes on, the outcomes carry the proof points, so the summary is shorter. */
+export function sectionLimits(pageTarget: 1 | 2, format?: Partial<ResumeFormat>): { summaryWords: number; skillRows: number } {
+  const outcomes = !!format?.selectedOutcomes;
+  return pageTarget === 1 ? { summaryWords: outcomes ? 45 : 60, skillRows: 4 } : { summaryWords: outcomes ? 80 : 110, skillRows: 6 };
 }
 
 export function roleCompany(role: any): string {
@@ -97,11 +99,37 @@ function isRoleMode(value: unknown): value is ResumeRoleMode {
 }
 
 /** The candidate's saved resume defaults, from person.resume_preferences in the Career Journey. */
-export function resumePreferences(careerJourney: any): { pageTarget: 1 | 2; condenseEndedBefore: number | null } {
+export const DEFAULT_RESUME_FORMAT: ResumeFormat = {
+  combineEmployerRoles: true,
+  selectedOutcomes: false,
+  roleNarratives: false,
+  boldLeads: false,
+  skillsPosition: 'top',
+};
+
+/** Keeps only valid format fields from untrusted input (a request body or the Career Journey). */
+export function sanitizeResumeFormat(raw: unknown): Partial<ResumeFormat> {
+  if (!raw || typeof raw !== 'object') return {};
+  const r = raw as Record<string, unknown>;
+  const out: Partial<ResumeFormat> = {};
+  for (const key of ['combineEmployerRoles', 'selectedOutcomes', 'roleNarratives', 'boldLeads'] as const) {
+    if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
+  }
+  if (r.skillsPosition === 'top' || r.skillsPosition === 'bottom') out.skillsPosition = r.skillsPosition;
+  return out;
+}
+
+/** The effective layout for a build: its own toggles over the defaults. */
+export function resumeFormat(options: ResumeBuildOptions | undefined): ResumeFormat {
+  return { ...DEFAULT_RESUME_FORMAT, ...sanitizeResumeFormat(options?.format) };
+}
+
+export function resumePreferences(careerJourney: any): { pageTarget: 1 | 2; condenseEndedBefore: number | null; format: Partial<ResumeFormat> } {
   const prefs = careerJourney?.person?.resume_preferences || {};
   return {
     pageTarget: Number(prefs.page_target) === 1 ? 1 : 2,
     condenseEndedBefore: firstYear(String(prefs.condense_roles_ended_before ?? '')),
+    format: sanitizeResumeFormat(prefs.format),
   };
 }
 
@@ -118,7 +146,7 @@ export function defaultBuildOptions(careerJourney: any, now: Date = new Date()):
     else if (prefs.condenseEndedBefore === null && end !== null && now.getFullYear() - end > CONDENSE_AFTER_YEARS) mode = 'condensed';
     roles[role.id] = { mode };
   }
-  return { pageTarget: prefs.pageTarget, roles };
+  return { pageTarget: prefs.pageTarget, roles, ...(Object.keys(prefs.format).length > 0 ? { format: prefs.format } : {}) };
 }
 
 /**
@@ -139,7 +167,13 @@ export function normalizeResumeBuildOptions(raw: any, careerJourney: any): Resum
       : { mode };
   }
   const guidance = typeof raw.guidance === 'string' ? raw.guidance.trim().slice(0, 1000) : '';
-  return { pageTarget: Number(raw.pageTarget) === 1 ? 1 : 2, roles, ...(guidance ? { guidance } : {}) };
+  const format = raw.format === undefined ? resumePreferences(careerJourney).format : sanitizeResumeFormat(raw.format);
+  return {
+    pageTarget: Number(raw.pageTarget) === 1 ? 1 : 2,
+    roles,
+    ...(guidance ? { guidance } : {}),
+    ...(Object.keys(format).length > 0 ? { format } : {}),
+  };
 }
 
 export function roleMode(options: ResumeBuildOptions | undefined, roleId: string): ResumeRoleMode {
@@ -162,24 +196,83 @@ export function roleRelevance(keywords: KeywordSignal[] | undefined, careerJourn
 }
 
 /**
- * Max bullets per full role id. Roles that evidence the most JD keywords get
- * the top rungs of the page-target ladder (recency breaks ties, and decides
- * alone when there's no keyword breakdown). A per-role maxBullets overrides
- * the ladder. These are ceilings, not quotas — see buildResumeConstraintsBlock.
+ * One experience entry on the resume. Usually one full role; with
+ * combineEmployerRoles on, every full role at the same employer (by company
+ * name) shares one entry. `primaryId` is the role that entry is filed under —
+ * the most JD-relevant of them, recency breaking ties — and `roleIds` lists
+ * them all, primary first.
+ */
+export interface ResumeUnit {
+  primaryId: string;
+  roleIds: string[];
+  company: string;
+}
+
+/** Full roles grouped into resume entries, most recent entry first. */
+export function resumeUnits(options: ResumeBuildOptions, careerJourney: any, keywords?: KeywordSignal[]): ResumeUnit[] {
+  const relevance = roleRelevance(keywords, careerJourney);
+  const combine = resumeFormat(options).combineEmployerRoles;
+  const full = rolesRecentFirst(careerJourney).filter((role) => role?.id && roleMode(options, role.id) === 'full');
+  const groups = new Map<string, any[]>();
+  full.forEach((role, i) => {
+    const key = combine && employerKey(roleCompany(role)) ? `co:${employerKey(roleCompany(role))}` : `role:${role.id}:${i}`;
+    groups.set(key, [...(groups.get(key) || []), role]);
+  });
+  return [...groups.values()].map((roles) => {
+    const ranked = roles.map((role, recency) => ({ role, recency })).sort((a, b) => (relevance[b.role.id] || 0) - (relevance[a.role.id] || 0) || a.recency - b.recency);
+    const primary = ranked[0].role;
+    return { primaryId: primary.id, roleIds: [primary.id, ...roles.filter((r) => r !== primary).map((r) => r.id)], company: roleCompany(primary) };
+  });
+}
+
+/**
+ * Max bullets per resume entry, keyed by its primary role id. Entries that
+ * evidence the most JD keywords get the top rungs of the page-target ladder
+ * (recency breaks ties, and decides alone when there's no keyword breakdown);
+ * a combined employer entry gets one extra bullet per additional role, up to
+ * MAX_BULLETS_PER_ROLE. A maxBullets override on the primary role wins.
+ * These are ceilings, not quotas — see buildResumeConstraintsBlock.
  */
 export function computeBulletBudget(options: ResumeBuildOptions, careerJourney: any, keywords?: KeywordSignal[]): Record<string, number> {
   const ladder = BULLET_LADDER[options.pageTarget] ?? BULLET_LADDER[2];
+  // Selected Outcomes and role narratives take page space the ladder was sized without: one bullet less per entry for each (never below 2).
+  const format = resumeFormat(options);
+  const formatCost = (format.selectedOutcomes ? 1 : 0) + (format.roleNarratives ? 1 : 0);
   const relevance = roleRelevance(keywords, careerJourney);
   const budget: Record<string, number> = {};
-  rolesRecentFirst(careerJourney)
-    .filter((role) => role?.id && roleMode(options, role.id) === 'full')
-    .map((role, recency) => ({ role, recency, score: relevance[role.id] || 0 }))
+  resumeUnits(options, careerJourney, keywords)
+    .map((unit, recency) => ({ unit, recency, score: unit.roleIds.reduce((n, id) => n + (relevance[id] || 0), 0) }))
     .sort((a, b) => b.score - a.score || a.recency - b.recency)
-    .forEach(({ role }, i) => {
-      const override = options.roles?.[role.id]?.maxBullets;
-      budget[role.id] = override ?? ladder[Math.min(i, ladder.length - 1)];
+    .forEach(({ unit }, i) => {
+      const override = options.roles?.[unit.primaryId]?.maxBullets;
+      const rung = ladder[Math.min(i, ladder.length - 1)];
+      budget[unit.primaryId] = override ?? Math.max(Math.min(2, rung), Math.min(MAX_BULLETS_PER_ROLE, rung + unit.roleIds.length - 1) - formatCost);
     });
   return budget;
+}
+
+/** Comparable month index for a Career Journey date ("2022-02" → 24265); 'Present' sorts last. Null when unparseable. */
+function monthIndex(value: unknown, end: boolean): number | null {
+  if (isPresent(value)) return Number.POSITIVE_INFINITY;
+  const m = typeof value === 'string' ? value.trim().match(/^((?:19|20)\d{2})(?:-(\d{1,2}))?/) : null;
+  if (!m) return null;
+  return Number(m[1]) * 12 + (m[2] ? Number(m[2]) - 1 : end ? 11 : 0);
+}
+
+/** Month-year range spanning every role in a combined entry: earliest start to latest end. */
+export function unitDates(roleIds: string[], careerJourney: any): string | null {
+  const roles = (careerJourney?.roles || []).filter((r: any) => roleIds.includes(r?.id));
+  if (roles.length === 0) return null;
+  if (roles.length === 1) return formatRoleDates(roles[0]);
+  const starts = roles.map((r: any) => ({ key: monthIndex(r.start_date, false), raw: r.start_date })).filter((x: any) => x.key !== null && x.key !== Number.POSITIVE_INFINITY);
+  const ends = roles.map((r: any) => ({ key: monthIndex(r.end_date, true), raw: r.end_date })).filter((x: any) => x.key !== null);
+  if (starts.length === 0) return null;
+  const start = starts.reduce((a: any, b: any) => (b.key < a.key ? b : a));
+  const end = ends.length ? ends.reduce((a: any, b: any) => (b.key > a.key ? b : a)) : null;
+  const from = formatResumeDate(start.raw);
+  const to = end ? formatResumeDate(end.raw) : null;
+  if (!from) return null;
+  return to && to !== from ? `${from} – ${to}` : from;
 }
 
 function achievementRoleIds(careerJourney: any, achievementId: string): string[] {
@@ -256,29 +349,57 @@ function roleLine(role: any): string {
  */
 export function buildResumeConstraintsBlock(options: ResumeBuildOptions, careerJourney: any, purpose: 'strategy' | 'resume', keywords?: KeywordSignal[]): string {
   const budget = computeBulletBudget(options, careerJourney, keywords);
-  const limits = sectionLimits(options.pageTarget);
-  const recent = rolesRecentFirst(careerJourney);
-  const full = recent.filter((r) => r?.id && roleMode(options, r.id) === 'full');
-  const condensed = recent.filter((r) => r?.id && roleMode(options, r.id) === 'condensed');
+  const format = resumeFormat(options);
+  const limits = sectionLimits(options.pageTarget, format);
+  const units = resumeUnits(options, careerJourney, keywords);
+  const rolesById = new Map<string, any>((careerJourney?.roles || []).filter((r: any) => r?.id).map((r: any) => [r.id, r]));
+  const condensed = rolesRecentFirst(careerJourney).filter((r) => r?.id && roleMode(options, r.id) === 'condensed');
+  const unitLine = (unit: ResumeUnit) => {
+    const cap = purpose === 'resume' ? ` — at most ${budget[unit.primaryId]} bullets` : '';
+    if (unit.roleIds.length === 1) return `  - roleId ${unit.primaryId}: ${roleLine(rolesById.get(unit.primaryId))}${cap}`;
+    const members = unit.roleIds.map((id) => `${id} ${roleLine(rolesById.get(id))}`).join('; ');
+    return `  - roleId ${unit.primaryId}, ONE combined entry for ${unit.company} covering roleIds [${unit.roleIds.join(', ')}] (${members})${cap}`;
+  };
 
   const lines = [
     'Resume Constraints (chosen by the candidate for this resume; they override any other length, page-count, bullet-count, or role-selection guidance above):',
     `- Page target: ${options.pageTarget === 1 ? '1 page' : '2 pages'} maximum, US Letter. Stay inside it; cut weaker bullets rather than overflowing.`,
     purpose === 'resume'
-      ? '- Experience: write an entry ONLY for each role below, most recent first, and set each entry\'s roleId to the id shown. Never add any other employer or role.'
-      : '- roleStrategies: one entry per role below and no others, with roleId set to the id shown.',
-    ...full.map((r) => `  - roleId ${r.id}: ${roleLine(r)}${purpose === 'resume' ? ` — at most ${budget[r.id]} bullets` : ''}`),
+      ? '- Experience: write an entry ONLY for each item below, most recent first, and set each entry\'s roleId to the id shown. Never add any other employer or role.'
+      : '- roleStrategies: one entry per item below and no others, with roleId set to the id shown.',
+    ...units.map(unitLine),
   ];
-  if (full.length === 0) lines.push('  - (none — the candidate chose no full roles; leave experience empty)');
+  if (units.length === 0) lines.push('  - (none — the candidate chose no full roles; leave experience empty)');
+  if (units.some((u) => u.roleIds.length > 1)) {
+    lines.push(
+      purpose === 'resume'
+        ? '- A combined entry is ONE experience entry for that employer: roleId is the id shown, roleIds lists every id it covers, and its title is one hybrid title spanning the real titles and scope (e.g. "Head of Solution Consulting | Chief Strategy Officer"). Draw its bullets from all of its roles, strongest first. The app fills in its dates.'
+        : '- A combined entry gets one roleStrategies item (roleId as shown) whose titleReframe is one hybrid title spanning all of its roles.'
+    );
+  }
   if (purpose === 'resume') {
     lines.push(
       '- Bullet limits are ceilings, not targets. Fewer proven bullets beat filler: every bullet should rest on a specific deliverable or achievement in the Career Journey and cite it in evidenceRefs. Never pad a role with generic duties ("managed agile delivery", "coordinated with stakeholders") to reach a limit.',
-      '- Order each role\'s bullets strongest-first for this JD, so trimming from the end loses the least.'
+      '- Order each role\'s bullets strongest-first for this JD, so trimming from the end loses the least.',
+      '- Every number on the resume (percentages, dollar amounts, counts, team sizes, multiples) must appear in the Career Journey or the candidate-confirmed experience. Never compute a new figure from others ("2 weeks to 3 days" stays as written, never "80% faster"), round up, or estimate one.',
+      format.roleNarratives
+        ? '- Give every experience entry a narrative: 1–2 sentences, at most 35 words, on the scope of the role (what the candidate owned, team or reporting line, the mandate) in the JD\'s vocabulary. It frames the bullets; it must not repeat one.'
+        : '- Leave every experience entry\'s narrative empty.',
+      format.boldLeads
+        ? '- Give the 3–5 bullets per entry that best demonstrate the JD\'s top signals a lead: a 2–5 word label in the JD\'s vocabulary ("POC & technical validation", "Post-sale adoption & expansion"), no trailing colon, not repeated in the bullet text. Leave lead empty on the remaining bullets.'
+        : '- Leave every bullet\'s lead empty.'
     );
+    lines.push(
+      format.selectedOutcomes
+        ? '- Fill selectedOutcomes from the Resume Strategy\'s selectedOutcomes (as the candidate reviewed them): same order, same facts and numbers, none added. Each has a lead (a 2–5 word label naming the capability, e.g. "Revenue scaling", no colon) and text (one sentence of at most 20 words stating the result with its real numbers). Don\'t repeat an outcome word for word in a bullet; a bullet may cover the same work with different detail.'
+        : '- Leave selectedOutcomes empty.'
+    );
+  } else if (format.selectedOutcomes) {
+    lines.push('- selectedOutcomes: 4–5 entries, each "Lead label: one sentence", taken from the candidate\'s strongest quantified results for this JD with the real numbers from the Career Journey. They appear on the resume as a Selected Outcomes section before Experience.');
   }
   lines.push(
     `- Summary: at most ${limits.summaryWords} words, written as 3–5 complete sentences in implied first person (no "I", "my" or "me"; no telegraphic fragments or keyword lists). Include the candidate's strongest quantified outcome for this JD with its real numbers exactly as the Career Journey states them.`,
-    `- Skills: at most ${limits.skillRows} category rows. Rows list skills, tools and methods only — never a JD sentence, an audience ("CTOs"), or a slogan — and each term appears once, with no variants or synonyms of a term already listed.`
+    `- Skills: at most ${limits.skillRows} category rows. Rows list skills, tools and methods only — never a JD sentence, an audience ("CTOs"), or a slogan — and each term appears once, with no variants or synonyms of a term already listed. At most 8 terms per row.`
   );
   if (condensed.length > 0) {
     lines.push(
@@ -292,6 +413,11 @@ export function buildResumeConstraintsBlock(options: ResumeBuildOptions, careerJ
 
 function companyKey(value: string | undefined): string {
   return (value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/** companyKey without a trailing legal suffix, so "Nymbl" and "Nymbl, Inc." count as one employer. */
+function employerKey(value: string | undefined): string {
+  return companyKey((value || '').replace(/[\s,]+(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|gmbh|plc|pty|pbc)\.?$/i, ''));
 }
 
 /** Which Career Journey role a generated experience entry came from — its roleId if it's real, otherwise a company (then title) match for resumes generated before roleId existed. */
@@ -333,62 +459,162 @@ export function trimBullets<T extends { evidenceRefs?: EvidenceRef[] } | string>
   return out;
 }
 
+/** "**POC Delivery:** Ran …" / "POC Delivery: Ran …" → { lead, text }. Only a short phrase (≤ 6 words, no comma or period) before the colon counts as a label. */
+export function parseOutcome(raw: string): ResumeOutcome {
+  const clean = (raw || '').replace(/\*\*/g, '').trim();
+  const m = clean.match(/^([^:,.]{2,60}):\s+(.+)$/s);
+  return m && m[1].trim().split(/\s+/).length <= 6 ? { lead: m[1].trim(), text: m[2].trim() } : { lead: '', text: clean };
+}
+
+/** Resume education lines straight from the Career Journey — the fallback when the model returns none. */
+export function educationFromCareerJourney(careerJourney: any): GeneratedResume['education'] {
+  return (careerJourney?.education || []).filter((e: any) => e?.institution).map((e: any) => {
+    const program = String(e.program || '').trim();
+    const type = String(e.degree_type || '').trim();
+    const degree = /coursework/i.test(type)
+      ? `${program} coursework`.trim()
+      : /\b(B\.?[AS]\.?|M\.?[AS]\.?|MBA|Ph\.?D|Bachelor|Master|Associate|Doctor)/i.test(program) || !type
+        ? program
+        : `${type}, ${program}`;
+    const start = firstYear(String(e.start || ''));
+    const end = formatResumeDate(e.end) ?? (e.end ? String(e.end) : '');
+    const completed = !/coursework|not completed/i.test(`${type} ${e.completion_status || ''}`);
+    return { institution: e.institution, degree: degree || type, graduationDate: completed || !start ? end : `${start} – ${firstYear(String(e.end || '')) ?? end}` };
+  });
+}
+
+/** A model-written bullet lead, tidied: no markdown bold, no trailing colon or dash. */
+function cleanLead(lead: unknown): string {
+  return typeof lead === 'string' ? lead.replace(/\*\*/g, '').replace(/[\s:–—-]+$/, '').trim() : '';
+}
+
 /**
  * Hard guarantee applied to the model's output: drops experience entries for
- * any role that isn't 'full' (or duplicates), caps bullets to the budget
- * (uncited bullets go first), orders roles most recent first, and rebuilds
- * earlierExperience from the Career Journey. Dates, name and contact line are
- * rewritten from the Career Journey too, so the model can't leak ISO dates or
- * an unformatted phone number. Entries that can't be matched to any role are
- * kept (better than silently losing real work) but reported.
+ * any role that isn't 'full' (or duplicates), files every entry under its
+ * resume unit (separate entries the model wrote for roles of one combined
+ * employer are merged into one), caps bullets to the budget (uncited bullets
+ * go first), orders entries most recent first, and rebuilds earlierExperience
+ * from the Career Journey. Dates, name and contact line are rewritten from the
+ * Career Journey too, so the model can't leak ISO dates or an unformatted
+ * phone number. Layout fields whose format toggle is off are stripped; with
+ * selectedOutcomes on, the outcomes come from the strategy (as the candidate
+ * edited them on Strategy Review). Entries that can't be matched to any role
+ * are kept (better than silently losing real work) but reported.
  */
 export function enforceResumeConstraints(
   resume: GeneratedResume,
   options: ResumeBuildOptions,
   careerJourney: any,
-  keywords?: KeywordSignal[]
+  keywords?: KeywordSignal[],
+  strategy?: { selectedOutcomes?: string[] }
 ): { resume: GeneratedResume; warnings: string[] } {
   const warnings: string[] = [];
+  const format = resumeFormat(options);
   const budget = computeBulletBudget(options, careerJourney, keywords);
-  const order = new Map<string, number>(rolesRecentFirst(careerJourney).map((r, i) => [r.id, i]));
-  const rolesById = new Map<string, any>((careerJourney?.roles || []).filter((r: any) => r?.id).map((r: any) => [r.id, r]));
-  const seen = new Set<string>();
-  const kept: { entry: GeneratedResume['experience'][number]; rank: number }[] = [];
+  const units = resumeUnits(options, careerJourney, keywords);
+  const unitOf = new Map<string, ResumeUnit>(units.flatMap((u) => u.roleIds.map((id) => [id, u] as [string, ResumeUnit])));
+  const unitRank = new Map<string, number>(units.map((u, i) => [u.primaryId, i]));
+  const seenRoles = new Set<string>();
+  const byUnit = new Map<string, GeneratedResume['experience'][number]>();
+  const unmatched: GeneratedResume['experience'] = [];
 
-  for (const entry of resume?.experience || []) {
+  for (const raw of resume?.experience || []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry = { ...raw, bullets: Array.isArray(raw.bullets) ? raw.bullets : [] };
     const roleId = resolveExperienceRoleId(entry, careerJourney);
     if (!roleId) {
+      // Keep real-looking work the model couldn't match; drop anything that isn't an experience entry at all (e.g. an education item filed here).
+      if (!entry.company || entry.bullets.length === 0) {
+        warnings.push(`Dropped a malformed experience entry${entry.company ? ` for "${entry.company}"` : ''}.`);
+        continue;
+      }
       warnings.push(`"${entry.company}" doesn't match any role in your Career Journey — kept, but check it.`);
-      kept.push({ entry, rank: Number.MAX_SAFE_INTEGER });
+      unmatched.push(entry);
       continue;
     }
-    if (roleMode(options, roleId) !== 'full') {
+    const unit = unitOf.get(roleId);
+    if (!unit) {
       warnings.push(`Removed "${entry.company}" — that role is set to ${roleMode(options, roleId)}.`);
       continue;
     }
-    if (seen.has(roleId)) {
+    if (seenRoles.has(roleId)) {
       warnings.push(`Removed a duplicate entry for "${entry.company}".`);
       continue;
     }
-    seen.add(roleId);
-    const max = budget[roleId] ?? MAX_BULLETS_PER_ROLE;
-    const bullets = entry.bullets || [];
-    if (bullets.length > max) warnings.push(`Trimmed "${entry.company}" from ${bullets.length} to ${max} bullets.`);
-    const dates = formatRoleDates(rolesById.get(roleId)) ?? entry.dates;
-    kept.push({ entry: { ...entry, roleId, dates, bullets: trimBullets(bullets, max) }, rank: order.get(roleId) ?? Number.MAX_SAFE_INTEGER });
+    seenRoles.add(roleId);
+    const existing = byUnit.get(unit.primaryId);
+    if (existing) {
+      warnings.push(`Combined a separate "${entry.title}" entry into the ${unit.company} entry.`);
+      byUnit.set(unit.primaryId, { ...existing, bullets: [...(existing.bullets || []), ...(entry.bullets || [])] });
+      continue;
+    }
+    byUnit.set(unit.primaryId, entry);
   }
 
-  kept.sort((a, b) => a.rank - b.rank);
+  // ats_tactics.md: bold leads only on the bullets that carry the JD's top signals, never all of them.
+  const MAX_LEADS = 5;
+  const experience = [...byUnit.entries()]
+    .sort(([a], [b]) => (unitRank.get(a) ?? 0) - (unitRank.get(b) ?? 0))
+    .map(([primaryId, entry]) => {
+      const unit = unitOf.get(primaryId)!;
+      const max = budget[primaryId] ?? MAX_BULLETS_PER_ROLE;
+      const bullets = (entry.bullets || []).map((raw) => {
+        const b = typeof raw === 'string' ? { text: raw } : raw;
+        const { lead, ...rest } = b;
+        const cleaned = format.boldLeads ? cleanLead(lead) : '';
+        return cleaned ? { ...rest, lead: cleaned } : rest;
+      });
+      if (bullets.length > max) warnings.push(`Trimmed "${entry.company}" from ${bullets.length} to ${max} bullets.`);
+      const kept = trimBullets(bullets, max);
+      let leads = 0;
+      const labelled = kept.map((b, i) => {
+        if (!('lead' in b)) return b;
+        const everyOneLabelled = kept.length > 3 && i === kept.length - 1 && leads === i;
+        if (leads >= MAX_LEADS || everyOneLabelled) {
+          const { lead: _drop, ...plain } = b;
+          return plain;
+        }
+        leads++;
+        return b;
+      });
+      const { narrative, roleIds: _ids, ...rest } = entry;
+      const narrativeText = format.roleNarratives && typeof narrative === 'string' ? narrative.trim() : '';
+      return {
+        ...rest,
+        roleId: primaryId,
+        ...(unit.roleIds.length > 1 ? { roleIds: unit.roleIds } : {}),
+        dates: unitDates(unit.roleIds, careerJourney) ?? entry.dates,
+        ...(narrativeText ? { narrative: narrativeText } : {}),
+        bullets: labelled,
+      };
+    });
+
   const person = careerJourney?.person;
   const contactInfo = person && (person.email || person.phone) ? formatContactLine(person) : resume?.contactInfo;
-  const education = (resume?.education || []).map((ed) => ({ ...ed, graduationDate: formatResumeDate(ed.graduationDate) ?? ed.graduationDate }));
+  const modelEducation = (resume?.education || []).filter((ed) => ed && typeof ed === 'object' && ed.institution);
+  const education = modelEducation.length > 0
+    ? modelEducation.map((ed) => ({ ...ed, graduationDate: formatResumeDate(ed.graduationDate) ?? ed.graduationDate }))
+    : educationFromCareerJourney(careerJourney);
+  const { selectedOutcomes: modelOutcomes, skillsPosition: _pos, ...base } = resume || ({} as GeneratedResume);
+  // With the format on: the writer's structured outcomes (built from the reviewed strategy), else the strategy's own lines parsed.
+  const written = (Array.isArray(modelOutcomes) ? modelOutcomes : [])
+    .filter((o) => o && typeof o.text === 'string' && o.text.trim())
+    .map((o) => ({ lead: cleanLead(o.lead), text: o.text.trim() }));
+  const outcomes = !format.selectedOutcomes
+    ? []
+    : (written.length > 0
+      ? written
+      : (strategy?.selectedOutcomes || []).filter((o) => typeof o === 'string' && o.trim()).map(parseOutcome)
+    ).slice(0, 6);
   return {
     resume: {
-      ...resume,
+      ...base,
       ...(person?.name ? { name: person.name } : {}),
       contactInfo,
       education,
-      experience: kept.map((k) => k.entry),
+      ...(outcomes.length > 0 ? { selectedOutcomes: outcomes } : {}),
+      ...(format.skillsPosition === 'bottom' ? { skillsPosition: 'bottom' as const } : {}),
+      experience: [...experience, ...unmatched],
       earlierExperience: buildEarlierExperience(options, careerJourney),
     },
     warnings,
