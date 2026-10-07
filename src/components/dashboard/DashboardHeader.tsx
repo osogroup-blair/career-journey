@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../ui';
 import { JourneyProgress, JourneyStage } from '../../lib/journeyProgress';
 import { DashboardSummary } from '../../lib/dashboardSummary';
+import { JobStage } from '../../types';
 import { Sparkles, TrendingUp, Radar, Briefcase, PartyPopper, ArrowRight, Target, MessagesSquare, Award } from 'lucide-react';
 
 const STAGE_ICON: Record<JourneyStage, ComponentType<{ className?: string }>> = {
@@ -25,22 +26,45 @@ export default function DashboardHeader({
   targetRole,
   progress,
   tiles,
+  stageFilter,
+  onStageFilterChange,
 }: {
   name?: string;
   targetRole?: string;
   progress: JourneyProgress;
   tiles: DashboardSummary['tiles'];
+  stageFilter: JobStage | null;
+  /** Job tiles filter the pipeline in place rather than leaving the Dashboard. */
+  onStageFilterChange: (stage: JobStage | null) => void;
 }) {
   const navigate = useNavigate();
   const firstName = name?.trim().split(/\s+/)[0];
   const Icon = STAGE_ICON[progress.stage];
 
-  const tileDefs = [
-    { label: 'Active applications', value: tiles.active, to: '/applications', icon: Briefcase },
-    { label: 'Interviewing', value: tiles.interviewing, to: '/applications', icon: MessagesSquare },
-    { label: 'Offers', value: tiles.offers, to: '/applications', icon: Award },
-    { label: 'Matches to review', value: tiles.matchesToReview, to: '/matches', icon: Radar },
+  const jobTiles: { label: string; value: number; stage: JobStage | null; icon: ComponentType<{ className?: string }> }[] = [
+    { label: 'Active applications', value: tiles.active, stage: null, icon: Briefcase },
+    { label: 'Interviewing', value: tiles.interviewing, stage: 'Interview', icon: MessagesSquare },
+    { label: 'Offers', value: tiles.offers, stage: 'Offer', icon: Award },
   ];
+
+  const filterTo = (stage: JobStage | null) => {
+    onStageFilterChange(stage);
+    document.getElementById('pipeline')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  const tileClass = (selected: boolean) =>
+    `group text-left rounded-xl border bg-white p-4 shadow-xs hover:border-brand-300 hover:shadow-sm transition-all ${
+      selected ? 'border-brand-500 ring-1 ring-brand-500/30' : 'border-slate-200'
+    }`;
+  const tileBody = (label: string, value: number, TileIcon: ComponentType<{ className?: string }>) => (
+    <>
+      <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+        <span>{label}</span>
+        <TileIcon className="w-4 h-4 text-slate-400 group-hover:text-brand-500 transition-colors" />
+      </div>
+      <div className="mt-1.5 text-2xl font-extrabold text-slate-900">{value}</div>
+    </>
+  );
 
   return (
     <section className="space-y-5">
@@ -78,19 +102,20 @@ export default function DashboardHeader({
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {tileDefs.map(({ label, value, to, icon: TileIcon }) => (
-          <Link
+        {jobTiles.map(({ label, value, stage, icon }) => (
+          <button
             key={label}
-            to={to}
-            className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-brand-300 hover:shadow-sm transition-all"
+            type="button"
+            onClick={() => filterTo(stage)}
+            aria-pressed={stageFilter === stage}
+            className={tileClass(stageFilter === stage)}
           >
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-              <span>{label}</span>
-              <TileIcon className="w-4 h-4 text-slate-400 group-hover:text-brand-500 transition-colors" />
-            </div>
-            <div className="mt-1.5 text-2xl font-extrabold text-slate-900">{value}</div>
-          </Link>
+            {tileBody(label, value, icon)}
+          </button>
         ))}
+        <Link to="/matches" className={tileClass(false)}>
+          {tileBody('Matches to review', tiles.matchesToReview, Radar)}
+        </Link>
       </div>
     </section>
   );

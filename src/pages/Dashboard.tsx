@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { Button, Card } from '../components/ui';
 import { computeJourneyProgress } from '../lib/journeyProgress';
 import { buildDashboardSummary } from '../lib/dashboardSummary';
+import { JobStage } from '../types';
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import PipelineCard from '../components/dashboard/PipelineCard';
 import MatchesCard from '../components/dashboard/MatchesCard';
@@ -15,11 +16,22 @@ export default function Dashboard() {
   const { careerJourney, jobs, matches, matchPreferences } = useStore();
   const navigate = useNavigate();
 
-  const progress = useMemo(() => computeJourneyProgress(careerJourney, matches, jobs), [careerJourney, matches, jobs]);
+  const [stageFilter, setStageFilter] = useState<JobStage | null>(null);
+
   const summary = useMemo(
     () => buildDashboardSummary(jobs, matches, matchPreferences.minMatchScore, Date.now()),
     [jobs, matches, matchPreferences.minMatchScore]
   );
+  const progress = useMemo(() => {
+    const p = computeJourneyProgress(careerJourney, matches, jobs);
+    // The Job Tracker is reached only from the pipeline card's own link, so "go to applications"
+    // becomes "continue the job at the top of the pipeline" (stalled first, then most recent).
+    const top = summary.activeJobs[0];
+    if (p.ctaPath === '/applications' && top) {
+      return { ...p, ctaLabel: `Continue ${top.job.roleTitle}`, ctaPath: top.path };
+    }
+    return p;
+  }, [careerJourney, matches, jobs, summary]);
 
   const meta: any = careerJourney?.meta || {};
   const person = careerJourney?.person;
@@ -30,7 +42,14 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
-        <DashboardHeader name={person?.name} targetRole={targetRole} progress={progress} tiles={summary.tiles} />
+        <DashboardHeader
+          name={person?.name}
+          targetRole={targetRole}
+          progress={progress}
+          tiles={summary.tiles}
+          stageFilter={stageFilter}
+          onStageFilterChange={setStageFilter}
+        />
 
         {needsJourney ? (
           <div className="grid gap-6 lg:grid-cols-3">
@@ -71,7 +90,7 @@ export default function Dashboard() {
         ) : (
           <div className="grid gap-6 lg:grid-cols-3 items-start">
             <div className="lg:col-span-2">
-              <PipelineCard summary={summary} />
+              <PipelineCard summary={summary} stageFilter={stageFilter} onStageFilterChange={setStageFilter} />
             </div>
             <div className="space-y-6">
               <MatchesCard matches={summary.matchesToReview} />
