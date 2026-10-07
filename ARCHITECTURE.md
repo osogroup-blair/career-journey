@@ -112,7 +112,7 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 
 **Billing** — `POST /api/billing/webhook`, `createCheckoutSession`, `createPortalSession`, `byomSettings`, `validateByomKey`.
 **Support** — `POST/GET /api/support/tickets`, `GET/POST /api/support/tickets/:id/messages`.
-**User & Privacy** — `GET /api/user/export-data` (full GDPR data archive), `DELETE /api/user/account` (self-service account purge).
+**User & Privacy** — `GET /api/user/export-data` (full GDPR data archive), `DELETE /api/user/account` (self-service account purge — see [Data model](#data-model) for what deletion removes).
 **Admin** — `/api/admin/tickets*` (list/get/update/reply/screenshot), `/api/admin/featureFlags` (get/set), `/api/admin/allowedModels` (set), `/api/admin/users` (list + plan override + quota reset + comp toggle), `GET /api/admin/users/:uid/detail`, `POST /api/admin/users/:uid/status` (suspend/reactivate), `POST /api/admin/users/:uid/send-reset`, `DELETE /api/admin/users/:uid`, `GET /api/admin/audit-logs`, `/api/admin/prompts*` (list/save/restore/test-run), `GET /api/admin/ai-calls` (the AI call log below, newest first, `?limit=` up to 1000).
 **AI pipeline** — `parse`, `keywords`, `clarifyQuestions`, `fitScore`, `auditGates`, `liteScan` (also individually gated by `requireAnyPaidPlan`), `patchJourney`, `resumeStrategy`, `generateResume`, `regenerateResumeSection` (rewrites one summary/skills/role section in place), `scoreResume` (Tailored Application stage's on-demand AI review; the live keyword-match score beside it is client-side, `src/lib/resumeScore.ts`), `coverLetter`, `applicationAssistant`, `generateFormAnswers`, `interviewPrep`, `interviewPrepChat`, `offerGuidance`, `compareOffers`, `buildJourneyFromResume`, `buildJourneyChat`, `refineFromInterviewAnswer`, `discoverySearchProfile` (CV text → StillOpen searches; gated to `job_discovery` *before* the quota middleware).
 **Sources** — `fetchCompanyJobs` (Greenhouse/Lever board scrape), `fetchJobFromUrl` (structured board parse with generic-HTML fallback).
@@ -229,6 +229,8 @@ Server/Admin-SDK-only (client read-only or fully denied):
 - `stripeEvents/{eventId}` — fully denied to clients (idempotency ledger).
 - `tickets/{ticketId}` (+ `messages` subcollection) — top-level (not nested under `users/`, so admin can query cross-account), owner-read-own-only, write:false.
 - `users/{uid}/discovery/profile`, `users/{uid}/discoveredJobs/{stillopenId}`, `discoverySchedules/{uid}` — Job Discovery; fully denied to clients, read/written only through `/api/discovery`. `discoverySchedules` is top-level so the scheduler's `nextRunAt <= now` query needs no collection-group index. All three are included in the GDPR export and removed by both account-delete paths.
+
+**Account deletion** — both `DELETE /api/user/account` (self-service: data, then Auth user) and `DELETE /api/admin/users/:uid` (Auth user, then data, then `delete_user` audit log) go through `purgeUserData` in `server/userData.ts`, which runs `recursiveDelete` on `users/{uid}`. Firestore never cascades a doc delete to its subcollections, so this is what removes everything above plus `meta/billing` and `aiUsageLogs` — and any per-user subcollection added later, with no code change. Top-level per-user records (`tickets/`, `aiCallLogs/`) are left in place.
 
 `firestore.indexes.json` is currently empty by design — the codebase avoids queries that would need a composite index (see the support-ticket in-memory-sort note above).
 

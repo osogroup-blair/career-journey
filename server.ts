@@ -66,6 +66,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import type { AllowedModelsConfig } from "./src/types/aiModels";
 import { sendEmail, isEmailConfigured } from "./server/email";
 import { logAdminAction, listAuditLogs } from "./server/auditLog";
+import { adminDeleteUser, deleteOwnAccount } from "./server/userData";
 import { configureAiCallLog, instrumentLegacyClient, listAiCalls } from "./server/aiCallLog";
 import { createDiscoveryRouter } from "./server/discovery/routes";
 import { startDiscoveryScheduler } from "./server/discovery/scheduler";
@@ -874,25 +875,7 @@ async function startServer() {
       return;
     }
     try {
-      const db = getFirestore(adminApp);
-
-      // Clean up jobs & matches subcollections
-      const [jobsSnap, matchesSnap] = await Promise.all([
-        db.collection("users").doc(uid).collection("jobs").get().catch(() => ({ docs: [] as any[] })),
-        db.collection("users").doc(uid).collection("matches").get().catch(() => ({ docs: [] as any[] })),
-      ]);
-
-      const batch = db.batch();
-      jobsSnap.docs.forEach((d) => batch.delete(d.ref));
-      matchesSnap.docs.forEach((d) => batch.delete(d.ref));
-      batch.delete(db.collection("users").doc(uid).collection("meta").doc("billing"));
-      batch.delete(db.collection("users").doc(uid));
-      await batch.commit();
-      await deleteAllDiscoveryData(adminApp, uid);
-
-      // Delete user from Firebase Auth
-      await getAuth(adminApp).deleteUser(uid);
-
+      await deleteOwnAccount(adminApp, uid);
       res.json({ ok: true });
     } catch (e: any) {
       console.error("delete user account failed", e);
@@ -985,23 +968,7 @@ async function startServer() {
     }
     try {
       const actorUid = (req as any).uid || "admin";
-      const uid = req.params.uid;
-      // Delete user from Firebase Auth
-      await getAuth(adminApp).deleteUser(uid);
-
-      // Clean up user documents in Firestore
-      const db = getFirestore(adminApp);
-      await db.collection("users").doc(uid).delete();
-      await db.collection("users").doc(uid).collection("meta").doc("billing").delete();
-      await deleteAllDiscoveryData(adminApp, uid);
-
-      await logAdminAction(adminApp, {
-        actorUid,
-        targetUid: uid,
-        action: "delete_user",
-        details: { deletedAt: new Date().toISOString() },
-      });
-
+      await adminDeleteUser(adminApp, actorUid, req.params.uid);
       res.json({ ok: true });
     } catch (e: any) {
       console.error("delete user failed", e);
