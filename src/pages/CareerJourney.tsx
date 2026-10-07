@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Input, Label, Textarea, Badge, useToast } from '../components/ui';
+import { RoleResumeDetails } from '../components/journey/RoleResumeDetails';
 import { normalizeCareerJourney, validateCareerJourney } from '../lib/careerJourneyNormalize';
 import { parseCareerJourneyImport } from '../lib/careerJourneyImport';
 import { buildCareerJourneyTemplate } from '../lib/careerJourneyTemplate';
@@ -964,11 +965,13 @@ export default function CareerJourney() {
                       }} />
                     </div>
 
-                    <RoleResumeDetails role={r} onChange={(updates) => {
-                      const next = [...roles];
-                      next[rIdx] = { ...next[rIdx], ...updates };
-                      updateRootJourney('roles', next);
-                    }} />
+                    <div className="mb-4">
+                      <RoleResumeDetails role={r} onChange={(updates) => {
+                        const next = [...roles];
+                        next[rIdx] = { ...next[rIdx], ...updates };
+                        updateRootJourney('roles', next);
+                      }} />
+                    </div>
 
                     <div className="mb-6">
                       <Label>Role Accountabilities Scope</Label>
@@ -2339,85 +2342,6 @@ const EditableCell = ({ label, value, onChange }: { label: string; value: string
     <Input value={value} onChange={e => onChange(e.target.value)} className="h-8 text-xs" />
   </div>
 );
-
-// Resume-facing fields plus the three free-form structured note fields
-// (team_leadership / advisory_ps_scope / organization_scale) real role data carries.
-// Shown collapsed by default since most roles don't need every field.
-const RoleResumeDetails = ({ role, onChange }: { role: any; onChange: (updates: any) => void }) => {
-  const [open, setOpen] = React.useState(false);
-  const teamLeadership = typeof role.team_leadership === 'object' && role.team_leadership ? role.team_leadership : {};
-  const advisoryScope = typeof role.advisory_ps_scope === 'object' && role.advisory_ps_scope ? role.advisory_ps_scope : {};
-  const orgScale = typeof role.organization_scale === 'object' && role.organization_scale ? role.organization_scale : {};
-
-  return (
-    <div className="mb-4 border border-slate-200 rounded-lg overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 text-xs font-bold text-slate-600 hover:bg-slate-100"
-      >
-        <span className="flex items-center gap-1.5">{open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />} Resume & Positioning Details</span>
-      </button>
-      {open && (
-        <div className="p-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <EditableCell label="Company Descriptor" value={role.company_descriptor || ''} onChange={v => onChange({ company_descriptor: v })} />
-            <EditableCell label="Resume Company Descriptor" value={role.resume_company_descriptor || ''} onChange={v => onChange({ resume_company_descriptor: v })} />
-            <EditableCell label="Resume Company URL" value={role.resume_company_url || ''} onChange={v => onChange({ resume_company_url: v })} />
-            <div>
-              <Label className="text-[10px]">Default on Tailored Resumes</Label>
-              <select
-                value={role.resume_default || ''}
-                onChange={e => onChange({ resume_default: e.target.value || undefined })}
-                className="w-full text-xs border border-slate-200 rounded-md px-2 h-8 bg-white"
-              >
-                <option value="">Automatic (by age)</option>
-                <option value="full">Full, with bullets</option>
-                <option value="condensed">One line under Earlier Experience</option>
-                <option value="excluded">Leave off</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <Label>Positioning Note</Label>
-            <Textarea value={role.positioning_note || ''} onChange={e => onChange({ positioning_note: e.target.value })} className="text-xs min-h-[50px] p-2" />
-          </div>
-
-          <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-            <div>
-              <Label className="text-[10px]">Team Leadership</Label>
-              <div className="space-y-1.5">
-                <Input value={teamLeadership.team_name || ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, team_name: e.target.value } })} placeholder="Team name" className="h-7 text-[11px]" />
-                <div className="flex gap-1.5">
-                  <Input value={teamLeadership.starting_size ?? ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, starting_size: e.target.value } })} placeholder="Start size" className="h-7 text-[11px]" />
-                  <Input value={teamLeadership.peak_size ?? ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, peak_size: e.target.value } })} placeholder="Peak size" className="h-7 text-[11px]" />
-                </div>
-                <Textarea value={teamLeadership.growth_narrative || ''} onChange={e => onChange({ team_leadership: { ...teamLeadership, growth_narrative: e.target.value } })} placeholder="Growth narrative" className="text-[11px] min-h-[40px] p-1.5" />
-              </div>
-            </div>
-            <div>
-              <Label className="text-[10px]">Advisory / PS Scope</Label>
-              <div className="space-y-1.5">
-                <Input value={advisoryScope.title_external || ''} onChange={e => onChange({ advisory_ps_scope: { ...advisoryScope, title_external: e.target.value } })} placeholder="External title" className="h-7 text-[11px]" />
-                <Textarea value={advisoryScope.clarification || ''} onChange={e => onChange({ advisory_ps_scope: { ...advisoryScope, clarification: e.target.value } })} placeholder="Clarification" className="text-[11px] min-h-[40px] p-1.5" />
-              </div>
-            </div>
-            <div>
-              <Label className="text-[10px]">Organization Scale</Label>
-              <div className="space-y-1.5">
-                <div className="flex gap-1.5">
-                  <Input value={orgScale.approx_total_people ?? ''} onChange={e => onChange({ organization_scale: { ...orgScale, approx_total_people: e.target.value } })} placeholder="Total people" className="h-7 text-[11px]" />
-                  <Input value={orgScale.approx_fte ?? ''} onChange={e => onChange({ organization_scale: { ...orgScale, approx_fte: e.target.value } })} placeholder="FTEs" className="h-7 text-[11px]" />
-                </div>
-                <Textarea value={orgScale.context || ''} onChange={e => onChange({ organization_scale: { ...orgScale, context: e.target.value } })} placeholder="Context" className="text-[11px] min-h-[40px] p-1.5" />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // Deliverables nested under a single initiative — real schema shape (impact,
 // capability_alignment, skill_ids), replacing the plain-text deliverable list.

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { cn } from "../lib/utils"
-import { CheckCircle2, AlertCircle, Info, X, Loader2 } from "lucide-react"
+import { CheckCircle2, AlertCircle, Info, X, Loader2, Search, ChevronLeft, ChevronRight } from "lucide-react"
 
 // A consolidated file of basic shadcn-like UI components to reduce file clutter
 
@@ -95,6 +95,95 @@ export const Label = React.forwardRef<HTMLLabelElement, React.LabelHTMLAttribute
   )
 )
 Label.displayName = "Label"
+
+/** Text input with a leading search icon and a clear button. */
+export const SearchInput = React.forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> & { value: string; onValueChange: (value: string) => void }
+>(({ value, onValueChange, className, ...props }, ref) => (
+  <div className={cn("relative", className)}>
+    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <Input
+      ref={ref}
+      type="text"
+      value={value}
+      onChange={(e) => onValueChange(e.target.value)}
+      className="pl-9 pr-8 h-9 text-sm bg-white"
+      {...props}
+    />
+    {value && (
+      <button
+        type="button"
+        onClick={() => onValueChange('')}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+        title="Clear search"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    )}
+  </div>
+))
+SearchInput.displayName = "SearchInput"
+
+/** "Showing 21-40 of 175" + Prev / Page X of Y / Next, with an optional page-size select. */
+export function Pagination({
+  page,
+  totalPages,
+  start,
+  end,
+  total,
+  noun = 'items',
+  onPageChange,
+  pageSize,
+  pageSizeOptions,
+  onPageSizeChange,
+  className,
+}: {
+  page: number;
+  totalPages: number;
+  start: number;
+  end: number;
+  total: number;
+  noun?: string;
+  onPageChange: (page: number) => void;
+  pageSize?: number;
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (size: number) => void;
+  className?: string;
+}) {
+  if (total === 0) return null;
+  return (
+    <div className={cn("flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500", className)}>
+      <div>
+        Showing <span className="font-semibold text-slate-700">{start}</span>–<span className="font-semibold text-slate-700">{end}</span> of{' '}
+        <span className="font-semibold text-slate-700">{total}</span> {noun}
+      </div>
+      <div className="flex items-center gap-1.5">
+        {pageSize && pageSizeOptions && onPageSizeChange && (
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-600 mr-2"
+            aria-label="Items per page"
+          >
+            {pageSizeOptions.map((n) => (
+              <option key={n} value={n}>{n} / page</option>
+            ))}
+          </select>
+        )}
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="h-7 px-2 text-xs">
+          <ChevronLeft className="w-3.5 h-3.5 mr-0.5" /> Prev
+        </Button>
+        <span className="px-2 py-1 font-medium text-slate-700 whitespace-nowrap">
+          Page {page} of {totalPages}
+        </span>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} className="h-7 px-2 text-xs">
+          Next <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 export const Badge = ({ className, variant = 'default', ...props }: React.HTMLAttributes<HTMLDivElement> & { variant?: 'default' | 'success' | 'warning' | 'destructive' | 'outline' }) => {
   return (
