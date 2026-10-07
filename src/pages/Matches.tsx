@@ -1,24 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Textarea, Input, Label, useToast } from '../components/ui';
+import { Button, Card, Textarea, SearchInput, Pagination, useToast } from '../components/ui';
 import { fetchCompanyJobs } from '../lib/aiClient';
 import { buildArchiveLearningsSummary } from '../lib/archiveLearnings';
 import { runQueue as runQueueWith, runMatchScan, scanPostingIntoMatch, type MatchScanDeps, type PostingMeta } from '../lib/matchScan';
-import { StillOpenAttribution } from '../components/StillOpenAttribution';
-import { TagInput } from '../components/TagInput';
-import { SOURCE_LABEL, VERDICT_BADGE, GATE_BADGE } from '../components/MatchSummary';
-import { JobMatch, MatchStatus, MatchSource } from '../types';
 import {
-  Radar, Loader2, Sparkles, Trash2, ArrowUpRight, XCircle, AlertTriangle, Inbox,
-  SlidersHorizontal, Filter, RotateCcw, RefreshCw, ExternalLink, Building2
-} from 'lucide-react';
+  buildMatchList, VIEW_LABEL, SORT_LABEL, VERDICT_LABEL,
+  type MatchView, type MatchSort, type VerdictFilter, type MatchListResult
+} from '../lib/matchList';
+import { paginate } from '../lib/pagination';
+import { StillOpenAttribution } from '../components/StillOpenAttribution';
+import MatchRow, { type MatchRowActions } from '../components/matches/MatchRow';
+import MatchPreferencesPanel from '../components/matches/MatchPreferencesPanel';
+import { JobMatch, MatchSource } from '../types';
+import { Radar, Loader2, Sparkles, Inbox, SlidersHorizontal, Filter, RefreshCw, Plus, X, AlertTriangle } from 'lucide-react';
 
 // A single company can have 100+ open reqs; cap what one Refresh will scan so it can't
 // silently trigger hours of AI calls. Re-running Refresh picks up the rest next time.
 const MAX_POSTINGS_PER_REFRESH = 15;
 
-const STATUS_FILTERS: (MatchStatus | 'All')[] = ['All', 'New', 'Promoted', 'Dismissed'];
+const PAGE_SIZE = 25;
+const VIEWS: MatchView[] = ['review', 'promoted', 'dismissed', 'all'];
+const VERDICT_FILTERS: VerdictFilter[] = ['any', 'PASS', 'BORDERLINE', 'SKIP'];
 
 // Postings are separated by a line containing only ---; blocks under 40 chars are dropped as noise.
 function splitPostings(raw: string): string[] {
@@ -31,9 +35,7 @@ function splitPostings(raw: string): string[] {
 export default function Matches() {
   const {
     matches, addMatch, updateMatch, deleteMatch, promoteMatch,
-    matchPreferences, updateMatchPreferences,
-    careerJourney, updateCareerJourneyPerson,
-    jobs, billing, isAdmin,
+    matchPreferences, careerJourney, jobs, billing, isAdmin,
   } = useStore();
   const navigate = useNavigate();
   const toast = useToast();
@@ -41,22 +43,35 @@ export default function Matches() {
   const [bulkText, setBulkText] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [statusFilter, setStatusFilter] = useState<MatchStatus | 'All'>('All');
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
 
-  const positioning = careerJourney?.person?.positioning || {};
-  const targetRoleFamilies: string[] = positioning.target_role_families || [];
-
-  const updatePositioning = (updates: Record<string, any>) => {
-    updateCareerJourneyPerson({ positioning: { ...positioning, ...updates } });
-  };
-
-  const updateWorkPreference = (value: string) => {
-    updateCareerJourneyPerson({ work_preference: value });
-  };
+  const [view, setView] = useState<MatchView>('review');
+  const [verdict, setVerdict] = useState<VerdictFilter>('any');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<MatchSort>('score');
+  const [showBelowFloor, setShowBelowFloor] = useState(false);
+  const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const [isRefreshingCompanies, setIsRefreshingCompanies] = useState(false);
   const [refreshWarnings, setRefreshWarnings] = useState<string[]>([]);
+
+  useEffect(() => setPage(1), [view, verdict, query, sort, showBelowFloor]);
+
+  const learningsCount: number = useMemo(() => {
+    const learnings = buildArchiveLearningsSummary(jobs);
+    return learnings ? learnings.split('\n').length : 0;
+  }, [jobs]);
+
+  const list: MatchListResult = useMemo(
+    () => buildMatchList(matches, { view, verdict, query, sort, minScore: matchPreferences.minMatchScore, showBelowFloor }),
+    [matches, view, verdict, query, sort, matchPreferences.minMatchScore, showBelowFloor]
+  );
+  const paged = paginate(list.visible, page, PAGE_SIZE);
+  const totalMatches = Object.keys(matches || {}).length;
+  const addPanelOpen = showAdd || totalMatches === 0;
+  const filtersActive = verdict !== 'any' || query.trim() !== '';
 
   const scanDeps = (): MatchScanDeps => ({
     addMatch,
@@ -78,6 +93,14 @@ export default function Matches() {
     setProgress(null);
   };
 
+  // New scans land in "To review"; make sure that's what's on screen while they come in.
+  const showIncoming = () => {
+    setView('review');
+    setVerdict('any');
+    setQuery('');
+    setSort('score');
+  };
+
   const handleScanAll = async () => {
     const postings = splitPostings(bulkText);
     if (postings.length === 0) {
@@ -85,9 +108,11 @@ export default function Matches() {
       return;
     }
     setIsScanning(true);
+    setShowAdd(false);
+    showIncoming();
+    setBulkText('');
     await runQueue(postings, (jdText) => scanOne(jdText));
     setIsScanning(false);
-    setBulkText('');
   };
 
   const handleRefreshCompanies = async () => {
@@ -131,7 +156,7 @@ export default function Matches() {
 
     if (newPostings.length === 0) {
       setIsRefreshingCompanies(false);
-      toast.info(warnings.length > 0 ? 'No new postings found, and some companies failed to look up — see the warning below Refresh.' : 'No new postings found — everything from your tracked companies is already in the list.');
+      toast.info(warnings.length > 0 ? 'No new postings found, and some companies failed to look up — see the warning above the list.' : 'No new postings found — everything from your tracked companies is already in the list.');
       return;
     }
 
@@ -144,47 +169,42 @@ export default function Matches() {
     const proceed = confirm(message);
     if (proceed) {
       setIsScanning(true);
+      showIncoming();
       await runQueue(batch, (p) => scanOne(p.jdText, { source: p.source, sourceUrl: p.sourceUrl, externalId: p.externalId, company: p.company, title: p.title }));
       setIsScanning(false);
     }
     setIsRefreshingCompanies(false);
   };
 
-  const handleRetry = (m: JobMatch) => {
-    const known = m.source !== 'manual-paste' ? { company: m.companyName, title: m.roleTitle } : undefined;
-    updateMatch(m.id, { companyName: known?.company || 'Scanning…', roleTitle: known?.title || 'Scanning…', scanError: undefined });
-    runScan(m.id, m.jdText, known);
+  const rowActions: MatchRowActions = {
+    onPromote: (m) => {
+      const jobId = promoteMatch(m.id);
+      if (jobId) navigate(`/job/${jobId}/parsed`);
+    },
+    onViewAnalysis: (m) => navigate(`/job/${m.promotedJobId}/parsed`),
+    onDismiss: (m) => updateMatch(m.id, { status: 'Dismissed' }),
+    onRestore: (m) => updateMatch(m.id, { status: 'New' }),
+    onRetry: (m: JobMatch) => {
+      const known = m.source !== 'manual-paste' ? { company: m.companyName, title: m.roleTitle } : undefined;
+      updateMatch(m.id, { companyName: known?.company || 'Scanning…', roleTitle: known?.title || 'Scanning…', scanError: undefined });
+      runScan(m.id, m.jdText, known);
+    },
+    onScanAnyway: (m: JobMatch) => {
+      const known = m.source !== 'manual-paste' ? { company: m.companyName, title: m.roleTitle } : undefined;
+      updateMatch(m.id, { status: 'New', dismissReason: undefined, companyName: known?.company || 'Scanning…', roleTitle: known?.title || 'Scanning…' });
+      runScan(m.id, m.jdText, known);
+    },
+    onRemove: (m) => {
+      if (confirm(`Remove "${m.roleTitle}" at ${m.companyName}? This deletes the match and its scan.`)) deleteMatch(m.id);
+    },
   };
 
-  const handleScanAnyway = (m: JobMatch) => {
-    const known = m.source !== 'manual-paste' ? { company: m.companyName, title: m.roleTitle } : undefined;
-    updateMatch(m.id, { status: 'New', dismissReason: undefined, companyName: known?.company || 'Scanning…', roleTitle: known?.title || 'Scanning…' });
-    runScan(m.id, m.jdText, known);
-  };
-
-  const handlePromote = (matchId: string) => {
-    const jobId = promoteMatch(matchId);
-    if (jobId) navigate(`/job/${jobId}/parsed`);
-  };
-
-  const matchList = Object.values(matches || {}).sort((a, b) => {
-    if (a.matchScore == null && b.matchScore == null) return 0;
-    if (a.matchScore == null) return 1;
-    if (b.matchScore == null) return -1;
-    return b.matchScore - a.matchScore;
-  });
-
-  const statusFiltered = statusFilter === 'All' ? matchList : matchList.filter((m) => m.status === statusFilter);
-
-  const visibleMatches = statusFiltered.filter(
-    (m) => m.status === 'Promoted' || m.matchScore == null || m.matchScore >= matchPreferences.minMatchScore
-  );
-  const hiddenByScoreFloor = statusFiltered.length - visibleMatches.length;
-
-  const statusCounts = matchList.reduce<Record<string, number>>((acc, m) => {
-    acc[m.status] = (acc[m.status] || 0) + 1;
-    return acc;
-  }, {});
+  const toggleExpanded = (id: string) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   // Hard gate: Job Analysis (Matches) requires a paid plan — billing is null
   // in local-only mode (no Firebase, no billing concept), which stays fully
@@ -205,328 +225,218 @@ export default function Matches() {
     );
   }
 
+  const trackedCount = matchPreferences.trackedCompanies.length;
+
   return (
-    <div className="min-h-screen bg-slate-900/5 font-sans text-slate-900 pb-20">
-      <section className="bg-gradient-to-br from-brand-950 via-slate-900 to-slate-950 text-white pt-10 pb-16 px-4 sm:px-6 lg:px-8 border-b border-brand-950">
-        <div className="mx-auto max-w-7xl flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Radar className="w-5 h-5 text-brand-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-brand-300">Discovery</span>
-            </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">Job Matches</h1>
-            <p className="mt-2 text-sm sm:text-base text-slate-300 max-w-2xl">
-              Paste in postings you've found and get a fast fit score against your Career Journey before committing to the full tailoring pipeline.
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pt-8 space-y-5">
+
+        {/* Header */}
+        <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-2.5">
+              <Radar className="w-6 h-6 text-brand-600" />
+              Job Matches
+            </h1>
+            <p className="mt-1 text-sm text-slate-500 max-w-2xl">
+              Postings scored against your Career Journey. Add the good ones to your pipeline; dismiss the rest.
             </p>
-            {(() => {
-              const learnings = buildArchiveLearningsSummary(jobs);
-              const count = learnings ? learnings.split('\n').length : 0;
-              return count > 0 ? (
-                <p className="mt-1.5 text-xs text-brand-300 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Scoring is informed by {count} past application outcome{count === 1 ? '' : 's'}
-                </p>
-              ) : null;
-            })()}
+            {learningsCount > 0 && (
+              <p className="mt-1 text-xs text-brand-600 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Scoring is informed by {learningsCount} past application outcome{learningsCount === 1 ? '' : 's'}
+              </p>
+            )}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowPreferences((v) => !v)}
-            className="bg-white/10 border-white/20 text-white hover:bg-white/20 shrink-0"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" />
-            Match Preferences
-          </Button>
-        </div>
-      </section>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={() => setShowPreferences((v) => !v)} className="bg-white">
+              <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" />
+              Preferences
+            </Button>
+            {trackedCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshCompanies}
+                disabled={isRefreshingCompanies || isScanning}
+                className="bg-white"
+                title={`Pull new postings from ${matchPreferences.trackedCompanies.join(', ')}`}
+              >
+                {isRefreshingCompanies ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                {isRefreshingCompanies ? 'Checking…' : `Check ${trackedCount} compan${trackedCount === 1 ? 'y' : 'ies'}`}
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setShowAdd((v) => !v)} disabled={isScanning}>
+              <Plus className="w-3.5 h-3.5 mr-1.5" />
+              Add postings
+            </Button>
+          </div>
+        </section>
 
-      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 -mt-8 relative z-20 space-y-6">
+        {showPreferences && <MatchPreferencesPanel onClose={() => setShowPreferences(false)} />}
 
-        {showPreferences && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-brand-600" />
-                Match Preferences
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-6 sm:grid-cols-2">
-              <div>
-                <Label>Target Role Families</Label>
-                <p className="text-xs text-slate-500 mb-2 -mt-1">Feeds every match scan — stored on your Career Journey.</p>
-                <TagInput
-                  tags={targetRoleFamilies}
-                  onChange={(tags) => updatePositioning({ target_role_families: tags })}
-                  placeholder="Add a role family, press Enter"
-                />
-              </div>
-              <div>
-                <Label htmlFor="workPreference">Work Preference</Label>
-                <p className="text-xs text-slate-500 mb-2 -mt-1">Location, remote, and travel constraints.</p>
-                <Input
-                  id="workPreference"
-                  defaultValue={careerJourney?.person?.work_preference || ''}
-                  onBlur={(e) => updateWorkPreference(e.target.value)}
-                  placeholder="e.g. Remote-first, willing to travel 10-20%"
-                  className="text-sm"
-                />
-              </div>
-              <div>
-                <Label>Excluded Keywords</Label>
-                <p className="text-xs text-slate-500 mb-2 -mt-1">A posting containing any of these skips the AI scan entirely and is auto-dismissed.</p>
-                <TagInput
-                  tags={matchPreferences.excludedKeywords}
-                  onChange={(tags) => updateMatchPreferences({ excludedKeywords: tags })}
-                  placeholder="e.g. Top Secret clearance, press Enter"
-                />
-              </div>
-              <div>
-                <Label htmlFor="minScore">Minimum Match Score to Show</Label>
-                <p className="text-xs text-slate-500 mb-2 -mt-1">Hides lower-scoring postings from the list below (0 = show everything).</p>
-                <Input
-                  id="minScore"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={matchPreferences.minMatchScore}
-                  onChange={(e) => updateMatchPreferences({ minMatchScore: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-                  className="text-sm w-28"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Label>Tracked Companies</Label>
-                <p className="text-xs text-slate-500 mb-2 -mt-1">
-                  Board tokens from Greenhouse or Lever career pages — e.g. "airbnb" from boards.greenhouse.io/airbnb, or the slug from jobs.lever.co/&lt;token&gt;. Refresh Matches pulls their open postings automatically.
-                </p>
-                <TagInput
-                  tags={matchPreferences.trackedCompanies}
-                  onChange={(tags) => updateMatchPreferences({ trackedCompanies: tags })}
-                  placeholder="e.g. airbnb, press Enter"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-brand-600" />
-              Scan New Postings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {addPanelOpen && (
+          <Card className="p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold text-slate-900">Add postings to score</h2>
+              {totalMatches > 0 && (
+                <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-700" aria-label="Close">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
             <Textarea
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
               placeholder={'Paste one or more full job descriptions.\nSeparate multiple postings with a line containing only ---'}
-              className="min-h-[180px] font-mono text-xs"
+              className="min-h-[160px] font-mono text-xs"
               disabled={isScanning}
+              autoFocus={showAdd}
             />
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <p className="text-xs text-slate-500">
-                {isScanning && progress
-                  ? `Scanning ${progress.done} of ${progress.total}…`
-                  : 'Each posting gets one fast fit score, verdict, and top gaps — no keyword deep-dive yet.'}
-              </p>
+              <p className="text-xs text-slate-500">Each posting gets a fit score, verdict, strengths to lead with, and top gaps.</p>
               <Button
                 onClick={handleScanAll}
                 disabled={isScanning || bulkText.trim().length === 0}
                 className="min-w-[160px] flex items-center justify-center gap-2 shrink-0"
               >
                 {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radar className="w-4 h-4" />}
-                {isScanning ? 'Scanning…' : 'Scan Postings'}
+                {isScanning ? 'Scanning…' : 'Scan postings'}
               </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        {matchPreferences.trackedCompanies.length > 0 && (
-          <Card>
-            <CardContent className="pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start gap-2 text-xs text-slate-500">
-                <Building2 className="w-4 h-4 shrink-0 mt-0.5 text-slate-400" />
-                <span>
-                  Tracking {matchPreferences.trackedCompanies.length} compan{matchPreferences.trackedCompanies.length === 1 ? 'y' : 'ies'} for new postings.
-                  {refreshWarnings.length > 0 && (
-                    <span className="block text-amber-600 mt-1">Couldn't look up: {refreshWarnings.join('; ')}</span>
-                  )}
-                </span>
-              </div>
-              <Button
-                variant="outline"
-                onClick={handleRefreshCompanies}
-                disabled={isRefreshingCompanies || isScanning}
-                className="min-w-[160px] flex items-center justify-center gap-2 shrink-0 bg-white"
-              >
-                {isRefreshingCompanies ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                {isRefreshingCompanies ? 'Checking…' : 'Refresh Matches'}
-              </Button>
-            </CardContent>
           </Card>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {STATUS_FILTERS.map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                  statusFilter === s ? 'bg-brand-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {s} ({s === 'All' ? matchList.length : statusCounts[s] || 0})
-              </button>
-            ))}
-          </div>
-          {hiddenByScoreFloor > 0 && (
-            <button
-              onClick={() => setShowPreferences(true)}
-              className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1"
-            >
-              <Filter className="w-3.5 h-3.5" />
-              {hiddenByScoreFloor} hidden below minimum match score — adjust in Preferences
-            </button>
-          )}
-        </div>
-
-        {visibleMatches.length === 0 ? (
-          <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-xl bg-white">
-            <Inbox className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <h4 className="text-base font-bold text-slate-800">No matches here yet</h4>
-            <p className="text-xs text-slate-500 mt-1">Paste job postings above to get started.</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {visibleMatches.map((m) => (
-              <Card key={m.id} className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <div className="flex justify-between items-start gap-2">
-                    <div className="min-w-0">
-                      <CardTitle className="text-base truncate">{m.roleTitle}</CardTitle>
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="text-xs font-semibold text-slate-500 truncate">{m.companyName}</p>
-                        {m.source !== 'manual-paste' && (
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 shrink-0">· {SOURCE_LABEL[m.source]}</span>
-                        )}
-                        {m.sourceUrl && (
-                          <a href={m.sourceUrl} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-brand-600 shrink-0">
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
-                        {m.applyUrl && (
-                          <a href={m.applyUrl} target="_blank" rel="noreferrer" className="text-[10px] font-bold uppercase tracking-wide text-brand-600 hover:text-brand-800 shrink-0">
-                            Apply
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                    {m.matchScore != null && (
-                      <div className="text-right shrink-0">
-                        <div className="text-xl font-extrabold text-brand-700">{m.matchScore}</div>
-                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">Match</div>
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 space-y-3">
-                  {m.dismissReason ? (
-                    <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                      <Filter className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>{m.dismissReason}</span>
-                    </div>
-                  ) : m.scanError ? (
-                    <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-2.5">
-                      <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>{m.scanError}</span>
-                    </div>
-                  ) : m.verdict ? (
-                    <>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant={VERDICT_BADGE[m.verdict] || 'default'}>{m.verdict}</Badge>
-                        {m.hardGateRisk && <Badge variant={GATE_BADGE[m.hardGateRisk] || 'default'}>{m.hardGateRisk}</Badge>}
-                      </div>
-                      {m.topGaps && m.topGaps.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Top Gaps</p>
-                          <ul className="space-y-1">
-                            {m.topGaps.slice(0, 3).map((g, i) => (
-                              <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5">
-                                <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" />
-                                <span>{g}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Scanning…
-                    </div>
-                  )}
-                </CardContent>
-                <div className="p-3.5 bg-slate-50 border-t border-slate-100 mt-auto flex justify-between items-center gap-2 rounded-b-xl">
-                  <button
-                    onClick={() => deleteMatch(m.id)}
-                    className="text-xs font-bold text-slate-400 hover:text-red-600 flex items-center gap-1 uppercase tracking-wider"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Remove
-                  </button>
-                  <div className="flex gap-3">
-                    {m.scanError && (
-                      <button
-                        onClick={() => handleRetry(m)}
-                        className="text-xs font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1 uppercase tracking-wider"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> Retry
-                      </button>
-                    )}
-                    {m.dismissReason && (
-                      <button
-                        onClick={() => handleScanAnyway(m)}
-                        className="text-xs font-bold text-slate-500 hover:text-slate-800 uppercase tracking-wider"
-                      >
-                        Scan Anyway
-                      </button>
-                    )}
-                    {m.status === 'New' && !m.scanError && (
-                      <button
-                        onClick={() => updateMatch(m.id, { status: 'Dismissed' })}
-                        className="text-xs font-bold text-slate-500 hover:text-slate-800 uppercase tracking-wider"
-                      >
-                        Dismiss
-                      </button>
-                    )}
-                    {m.status === 'Promoted' ? (
-                      <button
-                        onClick={() => navigate(`/job/${m.promotedJobId}/parsed`)}
-                        className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 uppercase tracking-wider"
-                      >
-                        View Analysis <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    ) : m.parse ? (
-                      <button
-                        onClick={() => handlePromote(m.id)}
-                        className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 uppercase tracking-wider"
-                      >
-                        Promote <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </Card>
-            ))}
+        {progress && (
+          <div className="rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3">
+            <div className="flex items-center justify-between text-xs font-semibold text-brand-800">
+              <span className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Scanning postings…</span>
+              <span>{progress.done} of {progress.total}</span>
+            </div>
+            <div className="mt-2 h-1.5 rounded-full bg-brand-100 overflow-hidden">
+              <div className="h-full bg-brand-600 transition-all" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
+            </div>
           </div>
         )}
-        {visibleMatches.some((m) => m.source === 'stillopen') && (
+
+        {refreshWarnings.length > 0 && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+            <span>Couldn't look up: {refreshWarnings.join('; ')}</span>
+          </div>
+        )}
+
+        {/* List */}
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-200 px-4 sm:px-5">
+            <nav className="flex gap-5 overflow-x-auto -mb-px" aria-label="Match views">
+              {VIEWS.map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`py-3.5 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                    view === v ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {VIEW_LABEL[v]}
+                  <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${view === v ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {list.viewCounts[v]}
+                  </span>
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 px-4 sm:px-5 py-3 bg-slate-50/60 border-b border-slate-100">
+            <SearchInput value={query} onValueChange={setQuery} placeholder="Search title, company, location…" className="lg:w-72" />
+            <div className="flex flex-wrap items-center gap-1.5">
+              {VERDICT_FILTERS.map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setVerdict(f)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+                    verdict === f ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {f === 'any' ? 'All fits' : VERDICT_LABEL[f]} <span className="opacity-70">{list.verdictCounts[f]}</span>
+                </button>
+              ))}
+            </div>
+            <label className="lg:ml-auto flex items-center gap-2 text-xs text-slate-500">
+              Sort
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as MatchSort)}
+                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
+              >
+                {(Object.keys(SORT_LABEL) as MatchSort[]).map((s) => (
+                  <option key={s} value={s}>{SORT_LABEL[s]}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {(list.hiddenByFloor > 0 || showBelowFloor) && matchPreferences.minMatchScore > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 sm:px-5 py-2 text-xs text-slate-500 border-b border-slate-100">
+              <Filter className="w-3.5 h-3.5" />
+              {showBelowFloor
+                ? `Showing matches below your minimum score of ${matchPreferences.minMatchScore}.`
+                : `${list.hiddenByFloor} hidden below your minimum score of ${matchPreferences.minMatchScore}.`}
+              <button onClick={() => setShowBelowFloor((v) => !v)} className="font-semibold text-brand-600 hover:text-brand-800">
+                {showBelowFloor ? 'Hide them' : 'Show them'}
+              </button>
+            </div>
+          )}
+
+          {paged.pageItems.length === 0 ? (
+            <div className="py-14 px-4 text-center">
+              <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <h4 className="text-base font-bold text-slate-800">
+                {totalMatches === 0 ? 'No matches yet' : filtersActive ? 'Nothing matches those filters' : `Nothing in ${VIEW_LABEL[view]}`}
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                {totalMatches === 0
+                  ? 'Paste a few job descriptions above to see how you stack up.'
+                  : filtersActive
+                    ? 'Try a different search or fit filter.'
+                    : view === 'review'
+                      ? "You're all caught up. Add more postings to keep the pipeline full."
+                      : 'Switch views to see the rest of your matches.'}
+              </p>
+              {filtersActive && (
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setVerdict('any'); setQuery(''); }}>
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {paged.pageItems.map((m) => (
+                <MatchRow key={m.id} match={m} expanded={expanded.has(m.id)} onToggle={() => toggleExpanded(m.id)} actions={rowActions} />
+              ))}
+            </ul>
+          )}
+
+          {paged.totalPages > 1 && (
+            <Pagination
+              page={paged.page}
+              totalPages={paged.totalPages}
+              start={paged.start}
+              end={paged.end}
+              total={paged.total}
+              noun="matches"
+              onPageChange={setPage}
+              className="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50/60"
+            />
+          )}
+        </Card>
+
+        {list.visible.some((m) => m.source === 'stillopen') && (
           <div className="flex justify-end">
             <StillOpenAttribution />
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
