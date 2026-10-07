@@ -27,6 +27,7 @@ import OfferStage from './pages/OfferStage';
 import CompareOffers from './pages/CompareOffers';
 import AdminPrompts from './pages/AdminPrompts';
 import AdminSkills from './pages/AdminSkills';
+import AdminAiCalls from './pages/AdminAiCalls';
 import CareerJourney from './pages/CareerJourney';
 import Profile from './pages/Profile';
 import Upgrade from './pages/Upgrade';
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="ai-defaults" element={<AdminAiDefaults />} />
               <Route path="prompts" element={<AdminPrompts />} />
               <Route path="skills" element={<AdminSkills />} />
+              <Route path="ai-calls" element={<AdminAiCalls />} />
             </Route>
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />

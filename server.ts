@@ -66,6 +66,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import type { AllowedModelsConfig } from "./src/types/aiModels";
 import { sendEmail, isEmailConfigured } from "./server/email";
 import { logAdminAction, listAuditLogs } from "./server/auditLog";
+import { configureAiCallLog, instrumentLegacyClient, listAiCalls } from "./server/aiCallLog";
 
 /** Distinguishes "your BYOM key is missing/invalid" (actionable, 400) from an actual server error (500). */
 function handleAiRouteError(e: any, res: express.Response) {
@@ -147,7 +148,7 @@ const legacyClients = new Map<string, LegacyGenAI>();
  * for the life of the process from env vars alone. See
  * server/ai/legacyGenAIShim.ts for what each provider dispatches to.
  */
-async function getLegacyClientForPrompt(promptId: string): Promise<{ client: LegacyGenAI; resolved: Awaited<ReturnType<typeof resolveModelForPrompt>> }> {
+async function getLegacyClientForPrompt(promptId: string, req: express.Request): Promise<{ client: LegacyGenAI; resolved: Awaited<ReturnType<typeof resolveModelForPrompt>> }> {
   const resolved = await resolveModelForPrompt(getAdminApp(), promptId);
   const key = `${resolved.provider}:${resolved.model}`;
   let client = legacyClients.get(key);
@@ -155,7 +156,9 @@ async function getLegacyClientForPrompt(promptId: string): Promise<{ client: Leg
     client = createLegacyGenAI(resolved.provider, resolved.model);
     legacyClients.set(key, client);
   }
-  return { client, resolved };
+  // Per-request wrapper (cheap) so the call log carries this prompt/user — see server/aiCallLog.ts.
+  const instrumented = instrumentLegacyClient(client, { promptId, provider: resolved.provider, model: resolved.model, source: resolved.source, uid: (req as any).uid });
+  return { client: instrumented, resolved };
 }
 
 /**
@@ -183,6 +186,7 @@ function segmentJdText(jdText: string): { id: string; text: string }[] {
 }
 
 async function startServer() {
+  configureAiCallLog(getAdminApp);
   const app = express();
   const PORT = 47293;
 
@@ -1141,6 +1145,37 @@ async function startServer() {
     }
   });
 
+  // Every outbound AI call (success or failure) across all users, newest
+  // first — written by server/aiCallLog.ts. Filtering happens client-side
+  // over this window so no composite Firestore index is needed.
+  app.get("/api/admin/ai-calls", async (req, res) => {
+    const adminApp = getAdminApp();
+    if (!adminApp) {
+      res.status(500).json({ error: "Firebase Admin is not configured" });
+      return;
+    }
+    try {
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit || "200"), 10) || 200, 1), 1000);
+      const calls = await listAiCalls(adminApp, limit);
+      const uids = [...new Set(calls.map((c) => c.uid).filter((u): u is string => !!u))];
+      const emails: Record<string, string> = {};
+      for (let i = 0; i < uids.length; i += 100) {
+        const result = await getAuth(adminApp).getUsers(uids.slice(i, i + 100).map((uid) => ({ uid })));
+        for (const u of result.users) if (u.email) emails[u.uid] = u.email;
+      }
+      res.json(
+        calls.map((c) => ({
+          ...c,
+          promptLabel: DEFAULT_PROMPTS[c.promptId]?.label || c.promptId,
+          userEmail: c.uid ? emails[c.uid] : undefined,
+        }))
+      );
+    } catch (e: any) {
+      console.error("list AI calls failed", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/admin/prompts", async (req, res) => {
     const adminApp = getAdminApp();
     const promptAiConfigs = await getPromptAiConfigMap(adminApp);
@@ -1294,7 +1329,7 @@ async function startServer() {
       const projectedSampleCareerJourney = sampleCareerJourney ? projectCareerJourney(sampleCareerJourney, resolvedCareerJourneyFields) : null;
       const previewCareerJourney = sampleCareerJourney ? applyCareerJourneyExtractor(id, projectedSampleCareerJourney) : null;
 
-      const client = createLegacyGenAI(resolved.provider, resolved.model);
+      const client = instrumentLegacyClient(createLegacyGenAI(resolved.provider, resolved.model), { promptId: id, provider: resolved.provider, model: resolved.model, source: "adminTestRun", uid: (req as any).uid });
       const schema = LEGACY_RESPONSE_SCHEMAS[id];
       const contents = renderSampleContents(id, preamble, template, sampleCareerJourney ? { careerJourney: previewCareerJourney } : undefined);
       const response = await client.models.generateContent({
@@ -1506,7 +1541,7 @@ async function startServer() {
   app.post("/api/ai/parse", async (req, res) => {
     try {
       const { jdText, company, roleTitle } = req.body;
-      const { client, resolved } = await getLegacyClientForPrompt("parse");
+      const { client, resolved } = await getLegacyClientForPrompt("parse", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "parse");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -1571,7 +1606,7 @@ ${JSON.stringify(projectedCareerJourney || {}, null, 2)}
       }
 
       const projectedCareerJourney = await projectCareerJourneyForPrompt("clarifyQuestions", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("clarifyQuestions");
+      const { client, resolved } = await getLegacyClientForPrompt("clarifyQuestions", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "clarifyQuestions");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -1631,7 +1666,7 @@ Generate an objective fit analysis. If the candidate has provided convincing exp
     try {
       const { parse, careerJourney, gateClarifications, jdSegments } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("auditGates", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("auditGates");
+      const { client, resolved } = await getLegacyClientForPrompt("auditGates", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "auditGates");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -1800,7 +1835,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
     try {
       const { jdText, careerJourney, archiveLearnings } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("liteScan", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("liteScan");
+      const { client, resolved } = await getLegacyClientForPrompt("liteScan", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "liteScan");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -1944,7 +1979,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
       // Only the prompt text is narrowed — applyCareerJourneyDelta below still
       // needs the real, full careerJourney to merge the returned delta into.
       const projectedCareerJourney = await projectCareerJourneyForPrompt("patchJourney", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("patchJourney");
+      const { client, resolved } = await getLegacyClientForPrompt("patchJourney", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "patchJourney");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -1993,7 +2028,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       const { parse, careerJourney, contextEntries, remediation, options: rawOptions } = req.body as { parse: any; careerJourney: any; contextEntries: any; remediation?: string[]; options?: unknown };
       const options = normalizeResumeBuildOptions(rawOptions, careerJourney);
       const projectedCareerJourney = await projectCareerJourneyForPrompt("resumeStrategy", projectCareerJourneyForResume(careerJourney, options));
-      const { client, resolved } = await getLegacyClientForPrompt("resumeStrategy");
+      const { client, resolved } = await getLegacyClientForPrompt("resumeStrategy", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "resumeStrategy");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2041,7 +2076,7 @@ Output a detailed strategy.`,
       const { careerJourney, strategy, parse, remediation, options: rawOptions } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[]; options?: unknown };
       const options = normalizeResumeBuildOptions(rawOptions, careerJourney);
       const projectedCareerJourney = await projectCareerJourneyForPrompt("generateResume", projectCareerJourneyForResume(careerJourney, options));
-      const { client, resolved } = await getLegacyClientForPrompt("generateResume");
+      const { client, resolved } = await getLegacyClientForPrompt("generateResume", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "generateResume");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2095,7 +2130,7 @@ ${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
         kind === "summary" ? 'the summary (return "summary")'
         : kind === "skills" ? 'the skills rows (return "skills")'
         : `the experience entry for roleId ${roleId} (return "experienceEntry" with that roleId; write it from the Career Journey even if the current resume doesn't include it)`;
-      const { client, resolved } = await getLegacyClientForPrompt("regenerateResumeSection");
+      const { client, resolved } = await getLegacyClientForPrompt("regenerateResumeSection", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "regenerateResumeSection");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2148,7 +2183,7 @@ ${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
         phrase: k.phrase, category: k.category, jdImportance: k.jdImportance, evidenceStatus: k.evidenceStatus, isTopCritical: k.isTopCritical,
       }));
       const projectedCareerJourney = await projectCareerJourneyForPrompt("scoreResume", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("scoreResume");
+      const { client, resolved } = await getLegacyClientForPrompt("scoreResume", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "scoreResume");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2192,7 +2227,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
     try {
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("coverLetter", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("coverLetter");
+      const { client, resolved } = await getLegacyClientForPrompt("coverLetter", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "coverLetter");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2237,7 +2272,7 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Assistant"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
       const projectedCareerJourney = await projectCareerJourneyForPrompt("applicationAssistant", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("applicationAssistant");
+      const { client, resolved } = await getLegacyClientForPrompt("applicationAssistant", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "applicationAssistant");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2273,7 +2308,7 @@ Candidate's latest message: "${latest}"`,
     try {
       const { fields, parse, careerJourney, resume } = req.body as { fields: { id: string; label: string; fieldType: string; options?: string[] }[]; parse: any; careerJourney: any; resume: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("generateFormAnswers", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("generateFormAnswers");
+      const { client, resolved } = await getLegacyClientForPrompt("generateFormAnswers", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "generateFormAnswers");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2312,7 +2347,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
     try {
       const { round, parse, fitAnalysis, careerJourney } = req.body as { round: any; parse: any; fitAnalysis: any; careerJourney: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("interviewPrep", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("interviewPrep");
+      const { client, resolved } = await getLegacyClientForPrompt("interviewPrep", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrep");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2354,7 +2389,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       const history = transcript.slice(0, -1).map((t) => `${t.role === "user" ? "Candidate" : "Coach"}: ${t.content}`).join("\n");
       const latest = transcript[transcript.length - 1]?.content || "";
       const projectedCareerJourney = await projectCareerJourneyForPrompt("interviewPrepChat", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("interviewPrepChat");
+      const { client, resolved } = await getLegacyClientForPrompt("interviewPrepChat", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrepChat");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2385,7 +2420,7 @@ Candidate's latest message: "${latest}"`,
     try {
       const { offer, parse, careerJourney } = req.body as { offer: any; parse: any; careerJourney: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("offerGuidance", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("offerGuidance");
+      const { client, resolved } = await getLegacyClientForPrompt("offerGuidance", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "offerGuidance");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2416,7 +2451,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
     try {
       const { offers, careerJourney } = req.body as { offers: { jobId: string; companyName: string; roleTitle: string; offer: any }[]; careerJourney: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("compareOffers", careerJourney);
-      const { client, resolved } = await getLegacyClientForPrompt("compareOffers");
+      const { client, resolved } = await getLegacyClientForPrompt("compareOffers", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "compareOffers");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2450,7 +2485,7 @@ ${JSON.stringify(applyCareerJourneyExtractor("compareOffers", projectedCareerJou
     try {
       const { resumeText } = req.body as { resumeText: string };
       const nextIds = computeNextIds({});
-      const { client, resolved } = await getLegacyClientForPrompt("buildJourneyFromResume");
+      const { client, resolved } = await getLegacyClientForPrompt("buildJourneyFromResume", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "buildJourneyFromResume");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2485,7 +2520,7 @@ ${resumeText}`,
         .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
         .join("\n");
 
-      const { client, resolved } = await getLegacyClientForPrompt("buildJourneyChat");
+      const { client, resolved } = await getLegacyClientForPrompt("buildJourneyChat", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "buildJourneyChat");
       const response = await client.models.generateContent({
         model: resolved.model,
@@ -2519,7 +2554,7 @@ ${transcriptText}`,
         question: string;
         answer: string;
       };
-      const { client, resolved } = await getLegacyClientForPrompt("refineFromInterviewAnswer");
+      const { client, resolved } = await getLegacyClientForPrompt("refineFromInterviewAnswer", req);
       const preamble = await buildKnowledgePreamble(getAdminApp(), "refineFromInterviewAnswer");
       const response = await client.models.generateContent({
         model: resolved.model,

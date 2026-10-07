@@ -162,6 +162,30 @@ export const sendUserPasswordReset = (uid: string): Promise<{ ok: boolean; reset
 export const deleteAdminUser = (uid: string): Promise<{ ok: boolean }> => adminDelete(`/api/admin/users/${uid}`);
 export const listAdminAuditLogs = (): Promise<AdminAuditLog[]> => adminGet('/api/admin/audit-logs');
 
+/** One outbound AI call, from server/aiCallLog.ts. */
+export interface AdminAiCall {
+  id: string;
+  timestamp: string;
+  promptId: string;
+  promptLabel: string;
+  provider: AIProviderId;
+  model: string;
+  actualModel?: string;
+  requestId?: string;
+  source?: 'byom' | 'promptOverride' | 'globalDefault' | 'adminTestRun';
+  durationMs: number;
+  ok: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+  uid?: string;
+  userEmail?: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export const listAdminAiCalls = (limit = 200): Promise<AdminAiCall[]> => adminGet(`/api/admin/ai-calls?limit=${limit}`);
+
 export const listAdminTickets = (filter?: { status?: TicketStatus; triageType?: TicketTriageType }): Promise<Ticket[]> => {
   const params = new URLSearchParams();
   if (filter?.status) params.set('status', filter.status);

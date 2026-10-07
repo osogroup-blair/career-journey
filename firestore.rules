@@ -56,6 +56,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Server-written AI call log (server/aiCallLog.ts), read only through the
+    // admin API — same explicit never-client-accessible intent as above.
+    match /aiCallLogs/{logId} {
+      allow read, write: if false;
+    }
+
     // Support tickets (admin-support-feedback-plan.md Phase 0). Top-level, not nested
     // under users/{uid}/..., because admin needs to query across every account — same
     // reasoning as config/ and stripeEvents/ above. All writes (create, triage,

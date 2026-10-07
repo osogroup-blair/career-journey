@@ -9,7 +9,8 @@ import { platformProvider } from "./platformProvider";
 import { getAdminApp } from "../firebaseAdmin";
 import { getBillingState } from "../billing";
 import { isByomPlan, isByomProvider } from "../../src/types/billing";
-import { resolveModelForPrompt } from "./resolveModelForPrompt";
+import { resolveModelForPrompt, type ResolvedModel } from "./resolveModelForPrompt";
+import { instrumentStructuredClient } from "../aiCallLog";
 
 const platformClients = new Map<string, StructuredAIClient>();
 
@@ -80,11 +81,17 @@ export function buildProviderClient(provider: AIProviderId, apiKey: string, mode
  */
 export async function getAIClientForRequest(req: Request, promptId: string): Promise<StructuredAIClient> {
   const uid = (req as any).uid as string | undefined;
+  const { client, source } = await pickClientForRequest(req, promptId, uid);
+  return instrumentStructuredClient(client, { promptId, uid, source });
+}
+
+async function pickClientForRequest(req: Request, promptId: string, uid: string | undefined): Promise<{ client: StructuredAIClient; source: ResolvedModel["source"] }> {
   const app = getAdminApp();
   const platformDefault = await resolveModelForPrompt(app, promptId);
+  const platform = () => ({ client: getPlatformClient(platformDefault.model, platformDefault.provider), source: platformDefault.source });
 
   if (!app || !uid) {
-    return getPlatformClient(platformDefault.model, platformDefault.provider);
+    return platform();
   }
 
   const billing = await getBillingState(app, uid);
@@ -99,11 +106,11 @@ export async function getAIClientForRequest(req: Request, promptId: string): Pro
     // BYOM plans below.
     const baseUrl = req.header("X-BYOM-Local-Url") || process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     const model = req.header("X-BYOM-Model") || billing.byomModel;
-    return buildProviderClient("ollama", baseUrl, model || platformDefault.model);
+    return { client: buildProviderClient("ollama", baseUrl, model || platformDefault.model), source: "byom" };
   }
 
   if (!isByomPlan(billing.plan)) {
-    return getPlatformClient(platformDefault.model, platformDefault.provider);
+    return platform();
   }
 
   const apiKey = req.header("X-BYOM-Key");
@@ -118,7 +125,7 @@ export async function getAIClientForRequest(req: Request, promptId: string): Pro
       "You're on a BYOM plan but haven't added an API key yet — add one in Settings."
     );
   }
-  return buildProviderClient(provider, apiKey, model || platformDefault.model);
+  return { client: buildProviderClient(provider, apiKey, model || platformDefault.model), source: "byom" };
 }
 
 /** Non-request-scoped accessor for code paths not yet migrated to per-user BYOM routing — always the platform client. */

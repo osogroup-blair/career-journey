@@ -5,6 +5,12 @@
       "name": "career-journey-dev",
       "url": "http://localhost:47293",
       "port": 47293
+    },
+    {
+      "name": "career-journey-npm-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 47293
     }
   ]
 }
