@@ -45,7 +45,7 @@ Intake ──► Parsed ──► Rating ──► Tailored Application ──�
 - **Matches** (`/matches`): paste or bulk-import postings (including pulling every open role from a tracked Greenhouse/Lever company board) and get a quick AI verdict/score/gap-scan against your Career Journey before committing a posting to the full pipeline. Gated to paid plans (see Billing below).
 - **Career Journey Builder** (`/build`): bootstrap a Career Journey from scratch — extract from a pasted resume, a guided AI chat interview, or a blank template.
 - **Strengthen Journey** (`/strengthen`): surfaces weak spots (unquantified achievements, stale skills, thin role descriptions) and walks through AI-proposed refinements one at a time.
-- **Simple Editor** (`/edit`) and **Advanced Editor** (`/journey`): a friendly CRUD form and a full raw-schema editor over every Career Journey section, respectively.
+- **Simple Editor** (`/edit`) and **Advanced Editor** (`/journey`): a section-by-section editor (roles, projects, achievements, skills, capabilities, education and more — each searchable and paginated, with Cmd/Ctrl-K search across everything and an AI assistant per section that drafts new items for you to approve) and a full raw-schema editor (links, vocabularies, changelog, raw JSON), respectively.
 - **Job Tracker** (`/applications`): Kanban board across every pipeline stage.
 - **Compare Offers** (`/compare-offers`): side-by-side AI comparison across every job currently in the Offer stage.
 
@@ -139,7 +139,7 @@ Intake ──► Parsed ──► Rating ──► Tailored Application ──�
 
 - **Frontend**: React 19, TypeScript, Vite, React Router (`HashRouter`), Tailwind CSS v4, Zustand (persisted via the `DataStore` abstraction), React Hook Form + Zod.
 - **Backend API**: single Express app (`server.ts`, ~1950 lines, ~44 routes) serving AI proxy endpoints, Stripe billing/webhooks, admin, and support-ticket APIs.
-- **AI Architecture**: a provider-agnostic client abstraction (`server/ai/`) drives Gemini, OpenAI, and Anthropic from one Zod schema per endpoint — but this migration is **partial**: only 3 of ~22 `/api/ai/*` endpoints (`keywords`, `fitScore`, `discoverySearchProfile`) go through it today; the rest still call the Gemini SDK directly with hand-written schemas. See [ARCHITECTURE.md](ARCHITECTURE.md#ai-provider-abstraction) for exactly which.
+- **AI Architecture**: a provider-agnostic client abstraction (`server/ai/`) drives Gemini, OpenAI, and Anthropic from one Zod schema per endpoint — but this migration is **partial**: only 4 of ~23 `/api/ai/*` endpoints (`keywords`, `fitScore`, `discoverySearchProfile`, `journeySectionAssist`) go through it today; the rest still call the Gemini SDK directly with hand-written schemas. See [ARCHITECTURE.md](ARCHITECTURE.md#ai-provider-abstraction) for exactly which.
 - **Billing**: Stripe Checkout + Customer Portal + webhooks, entitlement state mirrored into Firestore (`users/{uid}/meta/billing`), never trusted from the client.
 - **Build System**: Vite for client assets, `esbuild` for server compilation into a single CJS bundle.
 
@@ -155,7 +155,7 @@ server/
   support.ts, email.ts       # Ticket CRUD, screenshot storage, Gmail SMTP notifications
   featureFlags.ts            # Quota limits + kill switches (Firestore-backed, cached)
   promptStore.ts             # Default AI prompt templates + admin override mechanism
-  careerJourneyVersioning.ts # ID allocation + version bumping for the Career Journey schema
+  careerJourneyVersioning.ts # Re-exports src/lib/careerJourneyIds.ts (ID allocation + version bumping)
   knowledge.ts                # Loads server/knowledge/*.md into AI system prompts at startup
   knowledge/*.md              # The job-pipeline AI's own "skill" files (JD parsing, ATS, voice, cover letters)
   firebaseAdmin.ts            # Firebase Admin SDK init + requireFirebaseAuth/requireAdmin middleware
