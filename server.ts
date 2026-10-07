@@ -17,7 +17,9 @@ import { getAiDefaults, setAiDefaults, validateAiDefaultsUpdate } from "./server
 import { getPromptAiConfigFor, setPromptAiConfigFor, validatePromptAiConfigUpdate, getPromptAiConfigMap } from "./server/promptAiConfig";
 import { resolveModelForPrompt } from "./server/ai/resolveModelForPrompt";
 import { projectCareerJourney, CAREER_JOURNEY_FIELDS, applyCareerJourneyExtractor } from "./server/careerJourneyProjection";
-import { normalizeResumeBuildOptions, projectCareerJourneyForResume, buildResumeConstraintsBlock, enforceResumeConstraints, resolveExperienceRoleId, roleMode } from "./src/lib/resumeBuild";
+import { normalizeResumeBuildOptions, enforceResumeConstraints, resolveExperienceRoleId, roleMode } from "./src/lib/resumeBuild";
+import { sanitizeKeywordsForResume } from "./src/lib/resumeKeywordPlan";
+import { projectCareerJourneyForPrompt as projectCareerJourneyForPromptWith, parseContents, keywordsPrompt, resumeStrategyContents, generateResumeContents, regenerateResumeSectionContents } from "./server/resumePipelinePrompts";
 import { createLegacyGenAI, type LegacyGenAI } from "./server/ai/legacyGenAIShim";
 import { LEGACY_RESPONSE_SCHEMAS } from "./server/ai/legacySchemas";
 import { buildKnowledgePreamble, buildKnowledgePreambleFromFiles, resolveKnowledgeSelection } from "./server/ai/knowledgePreamble";
@@ -179,8 +181,7 @@ async function getLegacyClientForPrompt(promptId: string, req: express.Request):
  * everything, unchanged from before this existed.
  */
 async function projectCareerJourneyForPrompt(promptId: string, careerJourney: any): Promise<any> {
-  const cfg = await getPromptAiConfigFor(getAdminApp(), promptId);
-  return projectCareerJourney(careerJourney, cfg.careerJourneyFields);
+  return projectCareerJourneyForPromptWith(getAdminApp(), promptId, careerJourney);
 }
 
 async function startServer() {
@@ -1521,17 +1522,9 @@ async function startServer() {
     try {
       const { jdText, company, roleTitle } = req.body;
       const { client, resolved } = await getLegacyClientForPrompt("parse", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "parse");
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: `${preamble}
-${getActivePrompt('parse')}
-
-Company: ${company || ''}
-Role: ${roleTitle || ''}
-
-Job Description:
-${jdText}`,
+        contents: await parseContents(getAdminApp(), { jdText, company, roleTitle }),
         config: {
           responseMimeType: "application/json",
           responseSchema: LEGACY_RESPONSE_SCHEMAS.parse as any,
@@ -1550,19 +1543,9 @@ ${jdText}`,
   app.post("/api/ai/keywords", async (req, res) => {
     try {
       const { parse, careerJourney, jdSegments } = req.body;
-      const projectedCareerJourney = await projectCareerJourneyForPrompt("keywords", careerJourney);
       const client = await getAIClientForRequest(req, "keywords");
       const { data, usage, model, actualModel, requestId } = await client.generateStructured({
-        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "keywords")}${getActivePrompt('keywords')}`,
-        prompt: `Job Parse:
-${JSON.stringify(parse, null, 2)}
-
-JD Segments (cite these ids in jdRefs):
-${JSON.stringify(jdSegments || [], null, 2)}
-
-Candidate Career Journey Context (cite real ids from here in evidenceRefs):
-${JSON.stringify(projectedCareerJourney || {}, null, 2)}
-`,
+        ...(await keywordsPrompt(getAdminApp(), { parse, careerJourney, jdSegments })),
         schema: KeywordsResponseSchema,
       });
       await trackUsage(req, "keywords", model, usage, client.provider, { actualModel, requestId });
@@ -2016,28 +1999,13 @@ ${JSON.stringify(contextEntries, null, 2)}`,
 
   app.post("/api/ai/resumeStrategy", requireFeature("tailored_resume"), async (req, res) => {
     try {
-      const { parse, careerJourney, contextEntries, remediation, options: rawOptions } = req.body as { parse: any; careerJourney: any; contextEntries: any; remediation?: string[]; options?: unknown };
+      const { parse, careerJourney, contextEntries, keywords: rawKeywords, remediation, options: rawOptions } = req.body as { parse: any; careerJourney: any; contextEntries: any; keywords?: unknown; remediation?: string[]; options?: unknown };
       const options = normalizeResumeBuildOptions(rawOptions, careerJourney);
-      const projectedCareerJourney = await projectCareerJourneyForPrompt("resumeStrategy", projectCareerJourneyForResume(careerJourney, options));
+      const keywords = sanitizeKeywordsForResume(rawKeywords);
       const { client, resolved } = await getLegacyClientForPrompt("resumeStrategy", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "resumeStrategy");
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: `${preamble}
-${getActivePrompt('resumeStrategy')}
-${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed Stage 7 keyword gate. Work these missing keywords truthfully into keywordPlacement, skillRows, and/or selectedOutcomes wherever the Career Journey honestly supports them - never fabricate evidence for one that has none: ${remediation.join(', ')}\n` : ''}
-Generate a Resume Strategy for this job posting based on candidate's context.
-
-Job Parse:
-${JSON.stringify(parse)}
-Career Journey:
-${JSON.stringify(projectedCareerJourney)}
-Extra Context Entries:
-${JSON.stringify(contextEntries)}
-
-${buildResumeConstraintsBlock(options, careerJourney, "strategy")}
-
-Output a detailed strategy.`,
+        contents: await resumeStrategyContents(getAdminApp(), { parse, careerJourney, contextEntries, keywords, options, remediation }),
         config: {
           responseMimeType: "application/json",
           responseSchema: LEGACY_RESPONSE_SCHEMAS.resumeStrategy as any,
@@ -2064,27 +2032,13 @@ Output a detailed strategy.`,
 
   app.post("/api/ai/generateResume", requireFeature("tailored_resume"), async (req, res) => {
     try {
-      const { careerJourney, strategy, parse, remediation, options: rawOptions } = req.body as { careerJourney: any; strategy: any; parse: any; remediation?: string[]; options?: unknown };
+      const { careerJourney, strategy, parse, contextEntries, keywords: rawKeywords, remediation, options: rawOptions } = req.body as { careerJourney: any; strategy: any; parse: any; contextEntries?: any; keywords?: unknown; remediation?: string[]; options?: unknown };
       const options = normalizeResumeBuildOptions(rawOptions, careerJourney);
-      const projectedCareerJourney = await projectCareerJourneyForPrompt("generateResume", projectCareerJourneyForResume(careerJourney, options));
+      const keywords = sanitizeKeywordsForResume(rawKeywords);
       const { client, resolved } = await getLegacyClientForPrompt("generateResume", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "generateResume");
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: `${preamble}
-${getActivePrompt('generateResume')}
-${remediation && remediation.length > 0 ? `\nThis is a REBUILD after a failed keyword gate. These keywords are missing and must be truthfully worked into the summary, skills, or a role bullet if any honest evidence supports them (do not fabricate experience for a keyword that has none): ${remediation.join(', ')}\n` : ''}
-
-Career Journey:
-${JSON.stringify(projectedCareerJourney, null, 2)}
-
-Resume Strategy:
-${JSON.stringify(strategy, null, 2)}
-
-Job Parse:
-${JSON.stringify(parse, null, 2)}
-
-${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
+        contents: await generateResumeContents(getAdminApp(), { parse, careerJourney, contextEntries, keywords, options, remediation, strategy }),
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
@@ -2093,7 +2047,7 @@ ${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
       });
       await trackUsage(req, "generateResume", resolved.model, response.usageMetadata, resolved.provider, response);
       // The prompt asks for the right roles and bullet counts; this guarantees them.
-      const { resume, warnings } = enforceResumeConstraints(JSON.parse(response.text!), options, careerJourney);
+      const { resume, warnings } = enforceResumeConstraints(JSON.parse(response.text!), options, careerJourney, keywords);
       if (warnings.length > 0) console.warn("generateResume constraint enforcement:", warnings);
       res.json(resume);
     } catch (e: any) {
@@ -2104,8 +2058,8 @@ ${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
 
   app.post("/api/ai/regenerateResumeSection", requireFeature("tailored_resume"), async (req, res) => {
     try {
-      const { section, instruction, resume, strategy, parse, careerJourney, options: rawOptions } = req.body as {
-        section: any; instruction?: string; resume: any; strategy: any; parse: any; careerJourney: any; options?: unknown;
+      const { section, instruction, resume, strategy, parse, careerJourney, contextEntries, keywords: rawKeywords, options: rawOptions } = req.body as {
+        section: any; instruction?: string; resume: any; strategy: any; parse: any; careerJourney: any; contextEntries?: any; keywords?: unknown; options?: unknown;
       };
       const kind = section?.kind;
       if (!resume || !parse || !["summary", "skills", "role"].includes(kind)) return res.status(400).json({ error: "A resume, job parse, and a summary/skills/role section are required." });
@@ -2116,34 +2070,19 @@ ${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
       const normalized = normalizeResumeBuildOptions(rawOptions, careerJourney);
       // Rewriting a condensed/excluded role means the candidate wants it in full now.
       const options = roleId ? { ...normalized, roles: { ...normalized.roles, [roleId]: { ...normalized.roles[roleId], mode: "full" as const } } } : normalized;
-      const projectedCareerJourney = await projectCareerJourneyForPrompt("regenerateResumeSection", projectCareerJourneyForResume(careerJourney, options));
+      const keywords = sanitizeKeywordsForResume(rawKeywords);
       const target =
         kind === "summary" ? 'the summary (return "summary")'
         : kind === "skills" ? 'the skills rows (return "skills")'
         : `the experience entry for roleId ${roleId} (return "experienceEntry" with that roleId; write it from the Career Journey even if the current resume doesn't include it)`;
       const { client, resolved } = await getLegacyClientForPrompt("regenerateResumeSection", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "regenerateResumeSection");
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: `${preamble}
-${getActivePrompt('regenerateResumeSection')}
-
-Section to rewrite: ${target}
-Candidate's instruction: ${typeof instruction === "string" && instruction.trim() ? instruction.trim().slice(0, 500) : "(none — improve it for this JD within the constraints)"}
-
-Current Resume:
-${JSON.stringify(resume, null, 2)}
-
-Resume Strategy:
-${JSON.stringify(strategy || {}, null, 2)}
-
-Job Parse:
-${JSON.stringify(parse, null, 2)}
-
-Career Journey:
-${JSON.stringify(projectedCareerJourney, null, 2)}
-
-${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
+        contents: await regenerateResumeSectionContents(getAdminApp(), {
+          target,
+          instruction: typeof instruction === "string" && instruction.trim() ? instruction.trim().slice(0, 500) : "(none — improve it for this JD within the constraints)",
+          resume, strategy, parse, careerJourney, contextEntries, keywords, options,
+        }),
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
@@ -2156,7 +2095,7 @@ ${buildResumeConstraintsBlock(options, careerJourney, "resume")}`,
       if (kind === "skills") return res.json({ skills: Array.isArray(result.skills) ? result.skills : undefined });
       if (!result.experienceEntry) return res.json({});
       // Same bullet budget as a full build, applied to just this role.
-      const { resume: enforced } = enforceResumeConstraints({ ...resume, experience: [{ ...result.experienceEntry, roleId }] }, options, careerJourney);
+      const { resume: enforced } = enforceResumeConstraints({ ...resume, experience: [{ ...result.experienceEntry, roleId }] }, options, careerJourney, keywords);
       res.json({ experienceEntry: enforced.experience[0] });
     } catch (e: any) {
       console.error(e);

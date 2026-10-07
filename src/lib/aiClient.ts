@@ -80,14 +80,14 @@ export async function stageCareerJourneyPatch(careerJourney: any, contextEntries
   return await res.json();
 }
 
-export async function generateResumeStrategy(parse: JDParse, careerJourney: any, contextEntries: Record<string, ExperienceContext>, options: ResumeBuildOptions, remediation?: string[]): Promise<ResumeStrategy> {
-  const res = await apiPost('/api/ai/resumeStrategy', { parse, careerJourney, contextEntries, options, remediation });
+export async function generateResumeStrategy(parse: JDParse, careerJourney: any, contextEntries: Record<string, ExperienceContext>, keywords: KeywordSignal[] | undefined, options: ResumeBuildOptions, remediation?: string[]): Promise<ResumeStrategy> {
+  const res = await apiPost('/api/ai/resumeStrategy', { parse, careerJourney, contextEntries, keywords, options, remediation });
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
 }
 
-export async function generateFullResume(careerJourney: any, strategy: ResumeStrategy, parse: JDParse, options: ResumeBuildOptions, remediation?: string[]): Promise<GeneratedResume> {
-  const res = await apiPost('/api/ai/generateResume', { careerJourney, strategy, parse, options, remediation });
+export async function generateFullResume(careerJourney: any, strategy: ResumeStrategy, parse: JDParse, contextEntries: Record<string, ExperienceContext>, keywords: KeywordSignal[] | undefined, options: ResumeBuildOptions, remediation?: string[]): Promise<GeneratedResume> {
+  const res = await apiPost('/api/ai/generateResume', { careerJourney, strategy, parse, contextEntries, keywords, options, remediation });
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
 }
@@ -105,9 +105,11 @@ export async function regenerateResumeSection(
   strategy: ResumeStrategy | undefined,
   parse: JDParse,
   careerJourney: any,
+  contextEntries: Record<string, ExperienceContext>,
+  keywords: KeywordSignal[] | undefined,
   options: ResumeBuildOptions
 ): Promise<RegeneratedResumeSection> {
-  const res = await apiPost('/api/ai/regenerateResumeSection', { section, instruction, resume, strategy, parse, careerJourney, options });
+  const res = await apiPost('/api/ai/regenerateResumeSection', { section, instruction, resume, strategy, parse, careerJourney, contextEntries, keywords, options });
   if (!res.ok) throw new Error(await errorMessage(res));
   return await res.json();
 }

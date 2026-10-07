@@ -14,6 +14,7 @@
     "set:admin": "tsx server/scripts/setAdmin.ts",
     "verify:ai": "tsx server/scripts/verifyAiProviders.ts",
     "verify:oso": "tsx server/scripts/verifyOso.ts",
+    "eval:resume": "tsx server/scripts/evalResume.ts",
     "migrate:oso": "tsx server/scripts/migrateAiConfigToOso.ts",
     "seed:allowedModels": "tsx server/scripts/seedAllowedModels.ts",
     "backlog:pull": "tsx server/scripts/pullBacklog.ts",

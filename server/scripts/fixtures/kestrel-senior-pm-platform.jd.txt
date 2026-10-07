@@ -1,0 +1,28 @@
+About the job
+
+Kestrel Pay is a Series C fintech building the payments infrastructure that 4,000+ B2B SaaS platforms embed to accept and route payments. We're hiring a Senior Product Manager, Platform to own our developer platform: public APIs, SDKs, webhooks, and the partner onboarding experience.
+
+What you'll do
+- Own the product strategy and multi-quarter roadmap for the Developer Platform, aligned to company OKRs.
+- Lead discovery with developers, partners, and internal stakeholders; translate insights into clear PRDs and user stories.
+- Drive API design decisions with engineering (REST, versioning, idempotency, rate limiting) and improve developer experience (DX) across docs, SDKs, and sandbox environments.
+- Reduce partner time-to-first-transaction by redesigning self-serve onboarding and activation flows.
+- Define and track success metrics (activation rate, API adoption, retention) using SQL and product analytics tools such as Amplitude or Looker; run A/B tests to validate changes.
+- Partner with Go-to-Market, Solutions Engineering and Customer Success on launches, pricing and packaging, and enablement.
+- Manage cross-functional stakeholder alignment across engineering, design, compliance and risk.
+- Mentor junior PMs and contribute to product operations best practices.
+
+What you'll bring
+- 7+ years of product management experience, including 3+ years in technical product management for APIs or developer platforms in B2B SaaS.
+- Proven track record shipping 0-to-1 products and scaling them.
+- Strong data fluency: comfortable writing SQL and building dashboards.
+- Experience with agile delivery (Scrum/Kanban) and tools like Jira or Linear.
+- Excellent written communication; you write crisp specs and executive updates.
+- Bachelor's degree in Computer Science, Engineering, or equivalent experience.
+
+Nice to have
+- Payments, fintech, or PCI DSS compliance experience.
+- Experience with usage-based pricing or platform monetization.
+- Familiarity with microservices architecture and event-driven systems.
+
+Location: Remote (US). Occasional travel to Denver HQ.

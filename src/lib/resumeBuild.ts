@@ -1,4 +1,5 @@
 import { EarlierExperienceEntry, EvidenceRef, GeneratedResume, KeywordSignal, ResumeBuildOptions, ResumeRoleMode } from '../types';
+import { formatContactLine } from './utils';
 
 /**
  * Deterministic side of tailored-resume generation: which Career Journey roles
@@ -13,7 +14,7 @@ import { EarlierExperienceEntry, EvidenceRef, GeneratedResume, KeywordSignal, Re
 export const RESUME_ROLE_MODES: readonly ResumeRoleMode[] = ['full', 'condensed', 'excluded'];
 export const MAX_BULLETS_PER_ROLE = 8;
 /** With no saved preference, roles that ended this many years ago start out condensed. */
-const CONDENSE_AFTER_YEARS = 15;
+const CONDENSE_AFTER_YEARS = 10;
 
 const BULLET_LADDER: Record<1 | 2, number[]> = {
   1: [5, 4, 3, 2],
@@ -21,7 +22,7 @@ const BULLET_LADDER: Record<1 | 2, number[]> = {
 };
 
 export function sectionLimits(pageTarget: 1 | 2): { summaryWords: number; skillRows: number } {
-  return pageTarget === 1 ? { summaryWords: 50, skillRows: 4 } : { summaryWords: 70, skillRows: 6 };
+  return pageTarget === 1 ? { summaryWords: 60, skillRows: 4 } : { summaryWords: 110, skillRows: 6 };
 }
 
 export function roleCompany(role: any): string {
@@ -59,6 +60,27 @@ export function condensedRoleDates(role: any): string {
   const end = current ? 'Present' : roleEndYear(role);
   if (start && end && String(start) !== String(end)) return `${start} – ${end}`;
   return String(end ?? start ?? '');
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** "2026-03" / "2026-03-15" -> "March 2026", "2015" -> "2015", "Present" -> "Present". Anything else -> null. */
+export function formatResumeDate(value: unknown): string | null {
+  if (isPresent(value)) return 'Present';
+  if (typeof value !== 'string') return null;
+  const m = value.trim().match(/^((?:19|20)\d{2})(?:-(\d{1,2})(?:-\d{1,2})?)?$/);
+  if (!m) return null;
+  const month = m[2] ? Number(m[2]) : null;
+  if (month !== null && (month < 1 || month > 12)) return null;
+  return month ? `${MONTHS[month - 1]} ${m[1]}` : m[1];
+}
+
+/** Full month-year range for an experience entry (ats_tactics.md), from the role's structured dates. Null when they aren't parseable — the caller keeps whatever it had. */
+export function formatRoleDates(role: any): string | null {
+  const start = formatResumeDate(role?.start_date);
+  const end = formatResumeDate(role?.end_date);
+  if (!start || start === 'Present') return null;
+  return end && end !== start ? `${start} – ${end}` : start;
 }
 
 /** Career Journey roles, most recent first (current roles, then by end year, then start year). Stable for ties. */
@@ -124,13 +146,36 @@ export function roleMode(options: ResumeBuildOptions | undefined, roleId: string
   return options?.roles?.[roleId]?.mode ?? 'full';
 }
 
-/** Max bullets per full role id: most recent role gets the most, tapering down the page-target ladder. A per-role maxBullets overrides the ladder. */
-export function computeBulletBudget(options: ResumeBuildOptions, careerJourney: any): Record<string, number> {
+/**
+ * How strongly each role evidences this JD: every usable keyword whose
+ * evidenceRefs resolve to the role scores 1 (2 if top-critical). Unscored
+ * without a keyword breakdown, which leaves the budget purely by recency.
+ */
+export function roleRelevance(keywords: KeywordSignal[] | undefined, careerJourney: any): Record<string, number> {
+  const score: Record<string, number> = {};
+  for (const k of keywords || []) {
+    if (k.category === 'Hard gate' || k.evidenceStatus === 'HARD GATE' || k.evidenceStatus === 'NOT SUPPORTED') continue;
+    const roleIds = new Set((k.evidenceRefs || []).flatMap((ref) => roleIdsForEvidenceRef(careerJourney, ref)));
+    for (const id of roleIds) score[id] = (score[id] || 0) + (k.isTopCritical ? 2 : 1);
+  }
+  return score;
+}
+
+/**
+ * Max bullets per full role id. Roles that evidence the most JD keywords get
+ * the top rungs of the page-target ladder (recency breaks ties, and decides
+ * alone when there's no keyword breakdown). A per-role maxBullets overrides
+ * the ladder. These are ceilings, not quotas — see buildResumeConstraintsBlock.
+ */
+export function computeBulletBudget(options: ResumeBuildOptions, careerJourney: any, keywords?: KeywordSignal[]): Record<string, number> {
   const ladder = BULLET_LADDER[options.pageTarget] ?? BULLET_LADDER[2];
+  const relevance = roleRelevance(keywords, careerJourney);
   const budget: Record<string, number> = {};
   rolesRecentFirst(careerJourney)
     .filter((role) => role?.id && roleMode(options, role.id) === 'full')
-    .forEach((role, i) => {
+    .map((role, recency) => ({ role, recency, score: relevance[role.id] || 0 }))
+    .sort((a, b) => b.score - a.score || a.recency - b.recency)
+    .forEach(({ role }, i) => {
       const override = options.roles?.[role.id]?.maxBullets;
       budget[role.id] = override ?? ladder[Math.min(i, ladder.length - 1)];
     });
@@ -146,12 +191,21 @@ function achievementRoleIds(careerJourney: any, achievementId: string): string[]
   return [...ids];
 }
 
+/** Version changelog keys in meta ("version_3_2_changes") — history, not evidence. */
+const META_CHANGELOG_KEY = /^version_.*_changes$/;
+
 /**
  * The Career Journey as the resume prompts should see it: only 'full' roles
  * (their nested initiatives/deliverables go with them), minus achievements
  * tied exclusively to removed roles, minus the resume-preference fields that
  * only drive this module. Achievements with no role linkage are kept — there's
  * no way to tell which role they belong to.
+ *
+ * It also drops what isn't evidence: the links graph (keyword/skill/timeline
+ * cross-references) and meta's version changelogs. On a mature Career Journey
+ * those are close to half the prompt and crowd out the achievements the
+ * resume should be built from. The one link the writer needs — which role an
+ * achievement belongs to — is folded into each achievement's role_ids first.
  */
 export function projectCareerJourneyForResume(careerJourney: any, options: ResumeBuildOptions): any {
   if (!careerJourney) return careerJourney;
@@ -161,19 +215,33 @@ export function projectCareerJourneyForResume(careerJourney: any, options: Resum
   const roles = (careerJourney.roles || [])
     .filter((r: any) => !removed.has(r?.id))
     .map(({ resume_default: _omit, ...role }: any) => role);
-  const achievements = (careerJourney.achievements || []).filter((a: any) => {
+  const achievements = (careerJourney.achievements || []).flatMap((a: any) => {
     const linked = achievementRoleIds(careerJourney, a?.id);
-    return linked.length === 0 || linked.some((id) => !removed.has(id));
+    if (linked.length > 0 && linked.every((id) => removed.has(id))) return [];
+    return linked.length > 0 ? [{ ...a, role_ids: linked.filter((id) => !removed.has(id)) }] : [a];
   });
-  const projected: any = { ...careerJourney, roles, achievements };
+  const { links, meta, ...rest } = careerJourney;
+  const projected: any = { ...rest, roles, achievements };
+  if (meta && typeof meta === 'object') {
+    projected.meta = Object.fromEntries(Object.entries(meta).filter(([key]) => !META_CHANGELOG_KEY.test(key)));
+  }
+  if (Array.isArray(links?.deliverable_achievement) && links.deliverable_achievement.length > 0) {
+    projected.links = { deliverable_achievement: links.deliverable_achievement };
+  }
   if (careerJourney.person) {
     const { resume_preferences: _omit, ...person } = careerJourney.person;
     projected.person = person;
   }
-  if (Array.isArray(careerJourney.links?.timeline_mappings)) {
-    projected.links = { ...careerJourney.links, timeline_mappings: careerJourney.links.timeline_mappings.filter((m: any) => !removed.has(m?.role_id)) };
-  }
   return projected;
+}
+
+/**
+ * The whole Career Journey minus the same non-evidence noise (links graph,
+ * meta changelogs) — for prompts that match JD keywords against every role,
+ * like the Rating stage's keyword breakdown.
+ */
+export function stripCareerJourneyNoise(careerJourney: any): any {
+  return projectCareerJourneyForResume(careerJourney, { pageTarget: 2, roles: {} });
 }
 
 function roleLine(role: any): string {
@@ -186,8 +254,8 @@ function roleLine(role: any): string {
  * prompt text. Lives in code, not the prompt template, so an admin override
  * of the instructional text can't drop the candidate's role selection.
  */
-export function buildResumeConstraintsBlock(options: ResumeBuildOptions, careerJourney: any, purpose: 'strategy' | 'resume'): string {
-  const budget = computeBulletBudget(options, careerJourney);
+export function buildResumeConstraintsBlock(options: ResumeBuildOptions, careerJourney: any, purpose: 'strategy' | 'resume', keywords?: KeywordSignal[]): string {
+  const budget = computeBulletBudget(options, careerJourney, keywords);
   const limits = sectionLimits(options.pageTarget);
   const recent = rolesRecentFirst(careerJourney);
   const full = recent.filter((r) => r?.id && roleMode(options, r.id) === 'full');
@@ -203,9 +271,15 @@ export function buildResumeConstraintsBlock(options: ResumeBuildOptions, careerJ
   ];
   if (full.length === 0) lines.push('  - (none — the candidate chose no full roles; leave experience empty)');
   if (purpose === 'resume') {
-    lines.push('- Order each role\'s bullets strongest-first for this JD, so trimming from the end loses the least.');
+    lines.push(
+      '- Bullet limits are ceilings, not targets. Fewer proven bullets beat filler: every bullet should rest on a specific deliverable or achievement in the Career Journey and cite it in evidenceRefs. Never pad a role with generic duties ("managed agile delivery", "coordinated with stakeholders") to reach a limit.',
+      '- Order each role\'s bullets strongest-first for this JD, so trimming from the end loses the least.'
+    );
   }
-  lines.push(`- Summary: at most ${limits.summaryWords} words. Skills: at most ${limits.skillRows} category rows.`);
+  lines.push(
+    `- Summary: at most ${limits.summaryWords} words, written as 3–5 complete sentences (no telegraphic fragments or keyword lists). Include the candidate's strongest quantified outcome for this JD with its real numbers exactly as the Career Journey states them.`,
+    `- Skills: at most ${limits.skillRows} category rows. Rows list skills, tools and methods only — never a JD sentence, an audience ("CTOs"), or a slogan.`
+  );
   if (condensed.length > 0) {
     lines.push(
       '- These earlier roles appear on the resume only as one-line entries the app adds itself. Do not write experience entries, bullets, or roleStrategies for them; you may count their tenure toward total years of experience:',
@@ -242,21 +316,42 @@ export function buildEarlierExperience(options: ResumeBuildOptions, careerJourne
     .map((r) => ({ roleId: r.id, company: roleCompany(r), title: r.title || '', dates: condensedRoleDates(r) }));
 }
 
+function hasEvidence(bullet: { evidenceRefs?: EvidenceRef[] } | string): boolean {
+  return typeof bullet !== 'string' && (bullet?.evidenceRefs?.length ?? 0) > 0;
+}
+
+/** Cuts a role's bullets down to `max`, dropping uncited bullets (from the end) before any cited one. Order is otherwise kept. */
+export function trimBullets<T extends { evidenceRefs?: EvidenceRef[] } | string>(bullets: T[], max: number): T[] {
+  const out = [...bullets];
+  while (out.length > max) {
+    let drop = -1;
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!hasEvidence(out[i])) { drop = i; break; }
+    }
+    out.splice(drop === -1 ? out.length - 1 : drop, 1);
+  }
+  return out;
+}
+
 /**
  * Hard guarantee applied to the model's output: drops experience entries for
- * any role that isn't 'full' (or duplicates), caps bullets to the budget by
- * trimming from the end, orders roles most recent first, and rebuilds
- * earlierExperience from the Career Journey. Entries that can't be matched to
- * any role are kept (better than silently losing real work) but reported.
+ * any role that isn't 'full' (or duplicates), caps bullets to the budget
+ * (uncited bullets go first), orders roles most recent first, and rebuilds
+ * earlierExperience from the Career Journey. Dates, name and contact line are
+ * rewritten from the Career Journey too, so the model can't leak ISO dates or
+ * an unformatted phone number. Entries that can't be matched to any role are
+ * kept (better than silently losing real work) but reported.
  */
 export function enforceResumeConstraints(
   resume: GeneratedResume,
   options: ResumeBuildOptions,
-  careerJourney: any
+  careerJourney: any,
+  keywords?: KeywordSignal[]
 ): { resume: GeneratedResume; warnings: string[] } {
   const warnings: string[] = [];
-  const budget = computeBulletBudget(options, careerJourney);
+  const budget = computeBulletBudget(options, careerJourney, keywords);
   const order = new Map<string, number>(rolesRecentFirst(careerJourney).map((r, i) => [r.id, i]));
+  const rolesById = new Map<string, any>((careerJourney?.roles || []).filter((r: any) => r?.id).map((r: any) => [r.id, r]));
   const seen = new Set<string>();
   const kept: { entry: GeneratedResume['experience'][number]; rank: number }[] = [];
 
@@ -279,12 +374,23 @@ export function enforceResumeConstraints(
     const max = budget[roleId] ?? MAX_BULLETS_PER_ROLE;
     const bullets = entry.bullets || [];
     if (bullets.length > max) warnings.push(`Trimmed "${entry.company}" from ${bullets.length} to ${max} bullets.`);
-    kept.push({ entry: { ...entry, roleId, bullets: bullets.slice(0, max) }, rank: order.get(roleId) ?? Number.MAX_SAFE_INTEGER });
+    const dates = formatRoleDates(rolesById.get(roleId)) ?? entry.dates;
+    kept.push({ entry: { ...entry, roleId, dates, bullets: trimBullets(bullets, max) }, rank: order.get(roleId) ?? Number.MAX_SAFE_INTEGER });
   }
 
   kept.sort((a, b) => a.rank - b.rank);
+  const person = careerJourney?.person;
+  const contactInfo = person && (person.email || person.phone) ? formatContactLine(person) : resume?.contactInfo;
+  const education = (resume?.education || []).map((ed) => ({ ...ed, graduationDate: formatResumeDate(ed.graduationDate) ?? ed.graduationDate }));
   return {
-    resume: { ...resume, experience: kept.map((k) => k.entry), earlierExperience: buildEarlierExperience(options, careerJourney) },
+    resume: {
+      ...resume,
+      ...(person?.name ? { name: person.name } : {}),
+      contactInfo,
+      education,
+      experience: kept.map((k) => k.entry),
+      earlierExperience: buildEarlierExperience(options, careerJourney),
+    },
     warnings,
   };
 }

@@ -1,0 +1,59 @@
+Blitzy is a Cambridge, MA based AI software development platform on a mission to revolutionize the software development life cycle by autonomously building custom software to unlock the next industrial revolution. We're transforming how enterprises build software, turning enterprise requirements into enterprise grade code with an agentic software development platform that can autonomously execute 80% of the quantum of software development work. We're backed by multiple tier 1 investors, and have proven success as founders of previous start-ups.
+
+Our Culture
+
+Who we are:
+
+Led by two pioneering co-founders we are one of the fastest growing companies in the U.S., creating our own category of enterprise autonomous software development. We automate thousands of hours of software development for our customers, which includes strong representation within the Fortune 500.
+
+How we work:
+
+    We move Blitzy Fast: Time is both our company's and our clients' most precious asset. We move quickly and decisively to innovate internally and deliver exceptional software externally.
+
+    Championship Mindset: We operate like a professional sports team. We win as a team by holding ourselves and each other to high standards, collaborating in-person, and remaining focused on the mission.
+
+    Passion for Invention: We're pushing the frontier of what's possible, requiring constant innovation and iteration.
+
+    We Work for the Customer: We focus on delivering outsized value to the customers we work with and expanding those relationships into deep, meaningful partnerships.
+
+About the Role
+
+We are hiring a Senior Solution Consultant to engage, educate, and close prospective customers looking to modernize their software development with AI. You will work directly with engineering leaders, CTOs, and technical teams at enterprise companies to drive customer acquisition and revenue growth.
+
+Responsibilities
+
+    Act as the technical advisor for Enterprise customers evaluating Blitzy — running proofs-of-concept that demonstrate measurable business impact and helping them integrate Blitzy into their existing development environments
+
+    Lead technical discussions on software architecture, CI/CD, cloud infrastructure, APIs, and developer workflows
+
+    Deliver compelling demos to Senior Developers, CTOs, and CIOs that convert technical curiosity into commercial momentum
+
+    Run proofs-of-concept that demonstrate measurable business impact, and help customers integrate Blitzy into their existing development environments
+
+    Build trusted advisor relationships with technical stakeholders and executives
+
+    Drive post-sale adoption and expansion, ensuring customers grow Blitzy usage across teams and products
+
+    Serve as the technical conduit between our CTO, AI Engineering team, and the customer's experience on the platform — partnering closely with Sales, Product, and Engineering throughout the customer lifecycle
+
+    Translate customer feedback into product improvements and roadmap insights
+
+    Track and optimize your pipeline with precision, learning from every win and loss to sharpen your approach
+
+Qualifications
+
+    7+ years in software engineering, solutions consulting, solutions architecture, or technical leadership
+
+    Deep understanding of enterprise software development and modern engineering practices, with direct experience across cloud infrastructure, APIs, DevOps, CI/CD, and microservices
+
+    Ability to communicate technical concepts clearly to both engineers and executives
+
+    Proven problem-solving skills, with experience operating in fast-paced environments and complex enterprise technical environments
+
+    Hands-on experience with AI/ML technologies or AI-driven products, ideally in enterprise SaaS or developer tooling
+
+    Background helping companies modernize engineering workflows
+
+    Previous experience at companies like Microsoft, Google, AWS, Salesforce, or enterprise consultancies
+
+Compensation: $160,000 - $215,000 + Uncapped Commission + Equity

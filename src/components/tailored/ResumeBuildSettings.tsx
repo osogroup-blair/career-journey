@@ -60,7 +60,7 @@ export default function ResumeBuildSettings({ job, value, onChange }: {
   const updateCareerJourneyPerson = useStore((s) => s.updateCareerJourneyPerson);
 
   const roles = useMemo(() => rolesRecentFirst(careerJourney).filter((r) => r?.id), [careerJourney]);
-  const budget = useMemo(() => computeBulletBudget(value, careerJourney), [value, careerJourney]);
+  const budget = useMemo(() => computeBulletBudget(value, careerJourney, job.keywords), [value, careerJourney, job.keywords]);
   const savedPageTarget = resumePreferences(careerJourney).pageTarget;
 
   const counts = roles.reduce(

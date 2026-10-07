@@ -5,12 +5,16 @@ import {
   condensedRoleDates,
   defaultBuildOptions,
   enforceResumeConstraints,
+  formatResumeDate,
+  formatRoleDates,
   keywordsAtRisk,
   normalizeResumeBuildOptions,
   projectCareerJourneyForResume,
   resolveExperienceRoleId,
   rolesRecentFirst,
+  trimBullets,
 } from '../../src/lib/resumeBuild';
+import { formatPhone } from '../../src/lib/utils';
 import { addBullet, condenseRole, moveBullet, removeBullet, replaceRoleEntry, restoreEarlier, updateBullet } from '../../src/lib/resumeEdits';
 import type { GeneratedResume, KeywordSignal, ResumeBuildOptions } from '../../src/types';
 
@@ -47,11 +51,15 @@ describe('roles and defaults', () => {
     expect(rolesRecentFirst(careerJourney()).map((r) => r.id)).toEqual(['ROLE-001', 'ROLE-002', 'ROLE-003', 'ROLE-000']);
   });
 
-  it('condenses roles that ended more than 15 years ago when no preference is saved', () => {
-    const opts = defaultBuildOptions(careerJourney(), NOW);
+  it('condenses roles that ended more than 10 years ago when no preference is saved', () => {
+    const cj = careerJourney();
+    cj.person.resume_preferences = {};
+    cj.roles.push({ id: 'ROLE-OLD', organization: 'Stark', title: 'Dev', start_date: '2012-01', end_date: '2014-12', initiatives: [] });
+    const opts = defaultBuildOptions(cj, NOW);
     expect(opts.pageTarget).toBe(2);
     expect(opts.roles['ROLE-000'].mode).toBe('condensed');
-    expect(opts.roles['ROLE-003'].mode).toBe('full');
+    expect(opts.roles['ROLE-OLD'].mode).toBe('condensed'); // ended 12 years ago
+    expect(opts.roles['ROLE-003'].mode).toBe('full'); // ended 8 years ago
   });
 
   it('prefers a role resume_default, then the condense-before-year preference', () => {
@@ -104,6 +112,20 @@ describe('computeBulletBudget', () => {
     expect(computeBulletBudget(opts, careerJourney())).toEqual({ 'ROLE-001': 5, 'ROLE-003': 4 });
   });
 
+  it('gives the top rungs to the roles that evidence the most JD keywords', () => {
+    const kw = (phrase: string, refs: any[], critical = false, status = 'EVIDENCED'): KeywordSignal =>
+      ({ id: phrase, phrase, category: 'Critical skill', jdImportance: 'High', evidenceStatus: status, evidenceRefs: refs, jdRefs: [], whatCouldCount: '', recognitionPrompt: '', resumePriority: '', isTopCritical: critical }) as KeywordSignal;
+    const keywords = [
+      kw('Routing', [{ type: 'deliverable', id: 'DEL-2' }], true),
+      kw('Ops', [{ type: 'achievement', id: 'ACH-4' }]),
+      kw('Analytics', [{ type: 'deliverable', id: 'DEL-1' }]),
+      kw('Unsupported', [{ type: 'role', id: 'ROLE-003' }, { type: 'role', id: 'ROLE-000' }], true, 'NOT SUPPORTED'),
+    ];
+    // ROLE-002 scores 3, ROLE-001 scores 1; the rest tie at 0 and keep recency order.
+    expect(computeBulletBudget(all(2), careerJourney(), keywords)).toEqual({ 'ROLE-002': 6, 'ROLE-001': 5, 'ROLE-003': 4, 'ROLE-000': 4 });
+    expect(computeBulletBudget(all(2), careerJourney(), [])).toEqual(computeBulletBudget(all(2), careerJourney()));
+  });
+
   it('honors a per-role override', () => {
     const opts: ResumeBuildOptions = { pageTarget: 2, roles: { 'ROLE-001': { mode: 'full', maxBullets: 2 } } };
     expect(computeBulletBudget(opts, careerJourney())['ROLE-001']).toBe(2);
@@ -118,11 +140,75 @@ describe('projectCareerJourneyForResume', () => {
     expect(projected.roles.map((r: any) => r.id).sort()).toEqual(['ROLE-001', 'ROLE-003']);
     expect(JSON.stringify(projected)).not.toContain('DEL-2');
     expect(projected.achievements.map((a: any) => a.id)).toEqual(['ACH-1', 'ACH-3']);
-    expect(projected.links.timeline_mappings).toEqual([]);
+    expect(projected.links).toBeUndefined();
     expect(projected.person.resume_preferences).toBeUndefined();
     // The input is untouched.
     expect(cj.roles).toHaveLength(4);
     expect(cj.person.resume_preferences).toBeDefined();
+  });
+});
+
+describe('projectCareerJourneyForResume noise stripping', () => {
+  it('folds timeline-linked roles into achievements, then drops the links graph and meta changelogs', () => {
+    const cj = careerJourney();
+    cj.meta = { version: '3.54', owner: 'Pat', version_3_2_changes: ['x'], version_3_54_changes: ['y'] };
+    cj.links.keywords = [{ term: 'SQL', entity_id: 'ROLE-001' }];
+    cj.links.deliverable_achievement = [{ achievement_id: 'ACH-1', deliverable_id: 'DEL-1' }];
+    const projected = projectCareerJourneyForResume(cj, { pageTarget: 2, roles: {} });
+    expect(projected.meta).toEqual({ version: '3.54', owner: 'Pat' });
+    expect(projected.links).toEqual({ deliverable_achievement: [{ achievement_id: 'ACH-1', deliverable_id: 'DEL-1' }] });
+    expect(projected.achievements.find((a: any) => a.id === 'ACH-4').role_ids).toEqual(['ROLE-002']);
+    expect(projected.achievements.find((a: any) => a.id === 'ACH-3').role_ids).toBeUndefined();
+    expect(cj.links.timeline_mappings).toHaveLength(1); // input untouched
+  });
+});
+
+describe('dates, contact line and trimming', () => {
+  it('formats Career Journey dates as full month-year', () => {
+    expect(formatResumeDate('2026-03')).toBe('March 2026');
+    expect(formatResumeDate('2015-07-14')).toBe('July 2015');
+    expect(formatResumeDate('2015')).toBe('2015');
+    expect(formatResumeDate('Present')).toBe('Present');
+    expect(formatResumeDate('2015-13')).toBeNull();
+    expect(formatResumeDate('Spring 2015')).toBeNull();
+    expect(formatRoleDates({ start_date: '2022-02', end_date: '2026-03' })).toBe('February 2022 – March 2026');
+    expect(formatRoleDates({ start_date: '2026-03', end_date: 'Present' })).toBe('March 2026 – Present');
+    expect(formatRoleDates({ dates: 'Jun 2018 – Feb 2022' })).toBeNull();
+  });
+
+  it('formats bare 10-digit US phone numbers and leaves others alone', () => {
+    expect(formatPhone('6165401669')).toBe('616.540.1669');
+    expect(formatPhone('+1 (616) 540-1669')).toBe('616.540.1669');
+    expect(formatPhone('+44 20 7946 0958')).toBe('+44 20 7946 0958');
+    expect(formatPhone('555-0100 ext 2')).toBe('555-0100 ext 2');
+  });
+
+  it('drops uncited bullets before cited ones when trimming', () => {
+    const b = [
+      { text: 'a', evidenceRefs: [{ type: 'achievement' as const, id: 'ACH-1' }] },
+      { text: 'filler 1' },
+      { text: 'c', evidenceRefs: [{ type: 'achievement' as const, id: 'ACH-2' }] },
+      { text: 'filler 2' },
+    ];
+    expect(trimBullets(b, 3).map((x) => x.text)).toEqual(['a', 'filler 1', 'c']);
+    expect(trimBullets(b, 2).map((x) => x.text)).toEqual(['a', 'c']);
+    expect(trimBullets(b, 1).map((x) => x.text)).toEqual(['a']);
+    expect(trimBullets(b, 9)).toHaveLength(4);
+  });
+
+  it('rewrites dates, name and contact line from the Career Journey', () => {
+    const cj = careerJourney();
+    Object.assign(cj.person, { location: 'Telluride, CO', phone: '6165401669', email: 'pat@example.com' });
+    const generated = {
+      ...resume([{ roleId: 'ROLE-001', company: 'Meridian Cloudworks', title: 'Senior PM', dates: '2022-03 - Present', location: '', bullets: bullets(1) }]),
+      contactInfo: 'whatever the model wrote',
+      education: [{ institution: 'MSOE', degree: 'BS', graduationDate: '2010-05' }, { institution: 'X', degree: 'Y', graduationDate: '2005 - 2010' }],
+    };
+    const { resume: out } = enforceResumeConstraints(generated, { pageTarget: 2, roles: {} }, cj);
+    expect(out.name).toBe('Pat Doe');
+    expect(out.contactInfo).toBe('Telluride, CO  •  616.540.1669  •  pat@example.com');
+    expect(out.experience[0].dates).toBe('March 2022 – Present');
+    expect(out.education.map((e) => e.graduationDate)).toEqual(['May 2010', '2005 - 2010']);
   });
 });
 
@@ -171,6 +257,9 @@ describe('buildResumeConstraintsBlock', () => {
     expect(block).not.toContain('Fernbank');
     expect(block).toContain('Analyst, Old Co');
     expect(block).toContain('Lead with analytics');
+    expect(block).toContain('ceilings, not targets');
+    expect(block).toContain('at most 110 words');
+    expect(buildResumeConstraintsBlock(opts, careerJourney(), 'strategy')).not.toContain('ceilings, not targets');
   });
 });
 

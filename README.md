@@ -160,7 +160,7 @@ server/
   knowledge/*.md              # The job-pipeline AI's own "skill" files (JD parsing, ATS, voice, cover letters)
   firebaseAdmin.ts            # Firebase Admin SDK init + requireFirebaseAuth/requireAdmin middleware
   docxBuilder.ts              # Resume/cover-letter .docx generation
-  scripts/                    # npm run seed:demo | set:admin | verify:ai | seed:allowedModels | backlog:pull | cleanup:users
+  scripts/                    # npm run seed:demo | set:admin | verify:ai | eval:resume | seed:allowedModels | backlog:pull | cleanup:users
 src/
   App.tsx                    # Route table (see ARCHITECTURE.md for the full list)
   store.ts                   # Zustand store: job/journey/billing/admin state + the runAiTask() choke point

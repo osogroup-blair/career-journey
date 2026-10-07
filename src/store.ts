@@ -336,8 +336,8 @@ export const useStore = create<AppState>((set, get) => {
       get().runAiTask(jobId, 'generateTailoredApplication', label, async () => {
         const careerJourney = get().careerJourney;
         const options = job.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
-        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, options, remediation);
-        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!, options, remediation);
+        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, job.keywords, options, remediation);
+        const resume = await aiClient.generateFullResume(careerJourney, resumeStrategy, job.parse!, job.contextEntries || {}, job.keywords, options, remediation);
         return { resumeBuildOptions: options, resumeStrategy, resume };
       });
     },
@@ -348,7 +348,7 @@ export const useStore = create<AppState>((set, get) => {
       get().runAiTask(jobId, 'resumeStrategy', 'Drafting resume plan', async () => {
         const careerJourney = get().careerJourney;
         const options = job.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
-        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, options);
+        const resumeStrategy = await aiClient.generateResumeStrategy(job.parse!, careerJourney, job.contextEntries || {}, job.keywords, options);
         return { resumeBuildOptions: options, resumeStrategy };
       });
     },
@@ -361,7 +361,7 @@ export const useStore = create<AppState>((set, get) => {
         // Read at run time so edits saved on the Strategy Review screen just before clicking are included.
         const current = get().jobs[jobId] ?? job;
         const options = current.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
-        const resume = await aiClient.generateFullResume(careerJourney, current.resumeStrategy!, current.parse!, options);
+        const resume = await aiClient.generateFullResume(careerJourney, current.resumeStrategy!, current.parse!, current.contextEntries || {}, current.keywords, options);
         return { resumeBuildOptions: options, resume };
       });
     },
@@ -373,7 +373,7 @@ export const useStore = create<AppState>((set, get) => {
       get().runAiTask(jobId, resumeSectionTaskKind(section), label, async () => {
         const careerJourney = get().careerJourney;
         const options = job.resumeBuildOptions ?? defaultBuildOptions(careerJourney);
-        const result = await aiClient.regenerateResumeSection(section, instruction, job.resume!, job.resumeStrategy, job.parse!, careerJourney, options);
+        const result = await aiClient.regenerateResumeSection(section, instruction, job.resume!, job.resumeStrategy, job.parse!, careerJourney, job.contextEntries || {}, job.keywords, options);
         // Merge into the resume as it is *now* — the user may have kept editing other sections while this ran.
         const latest = get().jobs[jobId] ?? job;
         const base = latest.resume ?? job.resume!;
