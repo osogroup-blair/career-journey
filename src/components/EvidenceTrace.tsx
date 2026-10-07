@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EvidenceRef, JdRef } from '../types';
 import { Link2, X } from 'lucide-react';
+import { editPathFor } from '../lib/journeySections';
 
 function resolveEvidenceRef(careerJourney: any, ref: EvidenceRef): { label: string; snippet: string } | null {
   if (!careerJourney) return null;
@@ -103,7 +104,7 @@ export default function EvidenceTrace({ evidenceRefs, jdRefs, jdSegments, career
               {resolvedEvidence.map(({ ref, resolved }) => (
                 <button
                   key={`${ref.type}-${ref.id}`}
-                  onClick={() => navigate('/edit')}
+                  onClick={() => navigate(editPathFor(careerJourney, ref.type, ref.id))}
                   className="w-full text-left text-xs bg-emerald-50 border border-emerald-100 rounded p-2 mb-1 leading-relaxed hover:bg-emerald-100 transition-colors"
                 >
                   <span className="font-bold text-emerald-800">{resolved!.label}</span>

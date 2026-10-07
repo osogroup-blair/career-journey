@@ -155,7 +155,7 @@ export default function Dashboard() {
   };
 
   const goEdit = (roleId?: string) => {
-    navigate('/edit', roleId ? { state: { roleId } } : undefined);
+    navigate(roleId ? `/edit?section=roles&item=${encodeURIComponent(roleId)}` : '/edit');
   };
 
   return (

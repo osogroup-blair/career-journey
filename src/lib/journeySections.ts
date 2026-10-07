@@ -117,6 +117,7 @@ export function isSectionId(value: string | null | undefined): value is SectionI
   return !!value && value in SECTION_BY_ID;
 }
 
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 const str = (v: any) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 const haystack = (...parts: any[]) =>
   parts
@@ -185,7 +186,7 @@ export function buildSectionItems(cj: any): Record<SectionId, SectionItem[]> {
       section: 'roles',
       title: role.title || 'Untitled role',
       subtitle: [org, role.dates || [role.start_date, role.end_date].filter(Boolean).join(' - ')].filter(Boolean).join(' · '),
-      badges: [`${(role.initiatives || []).length} projects`],
+      badges: [plural((role.initiatives || []).length, 'project')],
       text: haystack(role.id, role.title, org, role.location, role.dates, role.description, role.positioning_note, role.company_descriptor, names(role.skills)),
       facets: { organization: org ? [org] : [] },
       attention: attention.get(role.id),
@@ -199,7 +200,7 @@ export function buildSectionItems(cj: any): Record<SectionId, SectionItem[]> {
         section: 'projects',
         title: initiative.name || 'Untitled project',
         subtitle: roleLabel(role),
-        badges: [`${deliverables.length} deliverable${deliverables.length === 1 ? '' : 's'}`],
+        badges: [plural(deliverables.length, 'deliverable')],
         text: haystack(
           initiative.id,
           initiative.name,
@@ -321,4 +322,36 @@ export function facetValues(items: SectionItem[], key: string): { value: string;
 export function sectionForId(items: Record<SectionId, SectionItem[]>, id: string): SectionId | null {
   for (const section of SECTIONS) if (items[section.id].some((i) => i.id === id)) return section.id;
   return null;
+}
+
+const ENTITY_SECTION: Record<string, SectionId> = {
+  role: 'roles',
+  initiative: 'projects',
+  project: 'projects',
+  achievement: 'achievements',
+  skill: 'skills',
+  capability: 'capabilities',
+  education: 'education',
+  certification: 'certifications',
+  methodology: 'methodologies',
+  engagement: 'engagements',
+};
+
+/**
+ * Route to the Simple editor with one entity open, e.g. `/edit?section=skills&item=SK-001`.
+ * Deliverables have no section of their own, so they open their project.
+ */
+export function editPathFor(cj: any, entityType: string, id: string): string {
+  let section = ENTITY_SECTION[entityType];
+  let item = id;
+  if (entityType === 'deliverable') {
+    section = 'projects';
+    for (const role of cj?.roles || []) {
+      for (const initiative of role.initiatives || []) {
+        if ((initiative.deliverables || []).some((d: any) => d.id === id)) item = initiative.id;
+      }
+    }
+  }
+  if (!section) return '/edit';
+  return `/edit?${new URLSearchParams({ section, item }).toString()}`;
 }

@@ -3,7 +3,8 @@ import { ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 import { Card, Pagination, SearchInput } from '../../components/ui';
 import { cn } from '../../lib/utils';
 import { facetValues, type SectionDef, type SectionItem } from '../../lib/journeySections';
-import { highlightParts, searchItems } from '../../lib/journeySearch';
+import { searchItems } from '../../lib/journeySearch';
+import { Highlight } from '../../components/journey/Highlight';
 import { paginate, pageOfIndex } from '../../lib/pagination';
 import { useEditor } from './EditorContext';
 
@@ -17,22 +18,6 @@ export interface ListState {
   attentionOnly: boolean;
   expandedId: string | null;
   flashId: string | null;
-}
-
-export function Highlight({ text, query }: { text: string; query: string }) {
-  return (
-    <>
-      {highlightParts(text, query).map((p, i) =>
-        p.hit ? (
-          <mark key={i} className="bg-amber-100 text-inherit rounded-sm px-0.5">
-            {p.text}
-          </mark>
-        ) : (
-          <React.Fragment key={i}>{p.text}</React.Fragment>
-        )
-      )}
-    </>
-  );
 }
 
 export function SectionList({

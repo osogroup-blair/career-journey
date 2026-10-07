@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import demo from '../demo/demoCareerJourney.json';
-import { buildSectionItems, facetValues, sectionForId } from '../journeySections';
+import { buildSectionItems, facetValues, sectionForId, editPathFor } from '../journeySections';
 import { searchItems, searchAll, highlightParts, tokenize } from '../journeySearch';
 import { paginate, pageOfIndex } from '../pagination';
 
@@ -88,5 +88,13 @@ describe('paginate', () => {
   it('finds the page for an index', () => {
     expect(pageOfIndex(0, 20)).toBe(1);
     expect(pageOfIndex(40, 20)).toBe(3);
+  });
+});
+
+describe('editPathFor', () => {
+  it('links entities to their section, and deliverables to their project', () => {
+    expect(editPathFor(demo, 'skill', 'SK-001')).toBe('/edit?section=skills&item=SK-001');
+    expect(editPathFor(demo, 'deliverable', 'DEL-003')).toBe('/edit?section=projects&item=INIT-002');
+    expect(editPathFor(demo, 'unknown', 'X-1')).toBe('/edit');
   });
 });

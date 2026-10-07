@@ -3,6 +3,7 @@ import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-do
 import {
   ChevronLeft,
   ArrowUpRight,
+  Search,
   Plus,
   UserRound,
   Briefcase,
@@ -29,6 +30,7 @@ import { AchievementEditor } from './editJourney/AchievementEditor';
 import { SkillEditor } from './editJourney/SkillEditor';
 import { CapabilityEditor } from './editJourney/CapabilityEditor';
 import { EducationEditor, CertificationEditor, MethodologyEditor, EngagementEditor } from './editJourney/ListEditors';
+import { JourneySearchPalette } from '../components/JourneySearchPalette';
 
 /**
  * Simple Career Journey editor. One section at a time, each a searchable, paginated
@@ -118,6 +120,46 @@ function AddControl({ section, facets }: { section: SectionId; facets: Record<st
       <Button size="sm" variant="outline" className="bg-white whitespace-nowrap" onClick={add} disabled={section === 'projects' && !targetRole}>
         <Plus className="w-3.5 h-3.5 mr-1 text-brand-600" /> Add {SECTION_BY_ID[section].singular.toLowerCase()}
       </Button>
+    </>
+  );
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/** Header button + Cmd/Ctrl-K palette that searches every section. */
+function GlobalSearch() {
+  const { items, open } = useEditor();
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setVisible((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setVisible(true)}
+        className="flex items-center gap-2 h-9 w-full sm:w-72 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-400 hover:border-slate-300"
+      >
+        <Search className="w-4 h-4" />
+        <span className="flex-1 text-left">Search everything…</span>
+        <kbd className="text-[10px] font-semibold text-slate-400 border border-slate-200 rounded px-1.5 py-0.5">{IS_MAC ? '⌘' : 'Ctrl'} K</kbd>
+      </button>
+      <JourneySearchPalette
+        open={visible}
+        onClose={() => setVisible(false)}
+        items={items}
+        onOpenItem={(section, id) => open(section, id)}
+        onOpenSection={(section, query) => open(section, undefined, query)}
+      />
     </>
   );
 }
@@ -240,11 +282,12 @@ export default function EditJourney() {
   ) as (patch: Partial<ListState>) => void;
 
   const open = useCallback(
-    (target: SectionId, itemId?: string) => {
+    (target: SectionId, itemId?: string, query?: string) => {
       setParams((prev) => {
         const next = new URLSearchParams();
         next.set('section', target);
         if (itemId) next.set('item', itemId);
+        if (query) next.set('q', query);
         const size = prev.get('size');
         if (size) next.set('size', size);
         return next;
@@ -255,7 +298,7 @@ export default function EditJourney() {
       else window.scrollTo({ top: 0 });
     },
     [setParams]
-  ) as (target: SectionId, itemId?: string) => void;
+  ) as (target: SectionId, itemId?: string, query?: string) => void;
 
   useEffect(() => () => clearTimeout(flashTimer.current), []);
 
@@ -291,9 +334,12 @@ export default function EditJourney() {
               <h1 className="text-2xl font-extrabold text-slate-900">Edit Career Journey</h1>
               <p className="text-sm text-slate-500 mt-1">Changes save automatically as you move between fields.</p>
             </div>
-            <Link to="/journey" className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1" title="Links, vocabularies, changelog and raw JSON">
-              Advanced editor <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="flex flex-col sm:items-end gap-2">
+              <GlobalSearch />
+              <Link to="/journey" className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1" title="Links, vocabularies, changelog and raw JSON">
+                Advanced editor <ArrowUpRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
         </div>
 

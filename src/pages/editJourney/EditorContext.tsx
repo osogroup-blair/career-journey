@@ -16,8 +16,8 @@ export interface EditorContextValue {
   lookups: JourneyLookups;
   items: Record<SectionId, SectionItem[]>;
   mutate: <T>(recipe: (draft: any, ids: mutations.IdAlloc) => T) => T | undefined;
-  /** Navigate to a section, optionally opening one item. */
-  open: (section: SectionId, itemId?: string) => void;
+  /** Navigate to a section, optionally opening one item or pre-filling the search. */
+  open: (section: SectionId, itemId?: string, query?: string) => void;
   options: { skills: PickerOption[]; roles: PickerOption[]; capabilities: PickerOption[] };
   vocab: typeof FALLBACK_VOCAB;
   /** Distinct existing values, for free-text suggestions. */
