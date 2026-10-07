@@ -144,6 +144,18 @@ export default function StrategyReview({ strategy, options, onChange }: {
           </Card>
         )}
 
+        {(strategy.omitKeywords || []).length > 0 && (
+          <Card>
+            <CardHeader className="border-b pb-4">
+              <CardTitle className="text-base">Won't claim</CardTitle>
+              <p className="text-xs text-slate-500 mt-0.5">The JD asks for these, but your Career Journey has no evidence for them, so the resume leaves them out. If you do have the experience, add it with "I have this" on the Rating stage's Keyword Breakdown and rebuild.</p>
+            </CardHeader>
+            <CardContent className="pt-4 flex flex-wrap gap-1">
+              {strategy.omitKeywords!.map((k) => <Badge key={k} variant="outline" className="text-[11px] font-normal text-slate-500 line-through decoration-slate-300">{k}</Badge>)}
+            </CardContent>
+          </Card>
+        )}
+
         {(strategy.keywordPlacement || []).length > 0 && (
           <Card>
             <CardHeader className="border-b pb-4">

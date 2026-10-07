@@ -119,13 +119,13 @@ export function buildResumeKeywordBlock(
     lines.push(
       '- Plan where every USE keyword lands in keywordPlacement, in the JD\'s exact wording, and work the top-critical ones into headerTagline, executiveSummary, selectedOutcomes or the first skillRows.',
       '- USE IF SUPPORTED keywords go in the plan only where the Career Journey or the candidate-confirmed experience below honestly supports them.',
-      '- Every DO NOT CLAIM keyword goes in cautionClaims. Never list a keyword you are leaving out inside keywordPlacement.'
+      '- Every DO NOT CLAIM keyword goes in omitKeywords (with any warning about it in cautionClaims). Never list a keyword you are leaving out inside keywordPlacement.'
     );
   } else {
     lines.push(
       '- Use every USE keyword at least once in the JD\'s exact wording — in the summary, a skills row, or a bullet for the role its evidence comes from. Top-critical keywords belong in the summary or the strongest bullets of the most relevant role.',
       '- USE IF SUPPORTED keywords appear only where the Career Journey or the candidate-confirmed experience below honestly supports them.',
-      '- DO NOT CLAIM keywords stay out of the resume entirely, skills rows included. Also honor every cautionClaims entry in the Resume Strategy.',
+      '- DO NOT CLAIM keywords stay out of the resume entirely, skills rows included. Also leave out every term in the Resume Strategy\'s omitKeywords and honor every cautionClaims entry.',
       '- Keep the JD\'s wording but never the JD\'s claims: a keyword only goes where the candidate\'s real work backs it.',
       '- Mirror the JD\'s terms, never its sentences or slogans: a phrase like "convert technical curiosity into commercial momentum" copied from the JD reads as fake. Describe what the candidate actually did, in their own words, with the term placed inside.',
       '- A keyword\'s "or one of" forms are alternatives the ATS also accepts, not extra keywords. Use one form, preferring the JD\'s own phrase. Never list a term next to its variants ("solution consulting, solutions consulting, solution consultant") — the resume must read naturally to a recruiter, and stacked variants read as keyword stuffing.'

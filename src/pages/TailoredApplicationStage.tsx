@@ -3,16 +3,18 @@ import { useStore, resumeSectionTaskKind } from '../store';
 import { useParams } from 'react-router-dom';
 import FeatureGate from '../components/FeatureGate';
 import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge, useToast } from '../components/ui';
-import { ClassicTemplate, ModernTemplate, ExecutiveTemplate } from '../components/ResumeTemplates';
+import { ClassicTemplate, ModernTemplate, ExecutiveTemplate, ClaimHighlightContext } from '../components/ResumeTemplates';
+import ClaimReviewPanel, { ClaimActions } from '../components/tailored/ClaimReviewPanel';
+import { flagResumeClaims, openClaimFlags, flagItemKey, removeSkillTerm, ClaimFlag } from '../lib/resumeClaims';
 import ResumeBuildSettings from '../components/tailored/ResumeBuildSettings';
 import StrategyReview from '../components/tailored/StrategyReview';
 import { ResumeEditActions } from '../components/tailored/ResumeEditControls';
-import { ApplicationFormField, JobAnalysis, ResumeBuildOptions, ResumeStrategy } from '../types';
+import { ApplicationFormField, JobAnalysis, ResumeBuildOptions, ResumeSectionRef, ResumeStrategy } from '../types';
 import { generateId, formatContactLine, nameSlug, cn } from '../lib/utils';
 import { downloadExport } from '../lib/exportClient';
 import { scoreResumeKeywords, resumeFingerprint } from '../lib/resumeScore';
 import { defaultBuildOptions, resolveExperienceRoleId } from '../lib/resumeBuild';
-import { condenseRole } from '../lib/resumeEdits';
+import { condenseRole, removeBullet, removeOutcome, updateNarrative } from '../lib/resumeEdits';
 import { usePageEstimate } from '../hooks/usePageEstimate';
 import ResumeScorePanel from '../components/ResumeScorePanel';
 import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles, SlidersHorizontal, AlertTriangle, Loader2 } from 'lucide-react';
@@ -318,6 +320,73 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
   const overTarget = pages !== null && pages > pageTarget + 0.05;
 
   const onUpdate = (r: JobAnalysis['resume']) => updateJob(job.id, { resume: r });
+
+  // Honesty checks (resumeClaims.ts), rerun on every edit; "Keep" decisions persist on the job.
+  const allFlags = useMemo(
+    () => flagResumeClaims({ resume, careerJourney, keywords: job.keywords, contextEntries: job.contextEntries, jdText: job.jdText }),
+    [resume, careerJourney, job.keywords, job.contextEntries, job.jdText]
+  );
+  const flags = useMemo(() => openClaimFlags(allFlags, job.resumeClaimDecisions), [allFlags, job.resumeClaimDecisions]);
+  const keptCount = allFlags.length - flags.length;
+  const urgentFlags = flags.filter((f) => f.severity !== 'low').length;
+  const highlighted = useMemo(() => new Set(flags.map((f) => flagItemKey(f.location)).filter((k): k is string => !!k)), [flags]);
+  const roleIdAt = (roleIndex: number) => {
+    const entry = resume.experience[roleIndex];
+    return entry ? resolveExperienceRoleId(entry, careerJourney) : null;
+  };
+  const rewriteSection = (flag: ClaimFlag): ResumeSectionRef | null => {
+    const loc = flag.location;
+    if (loc.section === 'summary') return { kind: 'summary' };
+    if (loc.section === 'skills') return { kind: 'skills' };
+    if (loc.section === 'outcome') return null;
+    const roleId = roleIdAt(loc.roleIndex);
+    return roleId ? { kind: 'role', roleId } : null;
+  };
+  const rewriteInstruction = (flag: ClaimFlag): string => {
+    switch (flag.kind) {
+      case 'invented-number': return `Remove the figure "${flag.detail}": it isn't in my Career Journey. Use only numbers stated there, exactly as written; never compute or estimate one.`;
+      case 'jd-copy': return `Don't copy the job description's wording "${flag.detail}". Describe what I actually did, in plain words.`;
+      case 'unsupported-term': return `Don't claim "${flag.detail}": my Career Journey has no evidence for it.`;
+      case 'title-reframe': return `Keep my real title in the role title; "${flag.detail}" may overstate my scope.`;
+      default: return 'Base every bullet on a specific deliverable or achievement in my Career Journey and cite it in evidenceRefs.';
+    }
+  };
+  const claimActions: ClaimActions = {
+    onKeep: (flag) => updateJob(job.id, { resumeClaimDecisions: { ...(job.resumeClaimDecisions || {}), [flag.key]: 'kept' } }),
+    removeLabel: (flag) => {
+      const loc = flag.location;
+      if (loc.section === 'bullet') return 'Remove bullet';
+      if (loc.section === 'outcome') return 'Remove outcome';
+      if (loc.section === 'narrative') return 'Remove paragraph';
+      if (loc.section === 'skills' && flag.kind === 'unsupported-term') return 'Remove term';
+      if (loc.section === 'title' && flag.kind === 'title-reframe') return 'Use my real title';
+      return null;
+    },
+    onRemove: (flag) => {
+      const loc = flag.location;
+      if (loc.section === 'bullet') return onUpdate(removeBullet(resume, loc.roleIndex, loc.bulletIndex));
+      if (loc.section === 'outcome') return onUpdate(removeOutcome(resume, loc.index));
+      if (loc.section === 'narrative') return onUpdate(updateNarrative(resume, loc.roleIndex, ''));
+      if (loc.section === 'skills') {
+        const kw = (job.keywords || []).find((k) => k.phrase === flag.detail);
+        return onUpdate(removeSkillTerm(resume, loc.row, [flag.detail, ...(kw?.aliases || [])]));
+      }
+      if (loc.section === 'title') {
+        const role = (careerJourney?.roles || []).find((r: any) => r.id === roleIdAt(loc.roleIndex));
+        if (role?.title) onUpdate({ ...resume, experience: resume.experience.map((e, i) => (i === loc.roleIndex ? { ...e, title: role.title } : e)) });
+      }
+    },
+    rewriteSection,
+    onRewrite: (flag) => {
+      const section = rewriteSection(flag);
+      if (section) runRegenerateResumeSection(job.id, section, rewriteInstruction(flag));
+    },
+    isRewriting: (flag) => {
+      const section = rewriteSection(flag);
+      return !!section && isBusy(resumeSectionTaskKind(section));
+    },
+  };
+
   const actions: ResumeEditActions = {
     onRegenerateSection: (section, instruction) => runRegenerateResumeSection(job.id, section, instruction),
     isSectionBusy: (section) => isBusy(resumeSectionTaskKind(section)),
@@ -368,7 +437,12 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
           </div>
           <PageMeter pages={pages} target={pageTarget} />
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {urgentFlags > 0 && (
+            <span className="text-[11px] font-semibold text-amber-700" title="See Claims to review beside the resume">
+              {urgentFlags} claim{urgentFlags === 1 ? '' : 's'} to review
+            </span>
+          )}
           <Button variant="outline" size="sm" onClick={onOpenSettings} disabled={isRegenerating}>
             <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" /> {isRegenerating ? 'Regenerating…' : 'Regenerate…'}
           </Button>
@@ -420,12 +494,15 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
         <div ref={previewRef} className="bg-slate-200 rounded-xl p-6 overflow-auto flex-1 min-w-0 w-full">
           <div className="relative bg-white shadow-xl max-w-[8.5in] w-[8.5in] p-[0.5in] mx-auto text-black font-sans leading-relaxed" style={{ zoom: pageZoom }}>
             <div ref={contentRef}>
-              <Template resume={resume} tagline={tagline} onUpdate={onUpdate} careerJourney={careerJourney} actions={actions} />
+              <ClaimHighlightContext.Provider value={highlighted}>
+                <Template resume={resume} tagline={tagline} onUpdate={onUpdate} careerJourney={careerJourney} actions={actions} />
+              </ClaimHighlightContext.Provider>
             </div>
             {layout && <PageBreakMarkers breaks={layout.breaks} />}
           </div>
         </div>
-        <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0">
+        <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0 space-y-4">
+          <ClaimReviewPanel flags={flags} resume={resume} actions={claimActions} keptCount={keptCount} />
           <ResumeScorePanel
             job={job}
             coverage={coverage}

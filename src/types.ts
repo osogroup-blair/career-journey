@@ -159,6 +159,8 @@ export interface JobAnalysis {
   resume?: GeneratedResume;
   /** On-demand AI review of the tailored resume against the JD (Stage 7 gate + ats_tactics.md rubric). */
   resumeAiScore?: ResumeAiScore;
+  /** Claim flags (src/lib/resumeClaims.ts) the candidate chose to keep, by flag key — so they stop being raised. */
+  resumeClaimDecisions?: Record<string, 'kept'>;
   coverLetter?: CoverLetter;
 
   applicationAssistantTranscript?: { role: 'user' | 'assistant'; content: string }[];
@@ -327,6 +329,8 @@ export interface ResumeStrategy {
   skillRows: { label: string; content: string }[];
   keywordPlacement: { category: string; keywords: string[] }[];
   cautionClaims: string[];
+  /** JD terms the resume must not claim — no evidence in the Career Journey. Kept apart from keywordPlacement so a "leave out" group never reads as terms to place. Absent on strategies drafted before 2026-10. */
+  omitKeywords?: string[];
 }
 
 export interface KeywordCoverage {

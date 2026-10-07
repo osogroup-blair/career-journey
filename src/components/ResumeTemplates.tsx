@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import { GeneratedResume, ResumeExperienceEntry } from '../types';
 import { EditableText } from './EditableText';
 import EvidenceTrace from './EvidenceTrace';
@@ -17,6 +17,14 @@ interface TemplateProps {
   actions?: ResumeEditActions;
 }
 
+/**
+ * Items the Claims panel has open flags on, by flagItemKey ("b:<role>:<bullet>",
+ * "o:<index>", "n:<role>"). Provided by the editor only; the print page and
+ * read-only renders get the empty default, so exports never show highlights.
+ */
+export const ClaimHighlightContext = createContext<Set<string>>(new Set());
+const FLAGGED = 'bg-amber-50 outline outline-1 outline-amber-300 rounded-sm';
+
 /** Shared bullet renderer for all three templates — editable text, hover controls (move/delete/add), and an EvidenceTrace chip when the bullet cites real Career Journey evidence. Kept in one place so the three templates don't drift. */
 function BulletList({ resume, roleIndex, onUpdate, className, careerJourney, readOnly }: {
   resume: GeneratedResume;
@@ -27,12 +35,13 @@ function BulletList({ resume, roleIndex, onUpdate, className, careerJourney, rea
   readOnly?: boolean;
 }) {
   const bullets = resume.experience[roleIndex]?.bullets || [];
+  const flagged = useContext(ClaimHighlightContext);
   return (
     <>
       {bullets.map((raw, bi) => {
         const b = edits.normalizeBullet(raw);
         return (
-          <li key={bi} className={`break-inside-avoid ${className || ''} ${readOnly ? '' : 'relative group/bullet'}`}>
+          <li key={bi} className={`break-inside-avoid ${className || ''} ${readOnly ? '' : 'relative group/bullet'} ${!readOnly && flagged.has(`b:${roleIndex}:${bi}`) ? FLAGGED : ''}`}>
             <span className="inline-flex items-start gap-1.5 w-full">
               <span className="flex-1">
                 {b.lead && (
@@ -74,13 +83,14 @@ function OutcomesSection({ resume, onUpdate, readOnly, heading, className, listC
   itemClassName?: string;
 }) {
   const outcomes = resume.selectedOutcomes || [];
+  const flagged = useContext(ClaimHighlightContext);
   if (outcomes.length === 0) return null;
   return (
     <div className={className}>
       {heading}
       <ul className={listClassName}>
         {outcomes.map((o, i) => (
-          <li key={i} className={`break-inside-avoid ${itemClassName || ''} ${readOnly ? '' : 'relative group/bullet'}`}>
+          <li key={i} className={`break-inside-avoid ${itemClassName || ''} ${readOnly ? '' : 'relative group/bullet'} ${!readOnly && flagged.has(`o:${i}`) ? FLAGGED : ''}`}>
             {o.lead && (
               <>
                 <EditableText tagName="strong" readOnly={readOnly} value={o.lead} onChange={(v) => onUpdate(edits.updateOutcome(resume, i, { lead: v }))} className="font-semibold" />
@@ -113,9 +123,10 @@ function RoleNarrative({ resume, index, onUpdate, readOnly, className }: {
   className?: string;
 }) {
   const narrative = resume.experience[index]?.narrative;
+  const flagged = useContext(ClaimHighlightContext);
   if (!narrative) return null;
   return (
-    <EditableText tagName="p" multiline readOnly={readOnly} value={narrative} onChange={(v) => onUpdate(edits.updateNarrative(resume, index, v))} className={`break-inside-avoid ${className || ''}`} />
+    <EditableText tagName="p" multiline readOnly={readOnly} value={narrative} onChange={(v) => onUpdate(edits.updateNarrative(resume, index, v))} className={`break-inside-avoid ${className || ''} ${!readOnly && flagged.has(`n:${index}`) ? FLAGGED : ''}`} />
   );
 }
 

@@ -105,6 +105,22 @@ Findings and fixes along the way:
 - **Page fit:** with outcomes or narratives on, each entry loses one bullet per setting, and the summary cap drops to 80 words (45 for 1 page). Narratives are limited to 35 words, outcomes to 20, skills rows to 8 terms. The budget is set before the template is chosen, so Modern and Executive can still run a few lines over on 2 pages. The editor's page estimate shows it.
 - **Copied JD sentences** ("converted technical curiosity into commercial momentum") still appear in about half of runs despite the prompt rule. Phase 3 `jd-copy` flag.
 - **Port 47293** is the Docker deployment (`career-journey:latest`), not a dev server. Use the `career-journey-dev-47294` launch config to run current code next to it.
+
+**2026-10-07: Phase 3 implemented.**
+- `src/lib/resumeClaims.ts` raises six flag kinds, including the `invented-number` and `jd-copy` kinds added above.
+- The Claims to review panel beside the preview offers Keep / Remove (bullet, outcome, paragraph, skills term, or "Use my real title") / Rewrite (section regenerate with a targeted instruction).
+- Amber highlights mark flagged items in the editor only, never in exports.
+- A "N claims to review" note sits next to the download buttons. Export is not blocked, per decision 2.
+- Strategy `omitKeywords` shows as "Won't claim" on Strategy Review.
+
+Calibrated on the saved Blitzy runs:
+
+| Run | Flags |
+|---|---|
+| 7 (the run with invented numbers) | all three ("70%", "80%", "30%"), both copied JD phrases, 1 title reframe |
+| 13, 15 (clean) | 0–1 each |
+
+The first version over-flagged "Fortune 500" as a number and keyword mirroring ("post-sale adoption and expansion") as copying. Named lists are now skipped, and a copied run must carry 2+ words beyond JD keywords and filler.
 ---
 
 ## Phase 0 — Eval harness (do first; every later phase is measured with it)

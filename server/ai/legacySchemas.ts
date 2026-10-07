@@ -224,8 +224,9 @@ export const RESUME_STRATEGY_SCHEMA = {
       },
     },
     cautionClaims: { type: Type.ARRAY, items: { type: Type.STRING } },
+    omitKeywords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "JD terms the resume must leave out because the Career Journey has no evidence for them." },
   },
-  required: ["outputBasename", "headerTagline", "executiveSummary", "selectedOutcomes", "roleStrategies", "skillRows", "keywordPlacement", "cautionClaims"],
+  required: ["outputBasename", "headerTagline", "executiveSummary", "selectedOutcomes", "roleStrategies", "skillRows", "keywordPlacement", "cautionClaims", "omitKeywords"],
 };
 
 export const GENERATE_RESUME_SCHEMA = {

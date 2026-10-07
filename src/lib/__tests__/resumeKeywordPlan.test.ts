@@ -66,7 +66,7 @@ describe('buildResumeKeywordBlock', () => {
     expect(block).toContain('USE IF SUPPORTED:\n  - "Developer tooling"');
     expect(block).toContain('DO NOT CLAIM: "PCI DSS"');
     expect(block).not.toContain('work authorization');
-    expect(block).toContain('honor every cautionClaims entry');
+    expect(block).toContain("leave out every term in the Resume Strategy's omitKeywords");
   });
 
   it('asks a full build, but not a section rewrite, for the keywordPlan checklist', () => {
@@ -75,7 +75,7 @@ describe('buildResumeKeywordBlock', () => {
   });
 
   it('tells the strategy to park unsupported keywords in cautionClaims', () => {
-    expect(buildResumeKeywordBlock(keywords, {}, 'strategy')).toContain('Every DO NOT CLAIM keyword goes in cautionClaims');
+    expect(buildResumeKeywordBlock(keywords, {}, 'strategy')).toContain('Every DO NOT CLAIM keyword goes in omitKeywords');
   });
 
   it('includes candidate-confirmed experience', () => {
