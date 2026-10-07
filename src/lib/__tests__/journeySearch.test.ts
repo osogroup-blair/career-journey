@@ -98,3 +98,19 @@ describe('editPathFor', () => {
     expect(editPathFor(demo, 'unknown', 'X-1')).toBe('/edit');
   });
 });
+
+import { toRoleView } from '../careerJourneyRoleEvidence';
+
+describe('toRoleView', () => {
+  it('resolves id-string evidence into objects and names', () => {
+    const cj = JSON.parse(JSON.stringify(demo));
+    cj.roles[1].achievements = ['ACH-002'];
+    cj.roles[1].description = 'Ran routing.';
+    const view = toRoleView(cj, cj.roles[1]);
+    expect(view.achievements.map((a: any) => a.id)).toEqual(['ACH-003', 'ACH-002']);
+    expect(view.deliverables.map((d: any) => d.id)).toEqual(['DEL-003']);
+    expect(view.skills).toEqual([cj.skills_index[2].name, cj.skills_index[3].name]);
+    expect(view.summary).toBe('Ran routing.');
+    expect(view.industry).toBe('Logistics');
+  });
+});

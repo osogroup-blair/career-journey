@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, CardHeader, CardTitle, Badge, CardContent, Input } from '../components/ui';
 import JourneyGuide from '../components/JourneyGuide';
+import { toRoleView } from '../lib/careerJourneyRoleEvidence';
 import {
   Briefcase,
   Sparkles,
@@ -73,13 +74,16 @@ export default function Dashboard() {
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
 
   const meta = careerJourney?.meta || {};
-  const roles = useMemo(() => careerJourney?.roles || [], [careerJourney]);
+  const person = careerJourney?.person || {};
+  // Roles with achievements/deliverables/skills resolved from the real (id-linked) schema.
+  const roles = useMemo(() => (careerJourney?.roles || []).map((r: any) => toRoleView(careerJourney, r)), [careerJourney]);
   const skills = useMemo(() => careerJourney?.skills_index || [], [careerJourney]);
   const jobList = useMemo(() => Object.values(jobs || {}), [jobs]);
 
   // Aggregate Metrics — derived from real data, not fixed copy.
   const totalAchievements = useMemo(() => {
-    return roles.reduce((acc: number, r: any) => acc + (r.achievements?.length || 0), 0);
+    // An achievement can be linked to several roles — count each once.
+    return new Set(roles.flatMap((r: any) => r.achievements.map((a: any) => a.id || a.description))).size;
   }, [roles]);
 
   const totalDeliverables = useMemo(() => {
@@ -181,11 +185,11 @@ export default function Dashboard() {
               </div>
 
               <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-                {meta.owner || 'Your Name'}
+                {person.name || meta.owner || 'Your Name'}
               </h1>
 
               <p className="mt-3 text-base sm:text-lg text-slate-300 leading-relaxed font-normal">
-                {meta.description || 'Add a description of your career story to introduce yourself here.'}
+                {person.positioning?.primary_tagline || person.brand || meta.description || 'Add a description of your career story to introduce yourself here.'}
               </p>
 
               {meta.target_role && (
@@ -550,7 +554,7 @@ export default function Dashboard() {
                           {selectedRole.achievements.map((ach: any, aIdx: number) => {
                             const isObj = typeof ach === 'object' && ach !== null;
                             const metric = isObj ? ach.metric : 'Impact';
-                            const label = isObj ? ach.label : (ach.category || 'Result');
+                            const label = isObj ? ach.label || ach.category : 'Result';
                             const desc = isObj ? ach.description : ach;
 
                             return (
@@ -558,11 +562,17 @@ export default function Dashboard() {
                                 key={aIdx}
                                 className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 hover:border-brand-300 transition-colors"
                               >
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="text-base font-extrabold text-brand-800">{metric}</span>
-                                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-800">
-                                    {label}
-                                  </span>
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  {metric ? (
+                                    <span className="text-base font-extrabold text-brand-800">{metric}</span>
+                                  ) : (
+                                    <span className="text-sm font-bold text-slate-900 leading-snug">{ach.title}</span>
+                                  )}
+                                  {label && (
+                                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-800 shrink-0 max-w-[50%] truncate" title={label}>
+                                      {label}
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-xs text-slate-700 leading-snug mt-1 font-medium">
                                   {desc}
@@ -714,12 +724,15 @@ export default function Dashboard() {
                     <div key={idx}>
                       <div className="flex justify-between items-baseline mb-1">
                         <span className="text-sm font-semibold text-slate-800">{skill.name}</span>
-                        <span className="text-xs text-slate-500 font-medium">{skill.level || skill.proficiency || 'Expert'} • {skill.years || `${skill.years_experience || ''}`}</span>
+                        <span className="text-xs text-slate-500 font-medium">
+                          {skill.proficiency || skill.level || 'Expert'}
+                          {(skill.years_experience ?? skill.years) != null && ` • ${skill.years_experience ?? skill.years} yrs`}
+                        </span>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
                         <div
                           className="h-full rounded-full bg-brand-500"
-                          style={{ width: `${proficiencyWidth(skill.level || skill.proficiency)}%` }}
+                          style={{ width: `${proficiencyWidth(skill.proficiency || skill.level)}%` }}
                         />
                       </div>
                     </div>
