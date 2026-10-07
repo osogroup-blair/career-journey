@@ -581,7 +581,7 @@ export function buildSpotlightSnapshot(careerJourney: any, rawSettings: unknown,
         }))
       : [],
     sections,
-    style: { accent: settings.accent, showBadge: settings.showBadge },
+    style: { skin: settings.skin, accent: settings.accent, showBadge: settings.showBadge },
   };
   return { snapshot, warnings };
 }

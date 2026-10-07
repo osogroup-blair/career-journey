@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SpotlightSnapshot } from '../../types/spotlight';
 import { EvidenceTarget, formatMonth, resolveEvidence } from '../../lib/spotlightView';
 import EvidenceDrawer from './EvidenceDrawer';
-import { CareerArc, RoleChapter } from './SpotlightExperience';
+import { CareerArc, CareerLog, RoleChapter } from './SpotlightExperience';
+import { skinInfo } from '../../lib/spotlightSkins';
 import { accentStyle, SpotlightActions } from './SpotlightParts';
 import {
   Achievements,
@@ -18,6 +19,7 @@ import {
   Skills,
 } from './SpotlightSections';
 import './spotlight.css';
+import './spotlight-skins.css';
 
 type SectionKey = 'outcomes' | 'arc' | 'experience' | 'achievements' | 'capabilities' | 'skills' | 'how' | 'background' | 'contact';
 
@@ -69,6 +71,7 @@ export default function SpotlightPage({
   const heroEnd = useRef<HTMLDivElement | null>(null);
   const print = variant === 'print';
   const s = snapshot.sections;
+  const skin = skinInfo(snapshot.style.skin);
 
   const achievements = useMemo(() => new Map(snapshot.achievements.items.map((a) => [a.id, a])), [snapshot]);
   const skillNames = useMemo(() => new Map(snapshot.skills.map((sk) => [sk.id, sk.name])), [snapshot]);
@@ -138,7 +141,7 @@ export default function SpotlightPage({
   const updated = formatMonth(snapshot.builtAt.slice(0, 7));
 
   return (
-    <div className="sp" data-mode={mode} data-variant={variant} style={accentStyle(snapshot.style.accent)}>
+    <div className="sp" data-skin={skin.id} data-mode={mode} data-variant={variant} style={accentStyle(snapshot.style.accent)}>
       <nav className="sp-nav" data-scrolled={scrolled} aria-label="Sections">
         <div className="sp-wrap">
           <span className="sp-nav-name">{snapshot.person.name}</span>
@@ -177,8 +180,8 @@ export default function SpotlightPage({
         {visible.arc && (
           <section className="sp-block" data-region="arc" aria-label="Career arc">
             <div className="sp-wrap">
-              <SectionHead title="Career arc">Select a role to jump to it.</SectionHead>
-              <CareerArc snapshot={snapshot} now={now} actions={actions} />
+              <SectionHead title={skin.arc === 'log' ? 'Career' : 'Career arc'}>Select a role to jump to it.</SectionHead>
+              {skin.arc === 'log' ? <CareerLog snapshot={snapshot} actions={actions} /> : <CareerArc snapshot={snapshot} now={now} actions={actions} />}
             </div>
           </section>
         )}
@@ -266,7 +269,7 @@ export default function SpotlightPage({
       </main>
 
       {evidenceView && !print && (
-        <EvidenceDrawer view={evidenceView} mode={mode} accent={snapshot.style.accent} onClose={closeEvidence} onGoToRole={goToRole} />
+        <EvidenceDrawer view={evidenceView} mode={mode} skin={skin.id} accent={snapshot.style.accent} onClose={closeEvidence} onGoToRole={goToRole} />
       )}
     </div>
   );

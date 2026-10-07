@@ -1,6 +1,8 @@
 import type { SpotlightSnapshot } from '../../types/spotlight';
 import { accentStyle, LeadFigure } from './SpotlightParts';
+import { skinInfo } from '../../lib/spotlightSkins';
 import './spotlight.css';
+import './spotlight-skins.css';
 
 /**
  * The 1200×630 link-preview image (Open Graph), screenshotted by server/pdfRenderer.ts when
@@ -11,7 +13,7 @@ export default function SpotlightCard({ snapshot, address }: { snapshot: Spotlig
   const { person, glance } = snapshot;
   const outcome = snapshot.outcomes.find((o) => o.lead) ?? null;
   return (
-    <div className="sp sp-card" data-mode="light" data-solo={!outcome?.lead} style={accentStyle(snapshot.style.accent)}>
+    <div className="sp sp-card" data-skin={skinInfo(snapshot.style.skin).id} data-mode="light" data-solo={!outcome?.lead} style={accentStyle(snapshot.style.accent)}>
       <div className="sp-card-main">
         {glance.current && (
           <div className="sp-eyebrow">

@@ -15,6 +15,10 @@ import { z } from 'zod';
 export const SPOTLIGHT_ACCENTS = ['navy', 'forest', 'plum', 'graphite', 'oxblood'] as const;
 export type SpotlightAccent = (typeof SPOTLIGHT_ACCENTS)[number];
 
+/** Page templates (src/lib/spotlightSkins.ts describes each; spotlight.css styles them). */
+export const SPOTLIGHT_SKINS = ['editorial', 'executive', 'studio', 'technical', 'classic'] as const;
+export type SpotlightSkin = (typeof SPOTLIGHT_SKINS)[number];
+
 export const SPOTLIGHT_ROLE_MODES = ['full', 'condensed', 'excluded'] as const;
 export type SpotlightRoleMode = (typeof SPOTLIGHT_ROLE_MODES)[number];
 
@@ -68,6 +72,7 @@ export const SpotlightSettingsSchema = z.object({
   sections: SectionsSchema.catch(SectionsSchema.parse({})),
   showLevels: z.boolean().catch(false),
   contact: ContactSchema.catch({}),
+  skin: z.enum(SPOTLIGHT_SKINS).catch('editorial'),
   accent: z.enum(SPOTLIGHT_ACCENTS).catch('navy'),
   showBadge: z.boolean().catch(true),
 });
@@ -207,7 +212,8 @@ export interface SpotlightSnapshot {
   certifications: { id: string; name: string; issuer?: string; year: number | null }[];
   engagements: { id: string; client: string; project?: string; description?: string; dates?: string }[];
   sections: SpotlightSections;
-  style: { accent: SpotlightAccent; showBadge: boolean };
+  /** `skin` is absent on pages published before templates existed; read it as 'editorial'. */
+  style: { skin?: SpotlightSkin; accent: SpotlightAccent; showBadge: boolean };
 }
 
 export type SpotlightWarningCode =

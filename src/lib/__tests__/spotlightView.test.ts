@@ -18,6 +18,8 @@ import {
   splitFigures,
 } from '../spotlightView';
 import SpotlightPage from '../../components/spotlight/SpotlightPage';
+import { SPOTLIGHT_SKIN_INFO } from '../spotlightSkins';
+import { SPOTLIGHT_SKINS } from '../../types/spotlight';
 
 const NOW = new Date('2026-10-07T12:00:00Z');
 const snap = (settings: unknown = {}, cj: any = structuredClone(demo)) => buildSpotlightSnapshot(cj, settings, NOW).snapshot;
@@ -26,6 +28,43 @@ describe('accent colours', () => {
   it.each(Object.entries(SPOTLIGHT_ACCENT_COLORS))('%s is readable as text and as a button in both themes', (_, c) => {
     expect(contrastRatio(c.light, SPOTLIGHT_PAPER.light)).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio(c.dark, SPOTLIGHT_PAPER.dark)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // Every accent on every template's backgrounds — including Executive's dark band, where the light-theme page uses the dark accent.
+  const pairs = SPOTLIGHT_SKINS.flatMap((skin) =>
+    Object.entries(SPOTLIGHT_ACCENT_COLORS).map(([accent, c]) => [skin, accent, c] as const),
+  );
+  it.each(pairs)('%s skin with %s stays readable', (skin, _, c) => {
+    const info = SPOTLIGHT_SKIN_INFO[skin];
+    expect(contrastRatio(c.light, info.paper.light)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(c.dark, info.paper.dark)).toBeGreaterThanOrEqual(4.5);
+    if (info.band) {
+      expect(contrastRatio(c.dark, info.band.light)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(c.dark, info.band.dark)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe('templates', () => {
+  it('default to Editorial, including on bad input', () => {
+    expect(snap().style.skin).toBe('editorial');
+    expect(snap({ skin: 'neon' }).style.skin).toBe('editorial');
+    expect(snap({ skin: 'studio' }).style.skin).toBe('studio');
+  });
+
+  it.each(SPOTLIGHT_SKINS)('%s renders the whole page, with its own career layout', (skin) => {
+    const html = renderToStaticMarkup(createElement(SpotlightPage, { snapshot: snap({ skin }), now: NOW }));
+    expect(html).toContain(`data-skin="${skin}"`);
+    expect(html).toContain('Interested in working with Jordan?');
+    const log = SPOTLIGHT_SKIN_INFO[skin].arc === 'log';
+    expect(html.includes('class="sp-log"')).toBe(log);
+    expect(html.includes('class="sp-arc"')).toBe(!log);
+  });
+
+  it('renders pages published before templates existed as Editorial', () => {
+    const old = snap();
+    delete old.style.skin;
+    expect(renderToStaticMarkup(createElement(SpotlightPage, { snapshot: old, now: NOW }))).toContain('data-skin="editorial"');
   });
 });
 

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import type { SpotlightAccent } from '../../types/spotlight';
+import type { SpotlightAccent, SpotlightSkin } from '../../types/spotlight';
 import { EvidenceView, formatRoleDates } from '../../lib/spotlightView';
 import { accentStyle, Arrow, Figures } from './SpotlightParts';
 
@@ -13,12 +13,14 @@ import { accentStyle, Arrow, Figures } from './SpotlightParts';
 export default function EvidenceDrawer({
   view,
   mode,
+  skin,
   accent,
   onClose,
   onGoToRole,
 }: {
   view: EvidenceView;
   mode?: 'light' | 'dark';
+  skin: SpotlightSkin;
   accent: SpotlightAccent;
   onClose: () => void;
   onGoToRole: (roleId: string) => void;
@@ -59,7 +61,7 @@ export default function EvidenceDrawer({
   }, [onClose]);
 
   return createPortal(
-    <div className="sp-layer" data-mode={mode} style={accentStyle(accent)}>
+    <div className="sp-layer" data-skin={skin} data-mode={mode} style={accentStyle(accent)}>
       <div className="sp-scrim" onClick={onClose} />
       <aside ref={panel} className="sp-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="sp-drawer-head">

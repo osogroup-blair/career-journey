@@ -50,6 +50,27 @@ export function CareerArc({ snapshot, now, actions }: { snapshot: SpotlightSnaps
   );
 }
 
+/** The career as a list, newest first — the Technical and Classic skins' version of the arc. */
+export function CareerLog({ snapshot, actions }: { snapshot: SpotlightSnapshot; actions: SpotlightActions }) {
+  if (!snapshot.roles.length) return null;
+  return (
+    <ol className="sp-log">
+      {snapshot.roles.map((r) => (
+        <li key={r.id}>
+          <button type="button" className="sp-log-row" data-current={r.current} onClick={() => actions.goToRole(r.id)}>
+            <span className="sp-log-dates">{formatRoleDates(r)}</span>
+            <span className="sp-log-role">
+              <b>{r.title}</b>
+              <span>{r.organization}</span>
+            </span>
+            <span className="sp-log-dur">{formatDuration(r.durationMonths)}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function condensedLine(role: SpotlightRole, deliverables: SpotlightDeliverable[]): string {
   const first = deliverables.find((d) => d.id === role.highlightIds[0]);
   return first?.impact ?? role.description ?? deliverables[0]?.description ?? '';

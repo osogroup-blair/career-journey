@@ -250,6 +250,20 @@ Each phase can ship on its own and is verified before the next starts.
 
 ---
 
+## 8a. Templates (built, 2026-10-07)
+
+Five skins, picked in the editor's Template panel. Each is a different visual identity aimed at a different hiring audience, not a colour swap; all share one component tree, so evidence, print, accessibility and the phone layout behave the same in every skin.
+
+| Skin | Suits | Type | Signature |
+|---|---|---|---|
+| Editorial (default) | Product, strategy, generalists | Newsreader | Magazine profile, staircase career arc |
+| Executive | Directors, VPs, consulting | IBM Plex Sans | Dark introduction band, results as a figures row |
+| Studio | Design, marketing, creative | Bricolage Grotesque | Oversized name, outcomes as colour tiles (first solid) |
+| Technical | Engineering, data | JetBrains Mono + Plex Sans | README idiom (`##` headings, `>` tagline), career as a log, square edges |
+| Classic | Finance, law, academia, public sector | EB Garamond | Centred single column, rule-flanked small-caps headings, career as a log |
+
+Accent colours still apply in every skin and are contrast-tested against each skin's backgrounds. The link-preview image follows the skin too.
+
 ## 9. Decisions for Blair
 
 Each has a recommendation; none blocks Phase 0–1.

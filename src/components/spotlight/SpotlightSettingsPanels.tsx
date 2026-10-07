@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Copy } from 'lucide-react';
 import {
   SPOTLIGHT_ACCENTS,
+  SPOTLIGHT_SKINS,
   SPOTLIGHT_MAX_CAPTION,
   SPOTLIGHT_MAX_OUTCOMES,
   SPOTLIGHT_MAX_PINNED_ACHIEVEMENTS,
@@ -13,6 +14,10 @@ import {
 import { buildSpotlightSnapshot, defaultSpotlightRoleModes, extractLeadMetric, validateSpotlightSlug } from '../../lib/spotlightSnapshot';
 import { checkSpotlightSlug, PublishedSpotlightSummary, spotlightUrl, SpotlightViews } from '../../lib/spotlightClient';
 import { SPOTLIGHT_ACCENT_COLORS, formatRoleDates } from '../../lib/spotlightView';
+import { SPOTLIGHT_SKIN_INFO } from '../../lib/spotlightSkins';
+import { accentStyle } from './SpotlightParts';
+import './spotlight.css';
+import './spotlight-skins.css';
 import { rolesRecentFirst } from '../../lib/resumeBuild';
 import { Badge, Button, Input, Label, SearchInput } from '../ui';
 
@@ -721,6 +726,61 @@ export function PublishingPanel({
             </Button>
           </div>
         ))}
+    </Panel>
+  );
+}
+
+/** A small drawing of a template, in its own fonts and colours, using the owner's name and top figure. */
+function SkinSwatch({ skin, accent, name, figure }: { skin: SpotlightSettings['skin']; accent: SpotlightSettings['accent']; name: string; figure: string }) {
+  return (
+    <div className="sp sp-swatch" data-skin={skin} data-mode="light" style={accentStyle(accent)} aria-hidden="true">
+      <div className="sp-swatch-top">
+        <span className="sp-swatch-name">{name}</span>
+        {figure && <span className="sp-swatch-fig">{figure}</span>}
+      </div>
+      <div className="sp-swatch-lines">
+        <i />
+        <i />
+        <i />
+      </div>
+      <div className="sp-swatch-tiles">
+        <b />
+        <b />
+        <b />
+      </div>
+    </div>
+  );
+}
+
+export function TemplatePanel({ settings, snapshot, update }: { settings: SpotlightSettings; snapshot: SpotlightSnapshot; update: SettingsUpdate }) {
+  const name = snapshot.person.name.split(/\s+/)[0] || 'Your name';
+  const lead = snapshot.outcomes.find((o) => o.lead)?.lead;
+  const figure = lead ? lead.parts.join('→') : '';
+  return (
+    <Panel title="Template" hint={SPOTLIGHT_SKIN_INFO[settings.skin].name}>
+      <fieldset>
+        <legend className="sr-only">Page template</legend>
+        <div className="grid grid-cols-2 gap-2.5">
+          {SPOTLIGHT_SKINS.map((id) => {
+            const info = SPOTLIGHT_SKIN_INFO[id];
+            const on = settings.skin === id;
+            return (
+              <label
+                key={id}
+                className={`cursor-pointer rounded-xl border p-1.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-500 ${
+                  on ? 'border-brand-500 bg-brand-50' : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <input type="radio" name="sp-skin" className="sr-only" checked={on} onChange={() => update({ skin: id }, 'hero')} />
+                <SkinSwatch skin={id} accent={settings.accent} name={name} figure={figure} />
+                <span className="block px-1 pt-2 text-sm font-semibold text-slate-800">{info.name}</span>
+                <span className="block px-1 pb-1 text-[11px] leading-snug text-slate-500">{info.suits}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-xs text-slate-500">{SPOTLIGHT_SKIN_INFO[settings.skin].description}</p>
+      </fieldset>
     </Panel>
   );
 }

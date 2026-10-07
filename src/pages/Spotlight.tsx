@@ -29,6 +29,7 @@ import {
   SettingsUpdate,
   SpotlightRegion,
   StylePanel,
+  TemplatePanel,
   VisitorsCanSee,
 } from '../components/spotlight/SpotlightSettingsPanels';
 
@@ -278,6 +279,7 @@ export default function Spotlight() {
                 <BuildWarnings warnings={warnings} />
                 {remote && !blocked && <PublishingPanel settings={settings} slug={slug} published={published} views={views} update={update} onUnpublish={unpublish} />}
                 <VisitorsCanSee settings={settings} snapshot={snapshot} careerJourney={careerJourney} publishing={remote && !blocked} />
+                <TemplatePanel settings={settings} snapshot={snapshot} update={update} />
                 <IntroductionPanel settings={settings} careerJourney={careerJourney} update={update} />
                 <OutcomesPanel settings={settings} snapshot={snapshot} careerJourney={careerJourney} update={update} />
                 <ExperiencePanel settings={settings} careerJourney={careerJourney} update={update} />
