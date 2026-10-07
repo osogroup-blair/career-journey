@@ -13,6 +13,7 @@ import { paginate } from '../lib/pagination';
 import { StillOpenAttribution } from '../components/StillOpenAttribution';
 import MatchRow, { type MatchRowActions } from '../components/matches/MatchRow';
 import MatchPreferencesPanel from '../components/matches/MatchPreferencesPanel';
+import { PageHeader, ViewTabs, ListToolbar, SortSelect, FilterChips, ProgressBanner } from '../components/ListPage';
 import { JobMatch, MatchSource } from '../types';
 import { Radar, Loader2, Sparkles, Inbox, SlidersHorizontal, Filter, RefreshCw, Plus, X, AlertTriangle } from 'lucide-react';
 
@@ -231,24 +232,17 @@ export default function Matches() {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pt-8 space-y-5">
 
-        {/* Header */}
-        <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-2.5">
-              <Radar className="w-6 h-6 text-brand-600" />
-              Job Matches
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 max-w-2xl">
-              Postings scored against your Career Journey. Add the good ones to your pipeline; dismiss the rest.
-            </p>
-            {learningsCount > 0 && (
-              <p className="mt-1 text-xs text-brand-600 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                Scoring is informed by {learningsCount} past application outcome{learningsCount === 1 ? '' : 's'}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <PageHeader
+          icon={Radar}
+          title="Job Matches"
+          subtitle="Postings scored against your Career Journey. Add the good ones to your pipeline; dismiss the rest."
+          meta={learningsCount > 0 && (
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Scoring is informed by {learningsCount} past application outcome{learningsCount === 1 ? '' : 's'}
+            </span>
+          )}
+          actions={<>
             <Button variant="outline" size="sm" onClick={() => setShowPreferences((v) => !v)} className="bg-white">
               <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" />
               Preferences
@@ -270,8 +264,8 @@ export default function Matches() {
               <Plus className="w-3.5 h-3.5 mr-1.5" />
               Add postings
             </Button>
-          </div>
-        </section>
+          </>}
+        />
 
         {showPreferences && <MatchPreferencesPanel onClose={() => setShowPreferences(false)} />}
 
@@ -307,17 +301,7 @@ export default function Matches() {
           </Card>
         )}
 
-        {progress && (
-          <div className="rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3">
-            <div className="flex items-center justify-between text-xs font-semibold text-brand-800">
-              <span className="flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Scanning postings…</span>
-              <span>{progress.done} of {progress.total}</span>
-            </div>
-            <div className="mt-2 h-1.5 rounded-full bg-brand-100 overflow-hidden">
-              <div className="h-full bg-brand-600 transition-all" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
-            </div>
-          </div>
-        )}
+        {progress && <ProgressBanner label="Scanning postings…" progress={progress} />}
 
         {refreshWarnings.length > 0 && (
           <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
@@ -326,55 +310,20 @@ export default function Matches() {
           </div>
         )}
 
-        {/* List */}
         <Card className="overflow-hidden">
-          <div className="border-b border-slate-200 px-4 sm:px-5">
-            <nav className="flex gap-5 overflow-x-auto -mb-px" aria-label="Match views">
-              {VIEWS.map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  className={`py-3.5 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors ${
-                    view === v ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {VIEW_LABEL[v]}
-                  <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${view === v ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {list.viewCounts[v]}
-                  </span>
-                </button>
-              ))}
-            </nav>
-          </div>
+          <ViewTabs views={VIEWS} labels={VIEW_LABEL} counts={list.viewCounts} value={view} onChange={setView} label="Match views" />
 
-          <div className="flex flex-col lg:flex-row lg:items-center gap-3 px-4 sm:px-5 py-3 bg-slate-50/60 border-b border-slate-100">
+          <ListToolbar>
             <SearchInput value={query} onValueChange={setQuery} placeholder="Search title, company, location…" className="lg:w-72" />
-            <div className="flex flex-wrap items-center gap-1.5">
-              {VERDICT_FILTERS.map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setVerdict(f)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
-                    verdict === f ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {f === 'any' ? 'All fits' : VERDICT_LABEL[f]} <span className="opacity-70">{list.verdictCounts[f]}</span>
-                </button>
-              ))}
-            </div>
-            <label className="lg:ml-auto flex items-center gap-2 text-xs text-slate-500">
-              Sort
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as MatchSort)}
-                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
-              >
-                {(Object.keys(SORT_LABEL) as MatchSort[]).map((s) => (
-                  <option key={s} value={s}>{SORT_LABEL[s]}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+            <FilterChips
+              options={VERDICT_FILTERS}
+              value={verdict}
+              onChange={setVerdict}
+              label={(f) => (f === 'any' ? 'All fits' : VERDICT_LABEL[f])}
+              counts={list.verdictCounts}
+            />
+            <SortSelect value={sort} onChange={setSort} labels={SORT_LABEL} />
+          </ListToolbar>
 
           {(list.hiddenByFloor > 0 || showBelowFloor) && matchPreferences.minMatchScore > 0 && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 sm:px-5 py-2 text-xs text-slate-500 border-b border-slate-100">

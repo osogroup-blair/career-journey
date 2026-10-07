@@ -32,3 +32,14 @@ export function formatLocationNotes(locations: string[], employmentType?: string
   const type = employmentType ? EMPLOYMENT_LABEL[employmentType] || employmentType : '';
   return type ? `${where} · ${type}` : where;
 }
+
+/** "5 min ago", "3 h ago", "in 2 days" — for posting dates and the search schedule. */
+export function relativeTime(iso?: string | null): string {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const future = diff < 0;
+  const mins = Math.round(Math.abs(diff) / 60000);
+  const text = mins < 60 ? `${mins} min` : mins < 48 * 60 ? `${Math.round(mins / 60)} h` : `${Math.round(mins / 1440)} days`;
+  if (mins < 1) return 'just now';
+  return future ? `in ${text}` : `${text} ago`;
+}

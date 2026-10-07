@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { Button, Card, CardContent, Badge, Textarea, Label, useToast } from '../components/ui';
+import { Button, Card, CardContent, Badge, Textarea, Label, SearchInput, Pagination, useToast } from '../components/ui';
 import { TagInput } from '../components/TagInput';
 import { StillOpenAttribution } from '../components/StillOpenAttribution';
-import { VERDICT_BADGE, GATE_BADGE } from '../components/MatchSummary';
+import { PageHeader, ViewTabs, ListToolbar, SortSelect, ProgressBanner } from '../components/ListPage';
+import DiscoverRow, { type DiscoverRowActions } from '../components/discover/DiscoverRow';
 import { isFirebaseConfigured } from '../lib/firebase';
 import { careerJourneyToText } from '../lib/careerJourneyText';
-import { rankDiscoveredJobs, describeEvidence } from '../lib/discoveryRank';
-import { formatSalary } from '../lib/discoveryFormat';
+import { rankDiscoveredJobs } from '../lib/discoveryRank';
+import { relativeTime } from '../lib/discoveryFormat';
+import { buildDiscoverList, DISCOVER_VIEW_LABEL, DISCOVER_SORT_LABEL, type DiscoverView, type DiscoverSort, type RankedListing } from '../lib/discoverList';
+import { paginate } from '../lib/pagination';
 import { runQueue, scanPostingIntoMatch } from '../lib/matchScan';
 import {
   DiscoveryApiError,
@@ -36,8 +39,8 @@ import {
   type DiscoverySearchProfile,
 } from '../types/discovery';
 import {
-  Telescope, Loader2, Sparkles, RefreshCw, ExternalLink, AlertTriangle, Inbox, ArrowUpRight,
-  FileText, CalendarClock, Search, CheckSquare, Square, XCircle, ChevronDown, ChevronUp, Radar, Send,
+  Telescope, Loader2, Sparkles, RefreshCw, AlertTriangle, Inbox,
+  FileText, CalendarClock, Search, XCircle, ChevronDown, ChevronUp, Radar,
 } from 'lucide-react';
 
 // Same cap as a Matches refresh: one click can't quietly start dozens of AI scans.
@@ -45,20 +48,10 @@ const MAX_SCANS_PER_CLICK = 15;
 const RUN_POLL_MS = 4000;
 const RUN_POLL_TIMEOUT_MS = 3 * 60 * 1000;
 
-type ListFilter = 'review' | 'scanned' | 'dismissed' | 'all';
-const FILTER_LABEL: Record<ListFilter, string> = { review: 'To review', scanned: 'Scanned', dismissed: 'Dismissed', all: 'All' };
+const PAGE_SIZE = 25;
+const VIEWS: DiscoverView[] = ['review', 'scanned', 'dismissed', 'all'];
 
 const EMPTY_SEARCH: DiscoverySearchProfile = { queries: [], loc: [], level: [], area: [], payMin: null };
-
-function relativeTime(iso?: string | null): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const future = diff < 0;
-  const mins = Math.round(Math.abs(diff) / 60000);
-  const text = mins < 60 ? `${mins} min` : mins < 48 * 60 ? `${Math.round(mins / 60)} h` : `${Math.round(mins / 1440)} days`;
-  if (mins < 1) return 'just now';
-  return future ? `in ${text}` : `${text} ago`;
-}
 
 function PillToggle<T extends string>({ options, selected, onChange, label }: { options: readonly T[]; selected: T[]; onChange: (v: T[]) => void; label?: (v: T) => string }) {
   return (
@@ -105,7 +98,10 @@ export default function Discover() {
   const [draft, setDraft] = useState<DiscoverySearchProfile>(EMPTY_SEARCH);
   const [rationale, setRationale] = useState('');
   const [listings, setListings] = useState<DiscoveredJob[]>([]);
-  const [filter, setFilter] = useState<ListFilter>('review');
+  const [view, setView] = useState<DiscoverView>('review');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<DiscoverSort>('relevance');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showSetup, setShowSetup] = useState(false);
   const [showCv, setShowCv] = useState(false);
@@ -114,7 +110,7 @@ export default function Discover() {
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | null>(null);
   const [scanningIds, setScanningIds] = useState<Set<string>>(new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-  const [openJd, setOpenJd] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentCvText = useMemo(() => careerJourneyToText(careerJourney), [careerJourney]);
@@ -361,22 +357,14 @@ export default function Discover() {
     };
   }, [careerJourney, savedSearch]);
 
-  const ranked = useMemo(() => rankDiscoveredJobs(listings, rankContext), [listings, rankContext]);
-  const counts = useMemo(() => {
-    const c: Record<ListFilter, number> = { review: 0, scanned: 0, dismissed: 0, all: listings.length };
-    for (const j of listings) {
-      if (j.userState === 'new' || j.userState === 'seen') c.review++;
-      else if (j.userState === 'scanned' || j.userState === 'promoted') c.scanned++;
-      else if (j.userState === 'dismissed') c.dismissed++;
-    }
-    return c;
-  }, [listings]);
-  const visible = ranked.filter(({ job }) => {
-    if (filter === 'all') return true;
-    if (filter === 'review') return job.userState === 'new' || job.userState === 'seen';
-    if (filter === 'scanned') return job.userState === 'scanned' || job.userState === 'promoted';
-    return job.userState === 'dismissed';
-  });
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+  }, [view, query, sort]);
+
+  const ranked: RankedListing[] = useMemo(() => rankDiscoveredJobs(listings, rankContext), [listings, rankContext]);
+  const { visible, counts } = useMemo(() => buildDiscoverList(ranked, matches, { view, query, sort }), [ranked, matches, view, query, sort]);
+  const paged = paginate(visible, page, PAGE_SIZE);
   const selectable = visible.filter(({ job }) => !job.matchId);
   const lastRunAt = profile?.lastRun?.at;
 
@@ -399,35 +387,44 @@ export default function Discover() {
 
   const locInvalid = draft.loc.filter((l) => !StillOpenLocSchema.safeParse(l).success);
 
+  const toggleIn = (setter: typeof setSelected, id: string) =>
+    setter((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const rowActions: DiscoverRowActions = {
+    onToggleSelect: (job) => toggleIn(setSelected, job.id),
+    onScan: scanListing,
+    onPromote: handlePromote,
+    onViewAnalysis: (match) => navigate(`/job/${match.promotedJobId}/parsed`),
+    onDismiss: (job) => setUserState(job, 'dismissed'),
+    onRestore: (job) => setUserState(job, job.matchId ? 'scanned' : 'new'),
+  };
+
   return (
-    <div className="min-h-screen bg-slate-900/5 font-sans text-slate-900 pb-20">
-      <section className="bg-gradient-to-br from-brand-950 via-slate-900 to-slate-950 text-white pt-10 pb-16 px-4 sm:px-6 lg:px-8 border-b border-brand-950">
-        <div className="mx-auto max-w-7xl flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Telescope className="w-5 h-5 text-brand-400" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-brand-300">Discovery</span>
-            </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">Discover</h1>
-            <p className="mt-2 text-sm sm:text-base text-slate-300 max-w-2xl">
-              Fully-remote roles from StillOpen, searched on a schedule from a CV snapshot of your Career Journey. Pick the ones worth a fit scan, then promote the best into your pipeline.
-            </p>
-            <p className="mt-1.5 text-xs text-brand-300 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="flex items-center gap-1.5">
-                <CalendarClock className="w-3.5 h-3.5" />
-                {SCHEDULE_LABEL[profile?.schedule || 'off']}
-                {profile?.nextRunAt ? ` · next ${relativeTime(profile.nextRunAt)}` : ''}
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 pt-8 space-y-5">
+        <PageHeader
+          icon={Telescope}
+          title="Discover"
+          subtitle="Fully-remote roles from StillOpen, searched on a schedule from your Career Journey. Scan the promising ones, then add the best to your pipeline."
+          meta={<>
+            <span className="flex items-center gap-1.5">
+              <CalendarClock className="w-3.5 h-3.5" />
+              {SCHEDULE_LABEL[profile?.schedule || 'off']}
+              {profile?.nextRunAt ? ` · next ${relativeTime(profile.nextRunAt)}` : ''}
+            </span>
+            {lastRunAt && (
+              <span>
+                Last search {relativeTime(lastRunAt)}
+                {profile?.lastRun?.status === 'error' ? ' — failed' : ` — ${profile?.lastRun?.newCount ?? 0} new`}
               </span>
-              {lastRunAt && (
-                <span>
-                  Last search {relativeTime(lastRunAt)}
-                  {profile?.lastRun?.status === 'error' ? ' — failed' : ` — ${profile?.lastRun?.newCount ?? 0} new`}
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={() => setShowSetup((v) => !v)} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+            )}
+          </>}
+          actions={<>
+            <Button variant="outline" size="sm" onClick={() => setShowSetup((v) => !v)} className="bg-white">
               {showSetup ? <ChevronUp className="w-3.5 h-3.5 mr-1.5" /> : <ChevronDown className="w-3.5 h-3.5 mr-1.5" />}
               Search setup
             </Button>
@@ -435,11 +432,9 @@ export default function Discover() {
               {running ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Search className="w-3.5 h-3.5 mr-1.5" />}
               {running ? 'Searching…' : 'Search now'}
             </Button>
-          </div>
-        </div>
-      </section>
+          </>}
+        />
 
-      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 -mt-8 relative z-20 space-y-6">
         {profile?.lastRun?.status === 'error' && (
           <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl p-3">
             <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -449,7 +444,7 @@ export default function Discover() {
 
         {showSetup && (
           <Card>
-            <CardContent className="pt-6 space-y-8">
+            <CardContent className="space-y-8">
               {/* Step 1: CV snapshot */}
               <section className="space-y-2">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -578,215 +573,96 @@ export default function Discover() {
           </Card>
         )}
 
-        {/* Results */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {(Object.keys(FILTER_LABEL) as ListFilter[]).map((f) => (
-              <button
-                key={f}
-                onClick={() => {
-                  setFilter(f);
-                  setSelected(new Set());
-                }}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                  filter === f ? 'bg-brand-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {FILTER_LABEL[f]} ({counts[f]})
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
+        {scanProgress && <ProgressBanner label="Scanning listings…" progress={scanProgress} />}
+
+        <Card className="overflow-hidden">
+          <ViewTabs views={VIEWS} labels={DISCOVER_VIEW_LABEL} counts={counts} value={view} onChange={setView} label="Listing views" />
+
+          <ListToolbar>
+            <SearchInput value={query} onValueChange={setQuery} placeholder="Search title, company, location…" className="lg:w-72" />
             {selectable.length > 0 && (
-              <button
-                onClick={() =>
-                  setSelected(selected.size > 0 ? new Set() : new Set(selectable.slice(0, 10).map(({ job }) => job.id)))
-                }
-                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-              >
-                {selected.size > 0 ? 'Clear selection' : 'Select top 10'}
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() =>
+                    setSelected(selected.size > 0 ? new Set() : new Set(selectable.slice(0, 10).map(({ job }) => job.id)))
+                  }
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                >
+                  {selected.size > 0 ? 'Clear selection' : 'Select top 10'}
+                </button>
+                <Button size="sm" onClick={handleScanSelected} disabled={selected.size === 0 || scanProgress !== null}>
+                  {scanProgress ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Radar className="w-3.5 h-3.5 mr-1.5" />}
+                  Scan selected ({selected.size})
+                </Button>
+              </div>
             )}
-            <Button size="sm" onClick={handleScanSelected} disabled={selected.size === 0 || scanProgress !== null}>
-              {scanProgress ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Radar className="w-3.5 h-3.5 mr-1.5" />}
-              {scanProgress ? `Scanning ${scanProgress.done} of ${scanProgress.total}…` : `Quick scan selected (${selected.size})`}
-            </Button>
-          </div>
-        </div>
+            <SortSelect value={sort} onChange={setSort} labels={DISCOVER_SORT_LABEL} />
+          </ListToolbar>
 
-        {visible.length === 0 ? (
-          <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-xl bg-white">
-            <Inbox className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-            <h4 className="text-base font-bold text-slate-800">{listings.length === 0 ? 'No listings yet' : 'Nothing in this view'}</h4>
-            <p className="text-xs text-slate-500 mt-1">
-              {!savedSearch
-                ? 'Set up your searches above, then run a search.'
-                : listings.length === 0
-                  ? 'Run a search to pull in listings.'
-                  : 'Try another filter.'}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {visible.map(({ job, score }) => {
-              const match = job.matchId ? matches[job.matchId] : undefined;
-              const evidence = describeEvidence(job);
-              const isNew = lastRunAt && job.firstSeenAt >= lastRunAt && job.userState === 'new';
-              const scanning = scanningIds.has(job.id) || (match && !match.verdict && !match.scanError && !match.dismissReason);
-              const salary = formatSalary(job.salary);
-              return (
-                <Card key={job.id} className={job.userState === 'dismissed' ? 'opacity-70' : ''}>
-                  <div className="p-4 flex gap-3">
-                    <div className="pt-0.5">
-                      {!job.matchId ? (
-                        <button
-                          onClick={() =>
-                            setSelected((s) => {
-                              const next = new Set(s);
-                              next.has(job.id) ? next.delete(job.id) : next.add(job.id);
-                              return next;
-                            })
-                          }
-                          className="text-slate-400 hover:text-brand-600"
-                          aria-label={selected.has(job.id) ? 'Deselect' : 'Select'}
-                        >
-                          {selected.has(job.id) ? <CheckSquare className="w-4 h-4 text-brand-600" /> : <Square className="w-4 h-4" />}
-                        </button>
-                      ) : (
-                        <span className="block w-4" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 space-y-2">
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {job.canonicalUrl ? (
-                              <a href={job.canonicalUrl} target="_blank" rel="noreferrer" className="font-bold text-slate-900 hover:text-brand-700 truncate">
-                                {job.title}
-                              </a>
-                            ) : (
-                              <span className="font-bold text-slate-900 truncate">{job.title}</span>
-                            )}
-                            {job.canonicalUrl && <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />}
-                            {isNew && <Badge variant="success">New</Badge>}
-                          </div>
-                          <p className="text-xs text-slate-500 truncate">
-                            <span className="font-semibold">{job.company}</span>
-                            {job.locations.length > 0 && ` · ${job.locations.slice(0, 3).join(', ')}${job.locations.length > 3 ? ` +${job.locations.length - 3}` : ''}`}
-                            {salary && ` · ${salary}`}
-                            {job.postedAt && ` · posted ${relativeTime(job.postedAt)}`}
-                          </p>
-                        </div>
-                        {match?.matchScore != null ? (
-                          <div className="text-right shrink-0">
-                            <div className="text-xl font-extrabold text-brand-700">{match.matchScore}</div>
-                            <div className="text-[10px] text-slate-400 uppercase tracking-wide">Match</div>
-                          </div>
-                        ) : (
-                          <div className="text-right shrink-0" title="Relevance from title, searches and evidence — not an AI score">
-                            <div className="text-sm font-bold text-slate-400">{score}</div>
-                            <div className="text-[10px] text-slate-400 uppercase tracking-wide">Relevance</div>
-                          </div>
-                        )}
-                      </div>
+          {paged.pageItems.length === 0 ? (
+            <div className="py-14 px-4 text-center">
+              <Inbox className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <h4 className="text-base font-bold text-slate-800">
+                {listings.length === 0 ? 'No listings yet' : query.trim() ? 'Nothing matches that search' : `Nothing in ${DISCOVER_VIEW_LABEL[view]}`}
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                {!savedSearch
+                  ? 'Set up your searches above, then run a search.'
+                  : listings.length === 0
+                    ? 'Run a search to pull in listings.'
+                    : query.trim()
+                      ? 'Try a different search.'
+                      : view === 'review'
+                        ? "You're all caught up. New listings land here after each search."
+                        : 'Switch views to see the rest of your listings.'}
+              </p>
+              {query.trim() && (
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => setQuery('')}>
+                  Clear search
+                </Button>
+              )}
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {paged.pageItems.map(({ job, score }) => {
+                const match = job.matchId ? matches[job.matchId] : undefined;
+                return (
+                  <DiscoverRow
+                    key={job.id}
+                    job={job}
+                    score={score}
+                    match={match}
+                    scanning={scanningIds.has(job.id) || Boolean(match && !match.verdict && !match.scanError && !match.dismissReason)}
+                    error={rowErrors[job.id]}
+                    isNew={Boolean(lastRunAt && job.firstSeenAt >= lastRunAt && job.userState === 'new')}
+                    selected={selected.has(job.id)}
+                    expanded={expanded.has(job.id)}
+                    onToggleExpand={() => toggleIn(setExpanded, job.id)}
+                    actions={rowActions}
+                  />
+                );
+              })}
+            </ul>
+          )}
 
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant={evidence.tone}>{evidence.label}</Badge>
-                        {job.matchedQueries.map((q) => (
-                          <span key={q} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600">{q}</span>
-                        ))}
-                      </div>
-
-                      {rowErrors[job.id] && (
-                        <div className="flex items-start gap-2 text-xs text-red-600"><XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{rowErrors[job.id]}</div>
-                      )}
-                      {scanning ? (
-                        <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Scanning…</div>
-                      ) : match?.scanError ? (
-                        <div className="flex items-start gap-2 text-xs text-red-600"><XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{match.scanError}</div>
-                      ) : match?.dismissReason ? (
-                        <div className="text-xs text-slate-500">{match.dismissReason}</div>
-                      ) : match?.verdict ? (
-                        <div className="space-y-1.5">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant={VERDICT_BADGE[match.verdict] || 'default'}>{match.verdict}</Badge>
-                            {match.hardGateRisk && <Badge variant={GATE_BADGE[match.hardGateRisk] || 'default'}>{match.hardGateRisk}</Badge>}
-                          </div>
-                          {match.topGaps && match.topGaps.length > 0 && (
-                            <p className="text-xs text-slate-600 flex items-start gap-1.5">
-                              <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" />
-                              <span>Gaps: {match.topGaps.slice(0, 3).join(' · ')}</span>
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
-
-                      {match && !scanning && (
-                        <div className="flex flex-wrap items-center gap-3 pt-0.5">
-                          {match.applyUrl && (
-                            <a href={match.applyUrl} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1">
-                              <Send className="w-3 h-3" /> Apply on employer site
-                            </a>
-                          )}
-                          {match.jdText && (
-                            <button
-                              onClick={() =>
-                                setOpenJd((s) => {
-                                  const next = new Set(s);
-                                  next.has(job.id) ? next.delete(job.id) : next.add(job.id);
-                                  return next;
-                                })
-                              }
-                              className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1"
-                            >
-                              {openJd.has(job.id) ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                              {openJd.has(job.id) ? 'Hide JD' : 'View JD'}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {match && openJd.has(job.id) && (
-                        <div className="max-h-80 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-3">
-                          {match.jdText}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      {match?.status === 'Promoted' && match.promotedJobId ? (
-                        <button onClick={() => navigate(`/job/${match.promotedJobId}/parsed`)} className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 uppercase tracking-wider">
-                          View analysis <ArrowUpRight className="w-3.5 h-3.5" />
-                        </button>
-                      ) : match?.parse ? (
-                        <button onClick={() => handlePromote(job)} className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 uppercase tracking-wider">
-                          Add to pipeline <ArrowUpRight className="w-3.5 h-3.5" />
-                        </button>
-                      ) : null}
-                      {!job.matchId && !scanning && (
-                        <button onClick={() => scanListing(job)} className="text-xs font-bold text-slate-500 hover:text-slate-800 uppercase tracking-wider">
-                          Scan
-                        </button>
-                      )}
-                      {job.userState === 'dismissed' ? (
-                        <button onClick={() => setUserState(job, job.matchId ? 'scanned' : 'new')} className="text-xs font-bold text-slate-500 hover:text-slate-800 uppercase tracking-wider">
-                          Restore
-                        </button>
-                      ) : job.userState !== 'promoted' ? (
-                        <button onClick={() => setUserState(job, 'dismissed')} className="text-xs font-bold text-slate-400 hover:text-slate-700 uppercase tracking-wider">
-                          Dismiss
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+          {paged.totalPages > 1 && (
+            <Pagination
+              page={paged.page}
+              totalPages={paged.totalPages}
+              start={paged.start}
+              end={paged.end}
+              total={paged.total}
+              noun="listings"
+              onPageChange={setPage}
+              className="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50/60"
+            />
+          )}
+        </Card>
 
         <div className="flex justify-end">
           <StillOpenAttribution />
         </div>
-      </main>
+      </div>
     </div>
   );
 }

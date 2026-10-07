@@ -43,7 +43,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 | `/matches` | `Matches` | Job discovery / bulk AI scan, gated to paid plans |
 | `/discover` | `Discover` | Scheduled StillOpen job search from a CV snapshot; pick listings to light-scan, promote into the pipeline. Admin-only until licensed — see [Job Discovery](#job-discovery-stillopen) |
 | `/migrate` | `Migrate` | One-time localStorage → Firestore copy |
-| `/applications` | `JobTracker` | Kanban board across pipeline stages |
+| `/applications` | `JobTracker` | Board (Kanban), List and Archived views of pipeline jobs |
 | `/compare-offers` | `CompareOffers` | AI comparison across every job in the Offer stage |
 | `/upgrade` | `Upgrade` | Plan cards → Stripe Checkout, or Customer Portal link |
 | `/settings` | `Settings` | BYOM provider/model/key management |

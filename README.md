@@ -46,7 +46,7 @@ Intake ──► Parsed ──► Rating ──► Tailored Application ──�
 - **Career Journey Builder** (`/build`): bootstrap a Career Journey from scratch — extract from a pasted resume, a guided AI chat interview, or a blank template.
 - **Strengthen Journey** (`/strengthen`): surfaces weak spots (unquantified achievements, stale skills, thin role descriptions) and walks through AI-proposed refinements one at a time.
 - **Simple Editor** (`/edit`) and **Advanced Editor** (`/journey`): a section-by-section editor (roles, projects, achievements, skills, capabilities, education and more — each searchable and paginated, with Cmd/Ctrl-K search across everything and an AI assistant per section that drafts new items for you to approve) and a full raw-schema editor (links, vocabularies, changelog, raw JSON), respectively.
-- **Job Tracker** (`/applications`): Kanban board across every pipeline stage.
+- **Job Tracker** (`/applications`): Kanban board across every pipeline stage, plus a searchable List view and an Archived view (with Restore).
 - **Compare Offers** (`/compare-offers`): side-by-side AI comparison across every job currently in the Offer stage.
 
 ---

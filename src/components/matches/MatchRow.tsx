@@ -23,11 +23,12 @@ function addedAgo(iso: string): string {
   return `added ${new Date(iso).toLocaleDateString()}`;
 }
 
-function ScoreChip({ match }: { match: JobMatch }) {
-  const base = 'w-14 h-14 shrink-0 rounded-xl ring-1 ring-inset flex flex-col items-center justify-center';
-  if (isScanPending(match)) {
+export const CHIP_BASE = 'w-14 h-14 shrink-0 rounded-xl ring-1 ring-inset flex flex-col items-center justify-center';
+
+export function ScoreChip({ match, pending = isScanPending(match) }: { match: JobMatch; pending?: boolean }) {
+  if (pending) {
     return (
-      <div className={`${base} bg-slate-50 text-slate-400 ring-slate-200`} title="Scanning">
+      <div className={`${CHIP_BASE} bg-slate-50 text-slate-400 ring-slate-200`} title="Scanning">
         <Loader2 className="w-5 h-5 animate-spin" />
       </div>
     );
@@ -35,15 +36,30 @@ function ScoreChip({ match }: { match: JobMatch }) {
   if (match.matchScore == null) {
     const Icon = match.scanError ? XCircle : Filter;
     return (
-      <div className={`${base} bg-slate-50 ring-slate-200 ${match.scanError ? 'text-red-400' : 'text-slate-400'}`}>
+      <div className={`${CHIP_BASE} bg-slate-50 ring-slate-200 ${match.scanError ? 'text-red-400' : 'text-slate-400'}`}>
         <Icon className="w-5 h-5" />
       </div>
     );
   }
+  return <ScoreValueChip score={match.matchScore} />;
+}
+
+/** The colour-coded score block on its own, for anything carrying a match score. */
+export function ScoreValueChip({ score, title }: { score: number; title?: string }) {
   return (
-    <div className={`${base} ${TIER_CLASS[scoreTier(match.matchScore)]}`}>
-      <span className="text-xl font-extrabold leading-none">{match.matchScore}</span>
+    <div className={`${CHIP_BASE} ${TIER_CLASS[scoreTier(score)]}`} title={title}>
+      <span className="text-xl font-extrabold leading-none">{score}</span>
       <span className="text-[9px] font-semibold uppercase tracking-wide mt-0.5 opacity-80">match</span>
+    </div>
+  );
+}
+
+export function InsightLists({ leadWith, gaps }: { leadWith: string[]; gaps: string[] }) {
+  if (leadWith.length === 0 && gaps.length === 0) return null;
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {leadWith.length > 0 && <InsightList items={leadWith} tone="lead" />}
+      {gaps.length > 0 && <InsightList items={gaps} tone="gap" />}
     </div>
   );
 }
@@ -62,6 +78,52 @@ function InsightList({ items, tone }: { items: string[]; tone: 'lead' | 'gap' })
         ))}
       </ul>
     </div>
+  );
+}
+
+/** The scan outcome under a row's title: in progress, failed, keyword-skipped, or verdict badges plus one-line strengths and gaps. */
+export function MatchResultSummary({ match: m, pending, expanded }: { match: JobMatch; pending: boolean; expanded: boolean }) {
+  const leadWith = m.leadWith || [];
+  const gaps = m.topGaps || [];
+  return (
+    <>
+      {pending ? (
+        <p className="text-xs text-slate-500">Scoring this posting against your Career Journey…</p>
+      ) : m.scanError ? (
+        <p className="text-xs text-red-600 flex items-start gap-1.5">
+          <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {m.scanError}
+        </p>
+      ) : m.dismissReason ? (
+        <p className="text-xs text-slate-500 flex items-start gap-1.5">
+          <Filter className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {m.dismissReason}
+        </p>
+      ) : (
+        <>
+          {(m.verdict || m.hardGateRisk) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {m.verdict && <Badge variant={VERDICT_BADGE[m.verdict] || 'default'}>{VERDICT_LABEL[m.verdict] || m.verdict}</Badge>}
+              {m.hardGateRisk && <Badge variant={GATE_BADGE[m.hardGateRisk] || 'default'}>{m.hardGateRisk}</Badge>}
+            </div>
+          )}
+          {!expanded && (leadWith.length > 0 || gaps.length > 0) && (
+            <div className="space-y-1 text-xs text-slate-600">
+              {leadWith.length > 0 && (
+                <p className="flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-px" />
+                  <span className="line-clamp-1"><span className="font-semibold text-slate-700">Lead with:</span> {leadWith.join(' · ')}</span>
+                </p>
+              )}
+              {gaps.length > 0 && (
+                <p className="flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-px" />
+                  <span className="line-clamp-1"><span className="font-semibold text-slate-700">Gaps:</span> {gaps.join(' · ')}</span>
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
@@ -161,42 +223,7 @@ export default function MatchRow({
             </div>
           </div>
 
-          {pending ? (
-            <p className="text-xs text-slate-500">Scoring this posting against your Career Journey…</p>
-          ) : m.scanError ? (
-            <p className="text-xs text-red-600 flex items-start gap-1.5">
-              <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {m.scanError}
-            </p>
-          ) : m.dismissReason ? (
-            <p className="text-xs text-slate-500 flex items-start gap-1.5">
-              <Filter className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {m.dismissReason}
-            </p>
-          ) : (
-            <>
-              {(m.verdict || m.hardGateRisk) && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {m.verdict && <Badge variant={VERDICT_BADGE[m.verdict] || 'default'}>{VERDICT_LABEL[m.verdict] || m.verdict}</Badge>}
-                  {m.hardGateRisk && <Badge variant={GATE_BADGE[m.hardGateRisk] || 'default'}>{m.hardGateRisk}</Badge>}
-                </div>
-              )}
-              {!expanded && (leadWith.length > 0 || gaps.length > 0) && (
-                <div className="space-y-1 text-xs text-slate-600">
-                  {leadWith.length > 0 && (
-                    <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-px" />
-                      <span className="line-clamp-1"><span className="font-semibold text-slate-700">Lead with:</span> {leadWith.join(' · ')}</span>
-                    </p>
-                  )}
-                  {gaps.length > 0 && (
-                    <p className="flex items-start gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-px" />
-                      <span className="line-clamp-1"><span className="font-semibold text-slate-700">Gaps:</span> {gaps.join(' · ')}</span>
-                    </p>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+          <MatchResultSummary match={m} pending={pending} expanded={expanded} />
 
           <div className="flex sm:hidden flex-wrap items-center gap-3 pt-1">
             {primary}
@@ -205,12 +232,7 @@ export default function MatchRow({
 
           {expanded && (
             <div className="mt-3 space-y-4 rounded-xl border border-slate-200 bg-white p-4">
-              {(leadWith.length > 0 || gaps.length > 0) && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {leadWith.length > 0 && <InsightList items={leadWith} tone="lead" />}
-                  {gaps.length > 0 && <InsightList items={gaps} tone="gap" />}
-                </div>
-              )}
+              <InsightLists leadWith={leadWith} gaps={gaps} />
               {m.jdText && (
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Job description</p>
