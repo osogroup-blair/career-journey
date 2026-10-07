@@ -39,7 +39,11 @@ export default function AdminPrompts() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [testRunId, setTestRunId] = useState<string | null>(null);
   const [testRunOutput, setTestRunOutput] = useState<Record<string, { request?: string; output: any; usage?: any; provider?: string; model?: string }>>({});
-  const [contextSizes, setContextSizes] = useState<Record<string, PromptContextSize | 'loading' | null>>({});
+  // undefined = not estimated yet, null = estimate failed. The last estimate
+  // stays on screen while a new one is in flight (`estimating`) so the
+  // Career Journey sections panel doesn't unmount and shift the Save button.
+  const [contextSizes, setContextSizes] = useState<Record<string, PromptContextSize | null>>({});
+  const [estimating, setEstimating] = useState<Record<string, boolean>>({});
   const toast = useToast();
   const contextSizeTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -67,23 +71,34 @@ export default function AdminPrompts() {
     return groups;
   }, [prompts]);
 
+  // Callers schedule right after a setState, so the timer must read the drafts
+  // as of when it fires, not the render that scheduled it.
+  const latestDrafts = useRef({ modelDrafts, knowledgeDrafts, careerJourneyDrafts });
+  latestDrafts.current = { modelDrafts, knowledgeDrafts, careerJourneyDrafts };
+
   const scheduleContextSize = (id: string) => {
     clearTimeout(contextSizeTimers.current[id]);
-    setContextSizes((prev) => ({ ...prev, [id]: 'loading' }));
-    contextSizeTimers.current[id] = setTimeout(async () => {
+    setEstimating((prev) => ({ ...prev, [id]: true }));
+    const timer = setTimeout(async () => {
+      const { modelDrafts, knowledgeDrafts, careerJourneyDrafts } = latestDrafts.current;
+      let size: PromptContextSize | null = null;
       try {
         const draft = modelDrafts[id];
-        const size = await getAdminPromptContextSize(id, {
+        size = await getAdminPromptContextSize(id, {
           provider: draft?.provider,
           model: draft?.model,
           knowledge: knowledgeDrafts[id] ?? undefined,
           careerJourneyFields: careerJourneyDrafts[id] ?? undefined,
         });
-        setContextSizes((prev) => ({ ...prev, [id]: size }));
-      } catch (e: any) {
-        setContextSizes((prev) => ({ ...prev, [id]: null }));
+      } catch {
+        size = null;
       }
+      // A newer edit rescheduled this prompt while the request was in flight — let that one win.
+      if (contextSizeTimers.current[id] !== timer) return;
+      setContextSizes((prev) => ({ ...prev, [id]: size }));
+      setEstimating((prev) => ({ ...prev, [id]: false }));
     }, 500);
+    contextSizeTimers.current[id] = timer;
   };
 
   // Recompute context size whenever a prompt's model/knowledge draft changes,
@@ -193,12 +208,13 @@ export default function AdminPrompts() {
             const modelDraft = modelDrafts[p.id] ?? null;
             const knowledgeDraft = knowledgeDrafts[p.id] ?? knowledgeFiles;
             const size = contextSizes[p.id];
+            const isEstimating = !!estimating[p.id];
             const runResult = testRunOutput[p.id];
             const modelsForProvider = modelDraft ? models[modelDraft.provider] || [] : [];
-            const showCareerJourneyFields = size && size !== 'loading' && size.hasCareerJourney;
+            const showCareerJourneyFields = size && size.hasCareerJourney;
             const careerJourneyDraft = careerJourneyDrafts[p.id] ?? [...CAREER_JOURNEY_TOP_LEVEL_FIELDS];
             const totalCareerJourneyTokens =
-              size && size !== 'loading' ? size.careerJourneyBreakdown.reduce((sum, b) => sum + b.tokens, 0) : 0;
+              size ? size.careerJourneyBreakdown.reduce((sum, b) => sum + b.tokens, 0) : 0;
 
             return (
               <Card key={p.id}>
@@ -263,9 +279,9 @@ export default function AdminPrompts() {
 
                     <div>
                       <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Context size</label>
-                      {size === 'loading' && <span className="text-xs text-slate-400">Estimating…</span>}
-                      {size && size !== 'loading' && (
-                        <div className="flex items-center gap-1.5 text-xs">
+                      {!size && (isEstimating || size === undefined) && <span className="text-xs text-slate-400">Estimating…</span>}
+                      {size && (
+                        <div className={`flex items-center gap-1.5 text-xs transition-opacity ${isEstimating ? 'opacity-50' : ''}`} title={isEstimating ? 'Updating estimate…' : undefined}>
                           <span className={size.warningLevel === 'over' ? 'text-red-600 font-semibold' : size.warningLevel === 'near' ? 'text-amber-600 font-semibold' : 'text-slate-600'}>
                             ~{size.estimatedTokens.toLocaleString()} tokens
                           </span>
@@ -273,7 +289,7 @@ export default function AdminPrompts() {
                           {(size.warningLevel === 'over' || size.warningLevel === 'near') && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
                         </div>
                       )}
-                      {!size && <span className="text-xs text-slate-400">Unavailable</span>}
+                      {size === null && !isEstimating && <span className="text-xs text-slate-400">Unavailable</span>}
                       <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5">
                         {knowledgeFiles.map((file) => (
                           <label key={file} className="flex items-center gap-1 text-[10px] text-slate-500">
@@ -302,7 +318,7 @@ export default function AdminPrompts() {
                       </div>
                       <div className="grid grid-cols-3 sm:grid-cols-4 gap-x-3 gap-y-1">
                         {CAREER_JOURNEY_TOP_LEVEL_FIELDS.map((field) => {
-                          const breakdown = size && size !== 'loading' ? size.careerJourneyBreakdown.find((b) => b.field === field) : undefined;
+                          const breakdown = size ? size.careerJourneyBreakdown.find((b) => b.field === field) : undefined;
                           return (
                             <label key={field} className="flex items-center gap-1 text-[10px] text-slate-500">
                               <input

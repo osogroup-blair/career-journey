@@ -310,7 +310,9 @@ export function getAllPromptConfigs(): Record<string, { id: string; label: strin
       const filePath = localFilePath(id);
       if (fs.existsSync(filePath)) override = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     } catch { /* fall through to default */ }
-    result[id] = override ?? { id, ...def, template: def.template, updatedAt: null, version: 0 };
+    // The override file only stores template/version/updatedAt — label,
+    // description and stage always come from the built-in definition.
+    result[id] = { id, ...def, updatedAt: null, version: 0, ...(override ? { template: override.template, updatedAt: override.updatedAt, version: override.version } : {}) };
   }
   return result;
 }
