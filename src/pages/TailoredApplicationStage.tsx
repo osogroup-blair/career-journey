@@ -6,6 +6,8 @@ import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate, ClaimHighlightContext } from '../components/ResumeTemplates';
 import ClaimReviewPanel, { ClaimActions } from '../components/tailored/ClaimReviewPanel';
 import RecommendedEdits from '../components/tailored/RecommendedEdits';
+import InspectorColumn, { INSPECTOR_DEFAULT_WIDTH } from '../components/tailored/InspectorColumn';
+import { useLocalPreference } from '../hooks/useLocalPreference';
 import { editState } from '../lib/resumeEditSuggestions';
 import { flagResumeClaims, openClaimFlags, flagItemKey, removeSkillTerm, ClaimFlag } from '../lib/resumeClaims';
 import { planKeywordFixes, keywordFixInstruction } from '../lib/resumeKeywordFix';
@@ -20,7 +22,7 @@ import { defaultBuildOptions, resolveExperienceRoleId } from '../lib/resumeBuild
 import { condenseRole, removeBullet, removeOutcome, updateNarrative } from '../lib/resumeEdits';
 import { usePageEstimate } from '../hooks/usePageEstimate';
 import ResumeScorePanel from '../components/ResumeScorePanel';
-import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles, SlidersHorizontal, AlertTriangle, Loader2 } from 'lucide-react';
+import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles, SlidersHorizontal, AlertTriangle, Loader2, PanelRightClose, PanelRightOpen } from 'lucide-react';
 
 type Tab = 'resume' | 'cover-letter' | 'assistant' | 'form';
 type TemplateType = 'classic' | 'modern' | 'executive';
@@ -311,7 +313,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
   const fixMissing = () => fixPlan.forEach((f) => runRegenerateResumeSection(job.id, f.section, keywordFixInstruction(f)));
   const pageTarget = job.resumeBuildOptions?.pageTarget ?? defaultBuildOptions(careerJourney).pageTarget;
 
-  // Shrink the 8.5in page to fit its column (the score panel sits beside it at xl+).
+  // Shrink the 8.5in page to fit its column (the review panel sits beside it at xl+, resizable or hidden).
   // CSS zoom, not transform, so layout and inline-edit hit-testing stay correct.
   const previewRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -397,9 +399,15 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
   };
 
   // Right-hand column: an accordion, one section open at a time, starting on whatever needs the candidate next.
+  // Width and hidden state are per-browser preferences; the column itself is InspectorColumn.
+  const readyEdits = useMemo(
+    () => (job.resumeAiScore?.edits || []).filter((e) => editState(e, resume, tagline, careerJourney) === 'ready').length,
+    [job.resumeAiScore, resume, tagline, careerJourney]
+  );
+  const [inspectorWidth, setInspectorWidth] = useLocalPreference('cj.tailored.inspectorWidth', INSPECTOR_DEFAULT_WIDTH);
+  const [inspectorHidden, setInspectorHidden] = useLocalPreference('cj.tailored.inspectorHidden', false);
   const [openPanel, setOpenPanel] = useState<InspectorPanel | null>(() => {
     const score = job.resumeAiScore;
-    const readyEdits = (score?.edits || []).filter((e) => editState(e, resume, tagline, careerJourney) === 'ready').length;
     if (!score || !score.edits || readyEdits > 0) return 'edits';
     if (urgentFlags > 0) return 'claims';
     return coverage.passed ? 'ats' : 'keywords';
@@ -458,10 +466,14 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
         </div>
         <div className="flex items-center gap-2">
           {urgentFlags > 0 && (
-            <button type="button" className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline-offset-2 hover:underline" onClick={() => setOpenPanel('claims')}>
+            <button type="button" className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline-offset-2 hover:underline" onClick={() => { setInspectorHidden(false); setOpenPanel('claims'); }}>
               {urgentFlags} claim{urgentFlags === 1 ? '' : 's'} to review
             </button>
           )}
+          <Button variant="outline" size="sm" onClick={() => setInspectorHidden(!inspectorHidden)} title={inspectorHidden ? 'Show the review panel' : 'Hide the review panel'}>
+            {inspectorHidden ? <PanelRightOpen className="w-3.5 h-3.5 mr-1.5" /> : <PanelRightClose className="w-3.5 h-3.5 mr-1.5" />}
+            {inspectorHidden ? 'Show panel' : 'Hide panel'}
+          </Button>
           <Button variant="outline" size="sm" onClick={onOpenSettings} disabled={isRegenerating}>
             <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" /> {isRegenerating ? 'Regenerating…' : 'Regenerate…'}
           </Button>
@@ -509,7 +521,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
         </div>
       )}
 
-      <div className="flex flex-col xl:flex-row gap-6 items-start">
+      <div className="flex flex-col xl:flex-row gap-6 xl:gap-0 items-start">
         <div ref={previewRef} className="bg-slate-200 rounded-xl p-6 overflow-auto flex-1 min-w-0 w-full">
           <div className="relative bg-white shadow-xl max-w-[8.5in] w-[8.5in] p-[0.5in] mx-auto text-black font-sans leading-relaxed" style={{ zoom: pageZoom }}>
             <div ref={contentRef}>
@@ -520,7 +532,13 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             {layout && <PageBreakMarkers breaks={layout.breaks} />}
           </div>
         </div>
-        <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0 xl:max-h-[calc(100vh-9.5rem)] xl:overflow-y-auto xl:pr-1 space-y-3">
+        <InspectorColumn
+          width={inspectorWidth}
+          onWidthChange={setInspectorWidth}
+          hidden={inspectorHidden}
+          onHiddenChange={setInspectorHidden}
+          attention={readyEdits + urgentFlags}
+        >
           <RecommendedEdits
             open={openPanel === 'edits'}
             onToggle={() => togglePanel('edits')}
@@ -549,7 +567,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             isOpen={(panel) => openPanel === panel}
             onToggle={togglePanel}
           />
-        </aside>
+        </InspectorColumn>
       </div>
     </div>
   );
