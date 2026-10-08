@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, ShieldCheck } from 'lucide-react';
-import { Button, Card, CardContent, CardHeader, CardTitle } from '../ui';
+import { Button } from '../ui';
+import InspectorSection from './InspectorSection';
 import { cn } from '../../lib/utils';
 import { CLAIM_KIND_LABELS, ClaimFlag, ClaimLocation } from '../../lib/resumeClaims';
 import { GeneratedResume, ResumeSectionRef } from '../../types';
@@ -53,7 +54,9 @@ function Highlighted({ text, detail }: { text: string; detail: string }) {
  * (drop the item) and Rewrite (AI-redo its section with a targeted
  * instruction). Low-severity flags collapse behind a toggle.
  */
-export default function ClaimReviewPanel({ flags, resume, actions, keptCount }: {
+export default function ClaimReviewPanel({ open, onToggle, flags, resume, actions, keptCount }: {
+  open: boolean;
+  onToggle: () => void;
   flags: ClaimFlag[];
   resume: GeneratedResume;
   actions: ClaimActions;
@@ -63,18 +66,22 @@ export default function ClaimReviewPanel({ flags, resume, actions, keptCount }: 
   const main = flags.filter((f) => f.severity !== 'low');
   const low = flags.filter((f) => f.severity === 'low');
 
+  const section = (summary: string, tone: 'good' | 'warn' | 'neutral', body: any) => (
+    <InspectorSection id="claims" title="Claims to review" icon={flags.length === 0 ? <ShieldCheck className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-amber-600" />} summary={summary} tone={tone} open={open} onToggle={onToggle}>
+      {body}
+    </InspectorSection>
+  );
+
   if (flags.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-4 flex items-start gap-2 text-sm text-emerald-800">
-          <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>
-            No claims to review: every number is in your Career Journey and nothing is copied from the JD.
-            {keptCount > 0 && <span className="text-slate-500"> ({keptCount} kept by you.)</span>}
-          </span>
-        </CardContent>
-      </Card>
-    );
+    return section('All clear', 'good', (
+      <p className="flex items-start gap-2 text-xs text-emerald-800">
+        <ShieldCheck className="w-4 h-4 shrink-0" />
+        <span>
+          No claims to review: every number is in your Career Journey and nothing is copied from the JD.
+          {keptCount > 0 && <span className="text-slate-500"> ({keptCount} kept by you.)</span>}
+        </span>
+      </p>
+    ));
   }
 
   const row = (flag: ClaimFlag) => {
@@ -106,30 +113,22 @@ export default function ClaimReviewPanel({ flags, resume, actions, keptCount }: 
     );
   };
 
-  return (
-    <Card className="border-amber-200">
-      <CardHeader className="border-b pb-3">
-        <CardTitle className="text-base flex items-center gap-1.5">
-          <AlertTriangle className="w-4 h-4 text-amber-600" /> Claims to review
-          <span className="text-xs font-normal text-slate-500">({flags.length})</span>
-        </CardTitle>
-        <p className="text-[11px] text-slate-500 mt-0.5">
-          Things the AI wrote that your Career Journey doesn't back up, or that echo the JD word for word. You decide: keep what's true, remove or rewrite the rest.
-          {keptCount > 0 && ` ${keptCount} kept by you.`}
-        </p>
-      </CardHeader>
-      <CardContent className="pt-3">
-        {main.length > 0 && <ul className="space-y-2">{main.map(row)}</ul>}
-        {low.length > 0 && (
-          <div className={cn(main.length > 0 && 'mt-3 pt-2 border-t border-slate-100')}>
-            <button type="button" className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700" onClick={() => setShowLow((v) => !v)}>
-              {showLow ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              {low.length} lower-priority {low.length === 1 ? 'check' : 'checks'} (reframed titles, uncited bullets)
-            </button>
-            {showLow && <ul className="space-y-2 mt-2">{low.map(row)}</ul>}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+  return section(main.length > 0 ? `${main.length} to review` : `${low.length} minor`, main.length > 0 ? 'warn' : 'neutral', (
+    <>
+      <p className="text-[11px] text-slate-500 mb-3">
+        Things the AI wrote that your Career Journey doesn't back up, or that echo the JD word for word. You decide: keep what's true, remove or rewrite the rest.
+        {keptCount > 0 && ` ${keptCount} kept by you.`}
+      </p>
+      {main.length > 0 && <ul className="space-y-2">{main.map(row)}</ul>}
+      {low.length > 0 && (
+        <div className={cn(main.length > 0 && 'mt-3 pt-2 border-t border-slate-100')}>
+          <button type="button" className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700" onClick={() => setShowLow((v) => !v)}>
+            {showLow ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            {low.length} lower-priority {low.length === 1 ? 'check' : 'checks'} (reframed titles, uncited bullets)
+          </button>
+          {showLow && <ul className="space-y-2 mt-2">{low.map(row)}</ul>}
+        </div>
+      )}
+    </>
+  ));
 }

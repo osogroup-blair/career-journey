@@ -10,6 +10,8 @@ interface EvidenceTraceProps {
   jdRefs?: JdRef[];
   jdSegments?: { id: string; text: string }[];
   careerJourney: any;
+  /** Which edge the popover lines up with; 'right' for chips near the right of a narrow container. */
+  align?: 'left' | 'right';
 }
 
 /**
@@ -18,7 +20,7 @@ interface EvidenceTraceProps {
  * Journey item the claim is based on. Renders nothing if there's nothing to
  * trace (e.g. the model left refs empty rather than inventing one).
  */
-export default function EvidenceTrace({ evidenceRefs, jdRefs, jdSegments, careerJourney }: EvidenceTraceProps) {
+export default function EvidenceTrace({ evidenceRefs, jdRefs, jdSegments, careerJourney, align = 'left' }: EvidenceTraceProps) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -46,7 +48,7 @@ export default function EvidenceTrace({ evidenceRefs, jdRefs, jdSegments, career
       </button>
       {open && (
         <div
-          className="absolute z-50 left-0 top-full mt-1 w-80 rounded-lg border border-slate-200 bg-white shadow-xl p-3 text-left"
+          className={`absolute z-50 ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1 w-80 max-w-[85vw] rounded-lg border border-slate-200 bg-white shadow-xl p-3 text-left`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-2">

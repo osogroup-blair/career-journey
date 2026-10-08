@@ -6,6 +6,7 @@ import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate, ClaimHighlightContext } from '../components/ResumeTemplates';
 import ClaimReviewPanel, { ClaimActions } from '../components/tailored/ClaimReviewPanel';
 import RecommendedEdits from '../components/tailored/RecommendedEdits';
+import { editState } from '../lib/resumeEditSuggestions';
 import { flagResumeClaims, openClaimFlags, flagItemKey, removeSkillTerm, ClaimFlag } from '../lib/resumeClaims';
 import { planKeywordFixes, keywordFixInstruction } from '../lib/resumeKeywordFix';
 import ResumeBuildSettings from '../components/tailored/ResumeBuildSettings';
@@ -24,6 +25,7 @@ import { Download, CheckCircle2, Plus, Trash2, Send, Sparkles, SlidersHorizontal
 type Tab = 'resume' | 'cover-letter' | 'assistant' | 'form';
 type TemplateType = 'classic' | 'modern' | 'executive';
 type BuildView = 'settings' | 'review';
+type InspectorPanel = 'edits' | 'claims' | 'keywords' | 'ats';
 
 function TailoredApplicationStageInner() {
   const { id } = useParams();
@@ -394,6 +396,16 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
     },
   };
 
+  // Right-hand column: an accordion, one section open at a time, starting on whatever needs the candidate next.
+  const [openPanel, setOpenPanel] = useState<InspectorPanel | null>(() => {
+    const score = job.resumeAiScore;
+    const readyEdits = (score?.edits || []).filter((e) => editState(e, resume, tagline, careerJourney) === 'ready').length;
+    if (!score || !score.edits || readyEdits > 0) return 'edits';
+    if (urgentFlags > 0) return 'claims';
+    return coverage.passed ? 'ats' : 'keywords';
+  });
+  const togglePanel = (panel: InspectorPanel) => setOpenPanel((current) => (current === panel ? null : panel));
+
   const actions: ResumeEditActions = {
     onRegenerateSection: (section, instruction) => runRegenerateResumeSection(job.id, section, instruction),
     isSectionBusy: (section) => isBusy(resumeSectionTaskKind(section)),
@@ -446,9 +458,9 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
         </div>
         <div className="flex items-center gap-2">
           {urgentFlags > 0 && (
-            <span className="text-[11px] font-semibold text-amber-700" title="See Claims to review beside the resume">
+            <button type="button" className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline-offset-2 hover:underline" onClick={() => setOpenPanel('claims')}>
               {urgentFlags} claim{urgentFlags === 1 ? '' : 's'} to review
-            </span>
+            </button>
           )}
           <Button variant="outline" size="sm" onClick={onOpenSettings} disabled={isRegenerating}>
             <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" /> {isRegenerating ? 'Regenerating…' : 'Regenerate…'}
@@ -508,8 +520,10 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             {layout && <PageBreakMarkers breaks={layout.breaks} />}
           </div>
         </div>
-        <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0 space-y-4">
+        <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0 xl:max-h-[calc(100vh-9.5rem)] xl:overflow-y-auto xl:pr-1 space-y-3">
           <RecommendedEdits
+            open={openPanel === 'edits'}
+            onToggle={() => togglePanel('edits')}
             score={job.resumeAiScore}
             resume={resume}
             tagline={tagline}
@@ -520,7 +534,7 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             onApply={(ids, texts) => applyResumeEdits(job.id, ids, texts)}
             onDismiss={(editId, dismissed) => setResumeEditDismissed(job.id, editId, dismissed)}
           />
-          <ClaimReviewPanel flags={flags} resume={resume} actions={claimActions} keptCount={keptCount} />
+          <ClaimReviewPanel open={openPanel === 'claims'} onToggle={() => togglePanel('claims')} flags={flags} resume={resume} actions={claimActions} keptCount={keptCount} />
           <ResumeScorePanel
             job={job}
             coverage={coverage}
@@ -532,6 +546,8 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
             onFixMissing={fixMissing}
             isFixing={isFixing}
             onAiScore={onAiScore}
+            isOpen={(panel) => openPanel === panel}
+            onToggle={togglePanel}
           />
         </aside>
       </div>

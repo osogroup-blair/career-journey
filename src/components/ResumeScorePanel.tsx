@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { JobAnalysis, ResumeAiScore } from '../types';
 import { ResumeKeywordScore } from '../lib/resumeScore';
 import { KeywordFix } from '../lib/resumeKeywordFix';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, LoadingButton } from './ui';
+import { Badge, Button, LoadingButton } from './ui';
+import InspectorSection from './tailored/InspectorSection';
 import { cn } from '../lib/utils';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, RefreshCw, Sparkles, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Gauge, RefreshCw, Sparkles, Target, XCircle } from 'lucide-react';
 
 interface Props {
   job: JobAnalysis;
@@ -19,6 +20,9 @@ interface Props {
   onFixMissing: () => void;
   isFixing: boolean;
   onAiScore: () => void;
+  /** Which accordion sections are open — owned by the editor column. */
+  isOpen: (id: 'keywords' | 'ats') => boolean;
+  onToggle: (id: 'keywords' | 'ats') => void;
 }
 
 function scoreTone(score: number, passed: boolean) {
@@ -26,10 +30,12 @@ function scoreTone(score: number, passed: boolean) {
   return score >= 65 ? 'text-amber-600' : 'text-red-600';
 }
 
-export default function ResumeScorePanel({ job, coverage, currentFingerprint, isRebuilding, isScoring, onRebuild, fixPlan, onFixMissing, isFixing, onAiScore }: Props) {
+export default function ResumeScorePanel({ job, coverage, currentFingerprint, isRebuilding, isScoring, onRebuild, fixPlan, onFixMissing, isFixing, onAiScore, isOpen, onToggle }: Props) {
   return (
-    <div className="space-y-4">
+    <>
       <KeywordCard
+        open={isOpen('keywords')}
+        onToggle={() => onToggle('keywords')}
         coverage={coverage}
         isRebuilding={isRebuilding}
         onRebuild={onRebuild}
@@ -40,12 +46,21 @@ export default function ResumeScorePanel({ job, coverage, currentFingerprint, is
         isScoring={isScoring}
         onAiScore={onAiScore}
       />
-      <AiCard score={job.resumeAiScore} isStale={!!job.resumeAiScore && job.resumeAiScore.resumeFingerprint !== currentFingerprint} isScoring={isScoring} onAiScore={onAiScore} />
-    </div>
+      <AiCard
+        open={isOpen('ats')}
+        onToggle={() => onToggle('ats')}
+        score={job.resumeAiScore}
+        isStale={!!job.resumeAiScore && job.resumeAiScore.resumeFingerprint !== currentFingerprint}
+        isScoring={isScoring}
+        onAiScore={onAiScore}
+      />
+    </>
   );
 }
 
-function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing, isFixing, hasFreshEdits, isScoring, onAiScore }: {
+function KeywordCard({ open, onToggle, coverage, isRebuilding, onRebuild, fixPlan, onFixMissing, isFixing, hasFreshEdits, isScoring, onAiScore }: {
+  open: boolean;
+  onToggle: () => void;
   coverage: ResumeKeywordScore;
   isRebuilding: boolean;
   onRebuild: (k: string[]) => void;
@@ -64,22 +79,22 @@ function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing,
   const nothingToScore = coverage.criticalSkillCoverage.length + coverage.secondaryKeywordCoverage.length === 0;
 
   return (
-    <Card>
-      <CardHeader className="bg-slate-50 border-b pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Keyword Match</CardTitle>
-            <p className="text-xs text-slate-500 mt-1">Live — updates as you edit. Gate: {coverage.threshold}%+ with every top critical skill present.</p>
+    <InspectorSection
+      id="keyword-match"
+      title="Keyword match"
+      icon={<Target className="w-4 h-4" />}
+      summary={nothingToScore ? 'No keywords' : `${coverage.score}% · ${coverage.passed ? 'gate passed' : 'below gate'}`}
+      tone={nothingToScore ? 'neutral' : coverage.passed ? 'good' : coverage.score >= 65 ? 'warn' : 'bad'}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="space-y-4 text-sm">
+        {!nothingToScore && (
+          <div className="flex items-end justify-between gap-3">
+            <p className="text-xs text-slate-500">Live: updates as you edit. Gate: {coverage.threshold}%+ with every top critical skill present.</p>
+            <div className={cn('text-3xl font-bold leading-none shrink-0', scoreTone(coverage.score, coverage.passed))}>{coverage.score}%</div>
           </div>
-          {!nothingToScore && (
-            <div className="text-right">
-              <div className={cn('text-3xl font-bold leading-none', scoreTone(coverage.score, coverage.passed))}>{coverage.score}%</div>
-              <Badge variant={coverage.passed ? 'success' : 'warning'} className="mt-1.5">{coverage.passed ? 'Gate passed' : 'Below gate'}</Badge>
-            </div>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="pt-4 space-y-4 text-sm">
+        )}
         {nothingToScore ? (
           <p className="text-slate-500">No JD keywords to score against yet — run the keyword breakdown on the Rating stage.</p>
         ) : (
@@ -107,7 +122,7 @@ function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing,
                   {coverage.missingKeywords.map((k) => <Badge key={k} variant="outline">{k}</Badge>)}
                 </div>
                 {hasFreshEdits ? (
-                  <p className="text-[11px] text-slate-500 mt-2">Edits that add these are in Recommended edits above.</p>
+                  <p className="text-[11px] text-slate-500 mt-2">Edits that add these are in Recommended edits.</p>
                 ) : (
                   <LoadingButton size="sm" className="mt-3 w-full" onClick={onAiScore} disabled={isRebuilding || isFixing} isLoading={isScoring} loadingLabel="Scanning…">
                     <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Get edits for {coverage.missingKeywords.length === 1 ? 'this keyword' : `these ${coverage.missingKeywords.length}`}
@@ -168,8 +183,8 @@ function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing,
             </div>
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </InspectorSection>
   );
 }
 
@@ -190,25 +205,28 @@ function Checklist({ title, items }: { title: string; items: { phrase: string; p
   );
 }
 
-function AiCard({ score, isStale, isScoring, onAiScore }: { score?: ResumeAiScore; isStale: boolean; isScoring: boolean; onAiScore: () => void }) {
+function AiCard({ open, onToggle, score, isStale, isScoring, onAiScore }: { open: boolean; onToggle: () => void; score?: ResumeAiScore; isStale: boolean; isScoring: boolean; onAiScore: () => void }) {
   const [showRubric, setShowRubric] = useState(false);
   return (
-    <Card>
-      <CardHeader className="bg-slate-50 border-b pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-brand-500" /> ATS Score</CardTitle>
-            <p className="text-xs text-slate-500 mt-1">AI scan: ATS rubric and role-identity read. Its fixes are in Recommended edits. Uses AI quota.</p>
-          </div>
+    <InspectorSection
+      id="ats-score"
+      title="ATS score"
+      icon={<Gauge className="w-4 h-4" />}
+      summary={score ? `${score.overallScore}/100${isStale ? ' · outdated' : ''}` : 'Not scanned'}
+      tone={!score ? 'neutral' : isStale ? 'neutral' : score.overallScore >= 85 ? 'good' : score.overallScore >= 65 ? 'warn' : 'bad'}
+      open={open}
+      onToggle={onToggle}
+    >
+      <div className="space-y-4 text-sm">
+        <div className="flex items-end justify-between gap-3">
+          <p className="text-xs text-slate-500">AI scan: ATS rubric and role-identity read. Its fixes are in Recommended edits. Uses AI quota.</p>
           {score && (
-            <div className="text-right">
+            <div className="text-right shrink-0">
               <div className={cn('text-3xl font-bold leading-none', scoreTone(score.overallScore, score.overallScore >= 85))}>{score.overallScore}</div>
               <div className="text-[11px] text-slate-400 mt-1">/ 100</div>
             </div>
           )}
         </div>
-      </CardHeader>
-      <CardContent className="pt-4 space-y-4 text-sm">
         {isStale && (
           <p className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Resume changed since last AI score.
@@ -265,7 +283,7 @@ function AiCard({ score, isStale, isScoring, onAiScore }: { score?: ResumeAiScor
             Scan & recommend edits
           </LoadingButton>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </InspectorSection>
   );
 }
