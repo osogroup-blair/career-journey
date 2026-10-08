@@ -3,40 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { EvidenceRef, JdRef } from '../types';
 import { Link2, X } from 'lucide-react';
 import { editPathFor } from '../lib/journeySections';
-
-function resolveEvidenceRef(careerJourney: any, ref: EvidenceRef): { label: string; snippet: string } | null {
-  if (!careerJourney) return null;
-  if (ref.type === 'role') {
-    const role = (careerJourney.roles || []).find((r: any) => r.id === ref.id);
-    if (!role) return null;
-    return { label: `Role — ${role.title || role.id}`, snippet: `${role.organization || role.company || ''} ${role.dates || ''}`.trim() };
-  }
-  if (ref.type === 'deliverable') {
-    for (const role of careerJourney.roles || []) {
-      for (const initiative of role.initiatives || []) {
-        const d = (initiative.deliverables || []).find((d: any) => d.id === ref.id);
-        if (d) return { label: `Deliverable — ${role.title || role.id}`, snippet: d.description || d.impact || ref.id };
-      }
-    }
-    return null;
-  }
-  if (ref.type === 'achievement') {
-    const a = (careerJourney.achievements || []).find((a: any) => a.id === ref.id);
-    if (!a) return null;
-    return { label: 'Achievement', snippet: a.description || a.title || ref.id };
-  }
-  if (ref.type === 'skill') {
-    const s = (careerJourney.skills_index || []).find((s: any) => s.id === ref.id);
-    if (!s) return null;
-    return { label: 'Skill', snippet: `${s.name}${s.proficiency ? ` — ${s.proficiency}` : ''}${s.years_experience ? `, ${s.years_experience}y` : ''}` };
-  }
-  if (ref.type === 'education') {
-    const e = (careerJourney.education || []).find((e: any) => e.id === ref.id);
-    if (!e) return null;
-    return { label: 'Education', snippet: `${e.institution || ''} ${e.degree || ''}`.trim() || ref.id };
-  }
-  return null;
-}
+import { resolveEvidenceRef } from '../lib/evidenceRefs';
 
 interface EvidenceTraceProps {
   evidenceRefs?: EvidenceRef[];

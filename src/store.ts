@@ -14,6 +14,7 @@ import { migrateLegacyJob, advanceStageIfEligible } from './lib/jobPipeline';
 import { toastBridge } from './components/ui';
 import * as aiClient from './lib/aiClient';
 import { scoreResumeKeywords, resumeFingerprint } from './lib/resumeScore';
+import { applyEditSuggestion, normalizeEditSuggestions } from './lib/resumeEditSuggestions';
 import { defaultBuildOptions } from './lib/resumeBuild';
 import { carryContextForward } from './lib/keywordList';
 import { replaceRoleEntry } from './lib/resumeEdits';
@@ -83,6 +84,10 @@ interface AppState {
   /** Change one role's mode in the job's build options (from the preview's condense/remove/restore controls). */
   setResumeRoleMode: (jobId: string, roleId: string, mode: ResumeRoleMode) => void;
   runScoreResume: (jobId: string) => void;
+  /** Writes approved recommended edits (resumeAiScore.edits) into the resume, in order; `texts` holds lines the candidate reworded first. Outdated edits are skipped. */
+  applyResumeEdits: (jobId: string, editIds: string[], texts?: Record<string, string>) => void;
+  /** Dismisses a recommended edit, or brings a dismissed one back. */
+  setResumeEditDismissed: (jobId: string, editId: string, dismissed: boolean) => void;
   runGenerateCoverLetter: (jobId: string) => void;
   runApplicationAssistantMessage: (jobId: string, message: string) => void;
   runGenerateFormAnswers: (jobId: string) => void;
@@ -406,8 +411,49 @@ export const useStore = create<AppState>((set, get) => {
       const tagline = job.resumeStrategy?.headerTagline || job.roleTitle;
       get().runAiTask(jobId, 'scoreResume', 'Scoring tailored resume', async () => {
         const keywordCoverage = scoreResumeKeywords(resume, tagline, job.keywords, job.parse);
-        const result = await aiClient.scoreResume(resume, job.resumeStrategy, job.parse!, job.keywords, keywordCoverage, get().careerJourney);
-        return { resumeAiScore: { ...result, resumeFingerprint: resumeFingerprint(resume) } };
+        const careerJourney = get().careerJourney;
+        const result = await aiClient.scoreResume(resume, job.resumeStrategy, job.parse!, job.keywords, keywordCoverage, careerJourney);
+        const edits = normalizeEditSuggestions((result as any).edits, resume, tagline, careerJourney, !!job.resumeStrategy);
+        return { resumeAiScore: { ...result, edits, resumeFingerprint: resumeFingerprint(resume) } };
+      });
+    },
+
+    applyResumeEdits: (jobId, editIds, texts = {}) => {
+      const job = get().jobs[jobId];
+      const score = job?.resumeAiScore;
+      if (!job?.resume || !score?.edits) return;
+      const careerJourney = get().careerJourney;
+      let resume = job.resume;
+      let tagline = job.resumeStrategy?.headerTagline || job.roleTitle;
+      const applied = new Set<string>();
+      for (const id of editIds) {
+        const edit = score.edits.find((e) => e.id === id);
+        const result = edit && !edit.status ? applyEditSuggestion(edit, resume, tagline, careerJourney, texts[id] ?? edit.text) : null;
+        if (!result) continue;
+        resume = result.resume;
+        if (result.tagline !== undefined) tagline = result.tagline;
+        applied.add(id);
+      }
+      if (applied.size === 0) return;
+      get().updateJob(jobId, {
+        resume,
+        ...(job.resumeStrategy && tagline !== job.resumeStrategy.headerTagline ? { resumeStrategy: { ...job.resumeStrategy, headerTagline: tagline } } : {}),
+        resumeAiScore: { ...score, edits: score.edits.map((e) => (applied.has(e.id) ? { ...e, status: 'applied' as const } : e)) },
+      });
+    },
+
+    setResumeEditDismissed: (jobId, editId, dismissed) => {
+      const score = get().jobs[jobId]?.resumeAiScore;
+      if (!score?.edits) return;
+      get().updateJob(jobId, {
+        resumeAiScore: {
+          ...score,
+          edits: score.edits.map((e) => {
+            if (e.id !== editId) return e;
+            const { status: _old, ...rest } = e;
+            return dismissed ? { ...rest, status: 'dismissed' as const } : rest;
+          }),
+        },
       });
     },
 

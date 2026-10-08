@@ -358,21 +358,33 @@ export const SCORE_RESUME_SCHEMA = {
       required: ["readsAs", "aligned", "note"],
     },
     missingCriticalSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-    suggestions: {
+    edits: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
-          area: { type: Type.STRING, enum: ["Tagline", "Summary", "Skills", "Experience", "Formatting"] },
-          suggestion: { type: Type.STRING },
-          keyword: { type: Type.STRING },
+          op: { type: Type.STRING, enum: ["replace", "add"] },
+          line: { type: Type.STRING },
+          text: { type: Type.STRING },
+          lead: { type: Type.STRING },
+          why: { type: Type.STRING },
+          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+          evidenceRefs: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: { type: { type: Type.STRING }, id: { type: Type.STRING } },
+              required: ["type", "id"],
+            },
+          },
+          support: { type: Type.STRING, enum: ["backed", "inferred"] },
         },
-        required: ["area", "suggestion"],
+        required: ["op", "line", "text", "why", "keywords", "evidenceRefs", "support"],
       },
     },
     honestGaps: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
-  required: ["overallScore", "band", "criteria", "roleIdentity", "missingCriticalSkills", "suggestions", "honestGaps"],
+  required: ["overallScore", "band", "criteria", "roleIdentity", "missingCriticalSkills", "edits", "honestGaps"],
 };
 
 export const COVER_LETTER_SCHEMA = {

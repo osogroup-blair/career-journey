@@ -20,6 +20,7 @@ import { projectCareerJourney, CAREER_JOURNEY_FIELDS, applyCareerJourneyExtracto
 import { normalizeResumeBuildOptions, enforceResumeConstraints, resolveExperienceRoleId, roleMode } from "./src/lib/resumeBuild";
 import { sanitizeKeywordsForResume } from "./src/lib/resumeKeywordPlan";
 import { cleanKeywordBreakdown } from "./src/lib/keywordList";
+import { resumeLinesForPrompt } from "./src/lib/resumeEditSuggestions";
 import { projectCareerJourneyForPrompt as projectCareerJourneyForPromptWith, withoutKeywordPlan, parseContents, keywordsPrompt, resumeStrategyContents, generateResumeContents, regenerateResumeSectionContents } from "./server/resumePipelinePrompts";
 import { createLegacyGenAI, type LegacyGenAI } from "./server/ai/legacyGenAIShim";
 import { LEGACY_RESPONSE_SCHEMAS } from "./server/ai/legacySchemas";
@@ -2122,10 +2123,10 @@ ${JSON.stringify(contextEntries, null, 2)}`,
 ${getActivePrompt('scoreResume')}
 
 Tailored Resume:
-${JSON.stringify(resume, null, 2)}
+${JSON.stringify(resume)}
 
-Header Tagline:
-${strategy?.headerTagline || ""}
+Resume lines (cite these ids in edits):
+${resumeLinesForPrompt(resume, strategy?.headerTagline || parse.roleTitle || "", !!strategy)}
 
 Job Parse:
 ${JSON.stringify(parse, null, 2)}

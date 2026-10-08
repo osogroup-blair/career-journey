@@ -5,6 +5,7 @@ import FeatureGate from '../components/FeatureGate';
 import { Button, LoadingButton, Card, CardContent, Input, Label, Textarea, Badge, useToast } from '../components/ui';
 import { ClassicTemplate, ModernTemplate, ExecutiveTemplate, ClaimHighlightContext } from '../components/ResumeTemplates';
 import ClaimReviewPanel, { ClaimActions } from '../components/tailored/ClaimReviewPanel';
+import RecommendedEdits from '../components/tailored/RecommendedEdits';
 import { flagResumeClaims, openClaimFlags, flagItemKey, removeSkillTerm, ClaimFlag } from '../lib/resumeClaims';
 import { planKeywordFixes, keywordFixInstruction } from '../lib/resumeKeywordFix';
 import ResumeBuildSettings from '../components/tailored/ResumeBuildSettings';
@@ -294,6 +295,8 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
   const careerJourney = useStore((s) => s.careerJourney);
   const runRegenerateResumeSection = useStore((s) => s.runRegenerateResumeSection);
   const setResumeRoleMode = useStore((s) => s.setResumeRoleMode);
+  const applyResumeEdits = useStore((s) => s.applyResumeEdits);
+  const setResumeEditDismissed = useStore((s) => s.setResumeEditDismissed);
   const [template, setTemplate] = useState<TemplateType>('classic');
   const toast = useToast();
   const [downloading, setDownloading] = useState<'pdf' | 'docx' | null>(null);
@@ -506,6 +509,17 @@ function ResumeTab({ job, updateJob, isRegenerating, onOpenSettings, onRebuild, 
           </div>
         </div>
         <aside className="w-full xl:w-96 shrink-0 xl:sticky xl:top-0 space-y-4">
+          <RecommendedEdits
+            score={job.resumeAiScore}
+            resume={resume}
+            tagline={tagline}
+            careerJourney={careerJourney}
+            isStale={!!job.resumeAiScore && job.resumeAiScore.resumeFingerprint !== fingerprint}
+            isScoring={isScoring}
+            onScan={onAiScore}
+            onApply={(ids, texts) => applyResumeEdits(job.id, ids, texts)}
+            onDismiss={(editId, dismissed) => setResumeEditDismissed(job.id, editId, dismissed)}
+          />
           <ClaimReviewPanel flags={flags} resume={resume} actions={claimActions} keptCount={keptCount} />
           <ResumeScorePanel
             job={job}

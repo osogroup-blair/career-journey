@@ -351,12 +351,47 @@ export interface ResumeAiScore {
   criteria: { criterion: string; weight: number; score: number; note: string }[];
   roleIdentity: { readsAs: string; aligned: boolean; note: string };
   missingCriticalSkills: string[];
-  suggestions: { area: 'Tagline' | 'Summary' | 'Skills' | 'Experience' | 'Formatting'; suggestion: string; keyword?: string }[];
+  /** Free-text advice from scores made before `edits` existed — display only. */
+  suggestions?: { area: 'Tagline' | 'Summary' | 'Skills' | 'Experience' | 'Formatting'; suggestion: string; keyword?: string }[];
+  /** Approvable line edits (src/lib/resumeEditSuggestions.ts), resolved against the scored resume. Absent on older scores. */
+  edits?: ResumeEditSuggestion[];
   /** Keywords the Career Journey has no evidence for — reported, never fabricated. */
   honestGaps: string[];
   scoredAt: string;
   /** resumeFingerprint() of the resume that was scored — a mismatch means the score is stale. */
   resumeFingerprint: string;
+}
+
+/** Where a recommended edit lands. Lines are anchored by their text, not index, so approving one edit doesn't shift the others. */
+export type ResumeEditTarget =
+  | { kind: 'tagline' }
+  | { kind: 'summary' }
+  | { kind: 'skillsRow'; category: string }
+  | { kind: 'newSkillsRow' }
+  /** roleKey: resumeRoleKey() of the experience entry. */
+  | { kind: 'bullet'; roleKey: string; text: string }
+  | { kind: 'newBullet'; roleKey: string; afterText?: string }
+  | { kind: 'narrative'; roleKey: string }
+  | { kind: 'outcome'; text: string }
+  | { kind: 'newOutcome' };
+
+export interface ResumeEditSuggestion {
+  id: string;
+  target: ResumeEditTarget;
+  /** Where it goes, for display: "Summary", "Nymbl · bullet 2", "Nymbl · new bullet". */
+  label: string;
+  /** The line's text when it was scored; empty for an added line. A mismatch now means the edit is outdated. */
+  before: string;
+  /** The proposed line. For a skills row, the terms only. */
+  text: string;
+  /** Bold label for an added outcome/bullet, or the category of a new skills row. */
+  lead?: string;
+  why: string;
+  keywords: string[];
+  evidenceRefs: EvidenceRef[];
+  /** 'backed' = the cited Career Journey items state it; 'inferred' = a reading of them the candidate must confirm. */
+  support: 'backed' | 'inferred';
+  status?: 'applied' | 'dismissed';
 }
 
 export type MatchStatus = 'New' | 'Promoted' | 'Dismissed';

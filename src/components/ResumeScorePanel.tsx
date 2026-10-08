@@ -29,22 +29,37 @@ function scoreTone(score: number, passed: boolean) {
 export default function ResumeScorePanel({ job, coverage, currentFingerprint, isRebuilding, isScoring, onRebuild, fixPlan, onFixMissing, isFixing, onAiScore }: Props) {
   return (
     <div className="space-y-4">
-      <KeywordCard coverage={coverage} isRebuilding={isRebuilding} onRebuild={onRebuild} fixPlan={fixPlan} onFixMissing={onFixMissing} isFixing={isFixing} />
+      <KeywordCard
+        coverage={coverage}
+        isRebuilding={isRebuilding}
+        onRebuild={onRebuild}
+        fixPlan={fixPlan}
+        onFixMissing={onFixMissing}
+        isFixing={isFixing}
+        hasFreshEdits={!!job.resumeAiScore?.edits && job.resumeAiScore.resumeFingerprint === currentFingerprint}
+        isScoring={isScoring}
+        onAiScore={onAiScore}
+      />
       <AiCard score={job.resumeAiScore} isStale={!!job.resumeAiScore && job.resumeAiScore.resumeFingerprint !== currentFingerprint} isScoring={isScoring} onAiScore={onAiScore} />
     </div>
   );
 }
 
-function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing, isFixing }: {
+function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing, isFixing, hasFreshEdits, isScoring, onAiScore }: {
   coverage: ResumeKeywordScore;
   isRebuilding: boolean;
   onRebuild: (k: string[]) => void;
   fixPlan: KeywordFix[];
   onFixMissing: () => void;
   isFixing: boolean;
+  /** The last scan's recommended edits match the resume as it is now. */
+  hasFreshEdits: boolean;
+  isScoring: boolean;
+  onAiScore: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [confirmRebuild, setConfirmRebuild] = useState(false);
+  const [showRewrite, setShowRewrite] = useState(false);
   const missingCritical = coverage.criticalSkillCoverage.filter((c) => !c.present);
   const nothingToScore = coverage.criticalSkillCoverage.length + coverage.secondaryKeywordCoverage.length === 0;
 
@@ -91,32 +106,40 @@ function KeywordCard({ coverage, isRebuilding, onRebuild, fixPlan, onFixMissing,
                 <div className="flex flex-wrap gap-1.5">
                   {coverage.missingKeywords.map((k) => <Badge key={k} variant="outline">{k}</Badge>)}
                 </div>
-                <LoadingButton
-                  size="sm"
-                  className="mt-3 w-full"
-                  onClick={onFixMissing}
-                  disabled={isRebuilding || fixPlan.length === 0}
-                  isLoading={isFixing}
-                  loadingLabel="Rewriting sections…"
-                >
-                  <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Fix {coverage.missingKeywords.length} missing keyword{coverage.missingKeywords.length === 1 ? '' : 's'}
-                </LoadingButton>
-                {fixPlan.length > 0 && (
-                  <p className="text-[11px] text-slate-500 mt-1.5">
-                    Rewrites only {fixPlan.map((f) => f.label).join(', ')}. Your edits elsewhere stay as they are.
-                  </p>
+                {hasFreshEdits ? (
+                  <p className="text-[11px] text-slate-500 mt-2">Edits that add these are in Recommended edits above.</p>
+                ) : (
+                  <LoadingButton size="sm" className="mt-3 w-full" onClick={onAiScore} disabled={isRebuilding || isFixing} isLoading={isScoring} loadingLabel="Scanning…">
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Get edits for {coverage.missingKeywords.length === 1 ? 'this keyword' : `these ${coverage.missingKeywords.length}`}
+                  </LoadingButton>
                 )}
-                {!confirmRebuild ? (
-                  <button type="button" className="mt-2 text-[11px] font-semibold text-slate-500 hover:text-slate-700" onClick={() => setConfirmRebuild(true)} disabled={isRebuilding || isFixing}>
-                    Full rebuild instead…
+                {!showRewrite ? (
+                  <button type="button" className="mt-2 text-[11px] font-semibold text-slate-500 hover:text-slate-700" onClick={() => setShowRewrite(true)} disabled={isRebuilding || isFixing}>
+                    Or let the AI rewrite sections…
                   </button>
                 ) : (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                    <span className="flex-1 min-w-[140px]">A full rebuild rewrites the whole resume and replaces your manual edits.</span>
-                    <LoadingButton size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => { setConfirmRebuild(false); onRebuild(coverage.missingKeywords); }} isLoading={isRebuilding} loadingLabel="Rebuilding…">
-                      <RefreshCw className="w-3 h-3 mr-1" /> Rebuild anyway
-                    </LoadingButton>
-                    <button type="button" className="font-semibold text-slate-500 hover:text-slate-700" onClick={() => setConfirmRebuild(false)}>Cancel</button>
+                  <div className="mt-2 space-y-2 text-[11px] bg-slate-50 border border-slate-200 rounded px-2 py-2">
+                    {fixPlan.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="flex-1 min-w-[140px] text-slate-600">Rewrite {fixPlan.map((f) => f.label).join(', ')} with these keywords. You review the result, not each line.</span>
+                        <LoadingButton size="sm" variant="outline" className="h-6 text-[10px]" onClick={onFixMissing} disabled={isRebuilding} isLoading={isFixing} loadingLabel="Rewriting…">
+                          Rewrite {fixPlan.length} section{fixPlan.length === 1 ? '' : 's'}
+                        </LoadingButton>
+                      </div>
+                    )}
+                    {!confirmRebuild ? (
+                      <button type="button" className="font-semibold text-slate-500 hover:text-slate-700" onClick={() => setConfirmRebuild(true)} disabled={isRebuilding || isFixing}>
+                        Full rebuild instead…
+                      </button>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2 text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                        <span className="flex-1 min-w-[140px]">A full rebuild rewrites the whole resume and replaces your manual edits.</span>
+                        <LoadingButton size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => { setConfirmRebuild(false); onRebuild(coverage.missingKeywords); }} isLoading={isRebuilding} loadingLabel="Rebuilding…">
+                          <RefreshCw className="w-3 h-3 mr-1" /> Rebuild anyway
+                        </LoadingButton>
+                        <button type="button" className="font-semibold text-slate-500 hover:text-slate-700" onClick={() => setConfirmRebuild(false)}>Cancel</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -167,21 +190,15 @@ function Checklist({ title, items }: { title: string; items: { phrase: string; p
   );
 }
 
-const AREA_ORDER: ResumeAiScore['suggestions'][number]['area'][] = ['Tagline', 'Summary', 'Skills', 'Experience', 'Formatting'];
-// Not every provider enforces the schema enum ("Skills section", "Executive Summary") — unknown areas sort last.
-const areaRank = (area: string) => {
-  const i = AREA_ORDER.indexOf(area as any);
-  return i === -1 ? AREA_ORDER.length : i;
-};
-
 function AiCard({ score, isStale, isScoring, onAiScore }: { score?: ResumeAiScore; isStale: boolean; isScoring: boolean; onAiScore: () => void }) {
+  const [showRubric, setShowRubric] = useState(false);
   return (
     <Card>
       <CardHeader className="bg-slate-50 border-b pb-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-brand-500" /> AI Review</CardTitle>
-            <p className="text-xs text-slate-500 mt-1">ATS rubric, role-identity read and specific fixes. Uses AI quota.</p>
+            <CardTitle className="text-base flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-brand-500" /> ATS Score</CardTitle>
+            <p className="text-xs text-slate-500 mt-1">AI scan: ATS rubric and role-identity read. Its fixes are in Recommended edits. Uses AI quota.</p>
           </div>
           {score && (
             <div className="text-right">
@@ -202,7 +219,11 @@ function AiCard({ score, isStale, isScoring, onAiScore }: { score?: ResumeAiScor
           <>
             <p className="text-xs text-slate-600">{score.band}</p>
 
-            <div className="space-y-2">
+            <button onClick={() => setShowRubric(!showRubric)} className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-700">
+              {showRubric ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              {showRubric ? 'Hide' : 'Show'} rubric
+            </button>
+            {showRubric && <div className="space-y-2">
               {score.criteria.map((c) => (
                 <div key={c.criterion} title={c.note}>
                   <div className="flex justify-between text-xs">
@@ -217,36 +238,12 @@ function AiCard({ score, isStale, isScoring, onAiScore }: { score?: ResumeAiScor
                   </div>
                 </div>
               ))}
-            </div>
+            </div>}
 
             <div className={cn('rounded border px-3 py-2', score.roleIdentity.aligned ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50')}>
               <div className="text-xs font-bold text-slate-700">Reads as: {score.roleIdentity.readsAs}</div>
               <div className="text-xs text-slate-600 mt-0.5">{score.roleIdentity.note}</div>
             </div>
-
-            {score.missingCriticalSkills.length > 0 && (
-              <div>
-                <h4 className="text-xs uppercase font-bold text-red-700 mb-1.5">Missing critical skills</h4>
-                <div className="flex flex-wrap gap-1.5">
-                  {score.missingCriticalSkills.map((k) => <Badge key={k} variant="destructive">{k}</Badge>)}
-                </div>
-              </div>
-            )}
-
-            {score.suggestions.length > 0 && (
-              <div>
-                <h4 className="text-xs uppercase font-bold text-brand-700 mb-1.5">Suggestions</h4>
-                <ul className="space-y-2">
-                  {[...score.suggestions]
-                    .sort((a, b) => areaRank(a.area) - areaRank(b.area))
-                    .map((s, i) => (
-                      <li key={i} className="text-xs text-slate-700">
-                        <span className="font-bold text-slate-900">{s.area}{s.keyword ? ` · ${s.keyword}` : ''}:</span> {s.suggestion}
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            )}
 
             {score.honestGaps.length > 0 && (
               <div>
@@ -261,11 +258,11 @@ function AiCard({ score, isStale, isScoring, onAiScore }: { score?: ResumeAiScor
 
         {score ? (
           <Button variant="outline" size="sm" className="w-full" onClick={onAiScore} disabled={isScoring}>
-            {isScoring ? 'Scoring…' : 'Re-score'}
+            {isScoring ? 'Scanning…' : 'Re-scan'}
           </Button>
         ) : (
-          <LoadingButton size="sm" className="w-full" onClick={onAiScore} isLoading={isScoring} loadingLabel="Scoring…">
-            Run AI Score
+          <LoadingButton size="sm" className="w-full" onClick={onAiScore} isLoading={isScoring} loadingLabel="Scanning…">
+            Scan & recommend edits
           </LoadingButton>
         )}
       </CardContent>
