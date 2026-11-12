@@ -1,3 +1,4 @@
+import { authHeaders } from '../lib/aiClient';
 import { Firestore, doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
 import { PromptConfig, PromptChangeLogEntry } from '../types/promptConfig';
@@ -18,6 +19,38 @@ function stripUndefined<T>(value: T): T {
  */
 export class FirestoreDataStore implements DataStore {
   constructor(private db: Firestore, private uid: string) {}
+
+  hasPendingWrites() { return this.writes.size > 0; }
+  private revisions = new Map<string, number>();
+  private writes = new Map<string, Promise<void>>();
+  private async command(path: string, body: any): Promise<any> {
+    const response = await fetch(`/api/agent/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...await authHeaders() }, body: JSON.stringify(body) });
+    const result = await response.json();
+    if (!response.ok) {
+      window.dispatchEvent(new CustomEvent('career-journey:save-error', { detail: { message: result.error || 'Save failed', conflict: response.status === 409 } }));
+      throw new Error(result.error || 'Save failed');
+    }
+    return result;
+  }
+  private enqueue(collection: 'jobs' | 'matches', id: string, value?: any): Promise<void> {
+    const key = `${collection}/${id}`;
+    // A failed predecessor blocks queued writes rather than retrying stale local state.
+    const predecessor = this.writes.get(key) ?? Promise.resolve();
+    const pending = predecessor.then(async () => {
+      const expectedRevision = this.revisions.get(key) ?? 0;
+      if (value) {
+        const result = await this.command('save', { collection, expectedRevision, value, requestId: crypto.randomUUID() });
+        this.revisions.set(key, result.revision);
+      } else {
+        await this.command('delete', { collection, id, expectedRevision });
+        this.revisions.delete(key);
+      }
+    });
+    this.writes.set(key, pending);
+    void pending.finally(() => { if (this.writes.get(key) === pending) this.writes.delete(key); }).catch(() => {});
+    return pending;
+  }
+
 
   private careerJourneyRef() {
     return doc(this.db, 'users', this.uid, 'careerJourney', 'current');
@@ -94,31 +127,31 @@ export class FirestoreDataStore implements DataStore {
   async listJobs(): Promise<Record<string, JobAnalysis>> {
     const snap = await getDocs(this.jobsCollectionRef());
     const jobs: Record<string, JobAnalysis> = {};
-    snap.forEach((d) => { jobs[d.id] = d.data() as JobAnalysis; });
+    snap.forEach((d) => { jobs[d.id] = d.data() as JobAnalysis; if (!this.writes.has(`jobs/${d.id}`)) this.revisions.set(`jobs/${d.id}`, d.data().revision ?? 0); });
     return jobs;
   }
 
   async saveJob(job: JobAnalysis): Promise<void> {
-    await setDoc(this.jobRef(job.id), stripUndefined(job));
+    await this.enqueue('jobs', job.id, stripUndefined(job));
   }
 
   async deleteJob(id: string): Promise<void> {
-    await deleteDoc(this.jobRef(id));
+    await this.enqueue('jobs', id);
   }
 
   async listMatches(): Promise<Record<string, JobMatch>> {
     const snap = await getDocs(this.matchesCollectionRef());
     const matches: Record<string, JobMatch> = {};
-    snap.forEach((d) => { matches[d.id] = d.data() as JobMatch; });
+    snap.forEach((d) => { matches[d.id] = d.data() as JobMatch; if (!this.writes.has(`matches/${d.id}`)) this.revisions.set(`matches/${d.id}`, d.data().revision ?? 0); });
     return matches;
   }
 
   async saveMatch(match: JobMatch): Promise<void> {
-    await setDoc(this.matchRef(match.id), stripUndefined(match));
+    await this.enqueue('matches', match.id, stripUndefined(match));
   }
 
   async deleteMatch(id: string): Promise<void> {
-    await deleteDoc(this.matchRef(id));
+    await this.enqueue('matches', id);
   }
 
   async getMatchPreferences(): Promise<MatchPreferences | null> {

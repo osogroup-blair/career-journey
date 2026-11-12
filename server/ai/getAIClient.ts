@@ -129,6 +129,6 @@ async function pickClientForRequest(req: Request, promptId: string, uid: string 
 }
 
 /** Non-request-scoped accessor for code paths not yet migrated to per-user BYOM routing — always the platform client. */
-export function getAIClient(defaultModel?: string): StructuredAIClient {
-  return getPlatformClient(defaultModel);
+export function getAIClient(defaultModel?: string, providerOverride?: AIProviderId): StructuredAIClient {
+  return getPlatformClient(defaultModel, providerOverride);
 }

@@ -34,6 +34,8 @@ import Spotlight from './pages/Spotlight';
 import Profile from './pages/Profile';
 import Upgrade from './pages/Upgrade';
 import Settings from './pages/Settings';
+import AgentConnections from './pages/AgentConnections';
+import AgentLibrary from './pages/AgentLibrary';
 import MyFeedback from './pages/MyFeedback';
 import AdminFlags from './pages/AdminFlags';
 import AdminModels from './pages/AdminModels';
@@ -69,6 +71,8 @@ export default function App() {
             <Route path="/compare-offers" element={<CompareOffers />} />
             <Route path="/upgrade" element={<Upgrade />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/agent-connections" element={<AgentConnections />} />
+            <Route path="/agent-library" element={<AgentLibrary />} />
             <Route path="/feedback" element={<MyFeedback />} />
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="users" replace />} />

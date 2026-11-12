@@ -305,3 +305,10 @@ While this repository utilizes standard scaffolding patterns, the underlying arc
 I built **Career Journey** to solve a persistent operating problem in high-stakes job search: candidate context is lost when resumes are treated as static, one-off documents. 
 
 Traditional resume builders focus on formatting or simple string replacement. In contrast, **Career Journey** models career history as structured, dynamic data. By combining a persistent source of truth with an AI reasoning pipeline and human-in-the-loop context gathering, candidates can evaluate fit objectively, capture missing nuance, and generate targeted applications backed by verified evidence.
+
+
+## Agent integration (private beta)
+
+A scoped MCP interface and application document library are being implemented. Career Journey is read-only for agents. The beta supports job/match management, immutable application documents, external application reports, follow-ups, interviews, offers and seven platform AI preparation steps. Remote access and workers are disabled by default; a full OAuth onboarding flow and managed employer submissions are not released.
+
+See [implementation status and validation](agent-platform-implementation-status.md) before enabling connections. Settings links to **Agent connections** and the application document/history library. Cloud job/match writes now require the updated application API; deploy client/server together and verify the associated rules/indexes before enabling agent writes.

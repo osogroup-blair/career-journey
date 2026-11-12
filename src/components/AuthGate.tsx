@@ -66,12 +66,27 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user || !user.emailVerified || !db) return;
     let cancelled = false;
-    setDataStore(new FirestoreDataStore(db, user.uid));
+    const cloudStore = new FirestoreDataStore(db, user.uid);
+    setDataStore(cloudStore);
+    const refresh = () => {
+      // Refresh only on explicit focus; never replace active AI results or a pending save.
+      if (!cloudStore.hasPendingWrites() && !Object.values(useStore.getState().activeAiTasks).some(t => t.status === 'running')) {
+        void useStore.getState().hydrate().catch(() => {});
+      }
+    };
+    const saveError = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      setError(`${detail.message}. Reload the page before continuing; your last change was not saved.`);
+    };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('career-journey:save-error', saveError);
     useStore.getState().hydrate().then(() => {
       if (!cancelled) setHydrated(true);
     });
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('career-journey:save-error', saveError);
     };
   }, [user]);
 
@@ -245,5 +260,5 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return <FullScreenStatus label="Loading your data…" />;
   }
 
-  return <>{children}</>;
+  return <>{error && <div role="alert" className="bg-red-50 text-red-800 p-4">{error}</div>}{children}</>;
 }

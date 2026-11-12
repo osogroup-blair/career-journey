@@ -83,6 +83,7 @@ export default function Settings() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+      <a href="#/agent-connections" className="block underline">Agent connections and application history</a>
 
       <a
         href="#/feedback"

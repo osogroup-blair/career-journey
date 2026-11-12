@@ -1,4 +1,5 @@
 import express from "express";
+import { registerAgentPlatform } from "./server/agent";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { z } from "zod";
@@ -206,7 +207,9 @@ async function startServer() {
     await handleStripeWebhook(adminApp, req, res);
   });
 
+  app.use('/mcp', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '10mb' }));
+  registerAgentPlatform(app);
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -861,6 +864,10 @@ async function startServer() {
         tickets: ticketsSnap.docs.map((d) => d.data()),
         jobDiscovery: { profile: discoveryProfileSnap?.exists ? discoveryProfileSnap.data() : null, discoveredJobs },
         careerSpotlight: spotlight,
+        agentPlatform: Object.fromEntries(await Promise.all(['agentConnections','agentArtifacts','agentExports','agentPackets','agentApplications','agentEvents','agentClarifications','agentFollowUps'].map(async collection => {
+          const snapshot = await db.collection('users').doc(uid).collection(collection).get();
+          return [collection, snapshot.docs.map(d => { const {tokenHash,rateMinute,rateCount,...safe}=d.data();return safe; })];
+        }))),
       });
     } catch (e: any) {
       console.error("export user data failed", e);

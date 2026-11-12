@@ -1,4 +1,5 @@
 import type { App } from "firebase-admin/app";
+import { getStorage } from "firebase-admin/storage";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { logAdminAction } from "./auditLog";
@@ -23,6 +24,10 @@ export async function purgeUserData(app: App, uid: string): Promise<void> {
   if (!uid) throw new Error("purgeUserData requires a uid");
   const db = getFirestore(app);
   await deleteSpotlightsOwnedBy(app, uid);
+  // Private application exports are not removed by Firestore recursiveDelete.
+  if (process.env.VITE_FIREBASE_STORAGE_BUCKET) {
+    await getStorage(app).bucket().deleteFiles({ prefix: `agentArtifacts/${uid}/` });
+  }
   await db.recursiveDelete(db.collection("users").doc(uid));
   await db.collection("discoverySchedules").doc(uid).delete();
 }

@@ -323,3 +323,14 @@ Kept here as a single list so nothing gets rediscovered from scratch. See `AGENT
 7. **Ticket-submission rate limiting is transactionally enforced in Firestore** (`requireWithinDailyTicketLimit` in `server/support.ts`).
 8. **Automated test suite configured with Vitest** (`vitest.config.ts`, `server/__tests__/support.test.ts`). Run via `npm test` or `npx vitest run`.
 9. **`package.json`'s `name` field is still `"react-example"`** and `version` is `"0.0.0"`, both unused placeholders from initial scaffolding.
+
+
+## Agent platform (private beta, disabled by default)
+
+`server/agent/` supplies a stateless Streamable HTTP MCP endpoint at `/mcp`, scoped expiring connections, strict job-search commands and durable preparation operations. Agents can read Career Journey; no agent command can write canonical evidence, stage/approve a canonical patch or save canonical resume defaults. Firebase credentials are never issued to an agent.
+
+Human-authenticated `/api/agent` routes manage connections, invoke shared commands, save/delete jobs and matches with expected revisions, and download private exports. `FirestoreDataStore` uses these routes for job/match mutations; local-only persistence is unchanged. Client/server deployment must be coordinated with the narrowed Firestore rules so old clients cannot overwrite revisioned records.
+
+Immutable records live under each user in `agentArtifacts`, `agentExports`, `agentPackets`, `agentApplications`, `agentEvents`, `agentClarifications`, `agentFollowUps`, `agentCommands`, `agentConnections` and `agentOperations`. Private exported bytes use `agentArtifacts/{uid}/` in Storage. The library distinguishes draft documents and externally reported application receipts; managed employer submission is not enabled. The tested coordinator in `server/agent/submissions.ts` has no production employer adapter.
+
+`MCP_ENABLED`, `AGENT_WRITES_ENABLED`, and `AGENT_AI_ENABLED` independently gate remote access, agent writes and the preparation worker. Optional external OAuth verification is resource-server support, not a complete authorization/consent provider. See [implementation status](agent-platform-implementation-status.md) for current limitations, validation and rollout blockers, and [the plan](mcp-agent-platform-plan.md) for the full intended parity scope. `npm run verify:agents -- --live --ai` exercises an isolated cloud account and real AI preparation; it does not apply to an employer or onboard an external agent.

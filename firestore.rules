@@ -17,16 +17,24 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     match /users/{userId}/jobs/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
     }
     match /users/{userId}/matches/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
     }
     match /users/{userId}/matchPreferences/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     match /users/{userId}/promptConfigs/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Agent collections are accessed through scoped server commands only.
+    // No recursive user-write grant may cover these paths.
+    match /users/{userId}/{collection}/{recordId} {
+      allow read, write: if false;
     }
 
     // Billing/entitlement state (payment-system-plan.md Phase 0). The server, via the

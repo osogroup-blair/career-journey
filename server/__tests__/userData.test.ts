@@ -30,6 +30,10 @@ vi.mock('firebase-admin/firestore', () => ({
   }),
 }));
 
+vi.mock('firebase-admin/storage', () => ({
+  getStorage: () => ({ bucket: () => ({ deleteFiles: async ({ prefix }: { prefix: string }) => { calls.push(`storage.deleteFiles:${prefix}`); } }) }),
+}));
+
 vi.mock('firebase-admin/auth', () => ({
   getAuth: () => ({ deleteUser: mockDeleteUser }),
 }));
@@ -48,6 +52,7 @@ describe('user data purge on account deletion', () => {
   const mockApp = {} as App;
 
   beforeEach(() => {
+    vi.stubEnv('VITE_FIREBASE_STORAGE_BUCKET', 'test-bucket');
     calls.length = 0;
     vi.clearAllMocks();
   });
@@ -60,6 +65,7 @@ describe('user data purge on account deletion', () => {
     // page never outlives the account) and Job Discovery's scheduler entry.
     expect(calls).toEqual([
       'spotlights.deleteOwnedBy:user123',
+      'storage.deleteFiles:agentArtifacts/user123/',
       'firestore.recursiveDelete:users/user123',
       'firestore.delete:discoverySchedules/user123',
     ]);
@@ -74,6 +80,7 @@ describe('user data purge on account deletion', () => {
     await deleteOwnAccount(mockApp, 'user123');
     expect(calls).toEqual([
       'spotlights.deleteOwnedBy:user123',
+      'storage.deleteFiles:agentArtifacts/user123/',
       'firestore.recursiveDelete:users/user123',
       'firestore.delete:discoverySchedules/user123',
       'auth.deleteUser:user123',
@@ -86,6 +93,7 @@ describe('user data purge on account deletion', () => {
     expect(calls).toEqual([
       'auth.deleteUser:user123',
       'spotlights.deleteOwnedBy:user123',
+      'storage.deleteFiles:agentArtifacts/user123/',
       'firestore.recursiveDelete:users/user123',
       'firestore.delete:discoverySchedules/user123',
       'audit:delete_user:user123',
