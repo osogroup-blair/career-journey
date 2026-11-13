@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +30,7 @@ export default function JobTracker() {
   const [query, setQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<StageFilter>('any');
   const [sort, setSort] = useState<TrackerSort>('updated');
+  useAssistantPageContext({tabId:view,filters:{view,query:query.slice(0,200),stage:stageFilter,sort}});
 
   const jobList: JobAnalysis[] = useMemo(() => Object.values(jobs || {}), [jobs]);
   const scores: Record<string, number> = useMemo(() => matchScoresByJob(matches), [matches]);

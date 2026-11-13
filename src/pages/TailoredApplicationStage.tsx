@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore, resumeSectionTaskKind } from '../store';
 import { useParams } from 'react-router-dom';
@@ -40,6 +41,7 @@ function TailoredApplicationStageInner() {
   const activeAiTasks = useStore((s) => s.activeAiTasks);
 
   const [tab, setTab] = useState<Tab>('resume');
+  useAssistantPageContext({ tabId: tab });
   // Set when the user opens Build Settings / Strategy Review on purpose (e.g. "Regenerate…" on an existing resume);
   // otherwise the view follows the job's data.
   const [buildView, setBuildView] = useState<BuildView | null>(null);

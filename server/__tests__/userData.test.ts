@@ -35,7 +35,7 @@ vi.mock('../platform/storage', () => ({
 }));
 
 vi.mock('../platform/auth', () => ({
-  getAuth: () => ({ deleteUser: mockDeleteUser }),
+  getAuth: () => ({ deleteUser: mockDeleteUser, revokeRefreshTokens: async (uid: string) => { calls.push(`auth.revoke:${uid}`); }, updateUser: async (uid: string) => { calls.push(`auth.disable:${uid}`); } }),
 }));
 
 vi.mock('../spotlight', () => ({
@@ -76,9 +76,11 @@ describe('user data purge on account deletion', () => {
     expect(mockRecursiveDelete).not.toHaveBeenCalled();
   });
 
-  it('self-service DELETE /api/user/account purges data, then deletes the Auth user', async () => {
+  it('self-service deletion revokes and disables authority before purging data', async () => {
     await deleteOwnAccount(mockApp, 'user123');
     expect(calls).toEqual([
+      'auth.revoke:user123',
+      'auth.disable:user123',
       'spotlights.deleteOwnedBy:user123',
       'storage.deleteFiles:agentArtifacts/user123/',
       'firestore.recursiveDelete:users/user123',

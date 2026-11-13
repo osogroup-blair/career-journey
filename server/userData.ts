@@ -34,6 +34,9 @@ export async function purgeUserData(app: App, uid: string): Promise<void> {
 
 /** DELETE /api/user/account — data first, then the Auth user. */
 export async function deleteOwnAccount(app: App, uid: string): Promise<void> {
+  // Revoke authority before removing data so background workers cannot republish it.
+  await getAuth(app).revokeRefreshTokens(uid);
+  await getAuth(app).updateUser(uid, { disabled: true });
   await purgeUserData(app, uid);
   await getAuth(app).deleteUser(uid);
 }

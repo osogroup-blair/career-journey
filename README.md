@@ -180,3 +180,9 @@ Traditional resume builders focus on formatting or simple string replacement. In
 A scoped MCP interface and application document library are being implemented. Career Journey is read-only for agents. The beta supports job/match management, immutable application documents, external application reports, follow-ups, interviews, offers and seven platform AI preparation steps. Remote access and workers are disabled by default; a full OAuth onboarding flow and managed employer submissions are not released.
 
 See [implementation status and validation](agent-platform-implementation-status.md) before enabling connections. Settings links to **Agent connections** and the application document/history library. Cloud job/match writes now require the updated application API; deploy client/server together and verify the associated rules/indexes before enabling agent writes.
+
+## In-platform assistant (private beta)
+
+A page-aware assistant can explain saved career/job evidence, manage supported pipeline data and documents, run existing preparation steps, and draft Career Journey edits for human review. It persists across private pages and shows action receipts. Open the launcher or press Alt+Shift+A. Canonical edits always require the human Apply control; administrator, payment/security and employer submission actions are excluded.
+
+The assistant is off by default. See [implementation status and limitations](assistant-implementation-status.md) and [enablement instructions](SELF_HOSTING.md#in-platform-assistant-private-beta). Initial durable chat uses platform AI; browser BYOM keys are never stored for background execution. `npm run verify:assistant` performs a disposable real-provider/tool check and consumes provider usage.

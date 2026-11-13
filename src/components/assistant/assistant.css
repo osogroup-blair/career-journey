@@ -1,0 +1,223 @@
+.assistant-launcher {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 5rem;
+  z-index: 45;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: #1e293b;
+  color: white;
+  border-radius: 2rem;
+  padding: 0.8rem 1.1rem;
+  box-shadow: 0 3px 16px #0003;
+}
+.assistant-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: min(460px, 100vw);
+  z-index: 100;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: -8px 0 35px #0003;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  outline: none;
+}
+.assistant-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.assistant-context {
+  padding: 8px 16px;
+  background: #f1f5f9;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.assistant-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.assistant-toolbar select {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-panel button {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.assistant-panel button:focus-visible,
+.assistant-panel textarea:focus-visible,
+.assistant-panel select:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.assistant-panel button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.assistant-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  overscroll-behavior: contain;
+}
+.assistant-message {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+.assistant-user {
+  background: #eff6ff;
+  margin-left: 24px;
+}
+.assistant-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-message small {
+  font-weight: 600;
+}
+.assistant-card {
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.assistant-card button {
+  border: 1px solid #94a3b8;
+  margin: 6px 6px 0 0;
+}
+.assistant-card p,
+.assistant-body > p {
+  margin: 8px 0;
+}
+.assistant-json {
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f8fafc;
+  padding: 8px;
+  margin: 8px 0;
+}
+.assistant-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #eff6ff;
+  padding: 8px;
+  text-transform: capitalize;
+}
+.assistant-status button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.assistant-panel form {
+  padding: 12px 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.assistant-panel form label {
+  display: block;
+  font-size: 12px;
+}
+.assistant-panel textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  max-height: 160px;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  padding: 8px;
+  margin: 4px 0 8px;
+}
+.assistant-panel form button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  background: #1e293b;
+  color: white;
+  margin-left: auto;
+}
+.assistant-panel footer {
+  padding: 8px 16px;
+  font-size: 10px;
+  color: #475569;
+}
+.assistant-notice {
+  padding: 8px 16px;
+  background: #fef3c7;
+  font-size: 12px;
+}
+.assistant-notice button {
+  display: block;
+  text-decoration: underline;
+}
+.assistant-error {
+  padding: 8px 16px;
+  color: #b91c1c;
+  font-size: 12px;
+}
+.assistant-suggestion {
+  display: block;
+  text-align: left;
+  background: #f1f5f9;
+  margin: 8px 0;
+  width: 100%;
+}
+.assistant-event {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px;
+}
+.assistant-event small {
+  display: block;
+  color: #475569;
+}
+.assistant-panel summary {
+  cursor: pointer;
+  margin: 8px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-panel * {
+    scroll-behavior: auto;
+  }
+}
+.assistant-permission {
+  display: flex !important;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 6px 0 10px;
+  font-size: 11px !important;
+}
+.assistant-permission input {
+  margin-top: 3px;
+}
+.assistant-panel .assistant-rename {
+  padding: 4px 16px;
+  display: flex;
+  gap: 4px;
+  font-size: 11px;
+  border: 0;
+}
+.assistant-rename input {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-panel .assistant-rename button {
+  font-size: 11px;
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 2px 6px;
+}

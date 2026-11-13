@@ -1,3 +1,4 @@
+import { checkAssistantTransaction } from '../assistant/policy';
 import { flagResumeClaims } from "../../src/lib/resumeClaims";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -21,6 +22,7 @@ export interface PreparationRunner {
     kind: PreparationKind,
     job: Row,
     journey: Row,
+    stepKey?: string,
   ): Promise<{ patch: Row; usage?: unknown }>;
 }
 /** Durable single-step operations. In-flight operations are never automatically resubmitted to a paid AI provider. */
@@ -69,6 +71,8 @@ export class PreparationOperations {
       schema: z.object({ operationId: id }).strict(),
       run: (p, a) =>
         service.repo.transaction(p.uid, async (tx) => {
+          if (p.type === "assistant") await service.authorizeAssistant(p);
+          await checkAssistantTransaction(p, tx);
           if (p.type === "agent") {
             const g = await required(tx, "agentConnections", p.connectionId!);
             if (g.revokedAt || Date.parse(g.expiresAt) <= Date.now())
@@ -98,6 +102,8 @@ export class PreparationOperations {
       );
     await this.runner.authorize(p, a.kind);
     return this.service.repo.transaction(p.uid, async (tx) => {
+      if (p.type === "assistant") await this.service.authorizeAssistant(p);
+      await checkAssistantTransaction(p, tx);
       if (p.type === "agent") {
         const g = await required(tx, "agentConnections", p.connectionId!);
         if (
@@ -108,7 +114,7 @@ export class PreparationOperations {
           throw new DomainError("INVALID_TOKEN", "Connection unavailable", 401);
       }
       const key = hash({
-          actor: p.connectionId ?? "user",
+          actor: p.runId ?? p.connectionId ?? "user",
           key: a.idempotencyKey,
         }),
         previous = await tx.get("agentOperations", key),
@@ -125,6 +131,7 @@ export class PreparationOperations {
       const job = await required(tx, "jobs", a.jobId),
         journey = await required(tx, "careerJourney", "current");
       checkRevision(job, a.expectedRevision);
+      if (job.stage === "Archive" || job.archivedAt) throw new DomainError("POLICY_BLOCKED", "Restore the job before preparing new materials", 409);
       if (a.kind !== "parse" && !job.parse)
         throw new DomainError("USER_INPUT_REQUIRED", "Parse the job first");
       if (
@@ -169,6 +176,7 @@ export class PreparationOperations {
     if (!claimed) return;
     try {
       const p = claimed.principal as Principal;
+      if (p.type === "assistant") await this.service.authorizeAssistant(p);
       if (p.type === "agent") {
         const grant = await this.service.repo.read(
           uid,
@@ -198,8 +206,10 @@ export class PreparationOperations {
           409,
         );
       // Any crash from here on is ambiguous. Recovery marks it unknown and never recharges automatically.
-      const result = await this.runner.generate(p, claimed.kind, job, journey);
+      const result = await this.runner.generate(p, claimed.kind, job, journey, key);
       await this.service.repo.transaction(uid, async (tx) => {
+        if (p.type === "assistant") await this.service.authorizeAssistant(p);
+        await checkAssistantTransaction(p, tx);
         const op = await required(tx, "agentOperations", key),
           latest = await required(tx, "jobs", claimed.jobId),
           current = await required(tx, "careerJourney", "current");

@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
@@ -101,6 +102,7 @@ export default function Discover() {
   const [view, setView] = useState<DiscoverView>('review');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<DiscoverSort>('relevance');
+  useAssistantPageContext({tabId:view,filters:{view,query:query.slice(0,200),sort}});
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showSetup, setShowSetup] = useState(false);

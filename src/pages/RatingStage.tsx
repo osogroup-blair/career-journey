@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -30,6 +31,7 @@ export default function RatingStage() {
 
   const [tab, setTab] = useState<Tab>('fit');
   const [selectedKeywordId, setSelectedKeywordId] = useState<string | null>(null);
+  useAssistantPageContext({ tabId: tab, ...(selectedKeywordId ? {selectedEntity:{type:"keyword",id:selectedKeywordId}} : {}) });
   const [formData, setFormData] = useState<Partial<ExperienceContext>>({});
 
   const isBusy = (kind: string) => Object.values(activeAiTasks).some((t) => t.jobId === id && t.kind === kind);

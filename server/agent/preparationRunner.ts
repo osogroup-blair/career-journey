@@ -1,3 +1,6 @@
+import { assistantAuthority } from '../assistant/authority';
+import { SqliteRepository } from './repository';
+import { getDatabase } from '../platform/database';
 import type { App } from "../platform/app";
 import { getAuth } from "../platform/auth";
 import { z } from "zod";
@@ -75,7 +78,7 @@ export class PlatformPreparationRunner implements PreparationRunner {
         403,
       );
   }
-  async generate(p: Principal, kind: PreparationKind, job: Row, journey: Row) {
+  async generate(p: Principal, kind: PreparationKind, job: Row, journey: Row, stepKey?: string) {
     const options = normalizeResumeBuildOptions(
       job.resumeBuildOptions,
       journey,
@@ -111,7 +114,7 @@ export class PlatformPreparationRunner implements PreparationRunner {
         503,
       );
     // Charge only after prerequisites, prompt construction and provider validation.
-    const quota = await checkAndConsumeAiQuota(this.app, p.uid);
+    const quota = await checkAndConsumeAiQuota(this.app, p.uid, stepKey ? `preparation_${stepKey}` : undefined);
     if (!quota.allowed)
       throw new DomainError(
         "QUOTA_EXCEEDED",
@@ -165,6 +168,7 @@ export class PlatformPreparationRunner implements PreparationRunner {
         totalTokens: response.usageMetadata.totalTokenCount,
       };
     }
+    if (p.type === "assistant") await assistantAuthority(this.app, new SqliteRepository(getDatabase(this.app)))(p);
     // Usage logging failure must not cause an already generated result to be resubmitted.
     await recordAiUsage(this.app, p.uid, {
       endpoint: `agent.${kind}`,
@@ -172,7 +176,7 @@ export class PlatformPreparationRunner implements PreparationRunner {
       provider: resolved.provider,
       ...usage,
       isByom: false,
-    }).catch(() => {});
+    }, stepKey ? `preparation_${stepKey}` : undefined).catch(() => {});
     let patch: Row;
     if (kind === "parse")
       patch = {

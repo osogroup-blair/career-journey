@@ -26,6 +26,10 @@ export interface GenerateStructuredParams<T> {
   prompt: string;
   /** Single source of truth for the response shape — every provider implementation converts this into its own native structured-output format. */
   schema: ZodType<T>;
+  signal?: AbortSignal;
+  maxOutputTokens?: number;
+  /** Disable provider resampling/retries for durable paid-step execution. */
+  noRetries?: boolean;
 }
 
 /**

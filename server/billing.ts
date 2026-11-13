@@ -137,7 +137,7 @@ type QuotaResult = { allowed: true } | { allowed: false; reason: string };
  * never consumes quota and concurrent requests can't race past the limit.
  * Comped accounts always pass without consuming anything.
  */
-export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<QuotaResult> {
+export async function checkAndConsumeAiQuota(app: App, uid: string, reservationId?: string): Promise<QuotaResult> {
   const [flags, db] = [await getFeatureFlags(app), getDatabase(app)];
   if (flags.killSwitches.aiPipeline) {
     return { allowed: false, reason: "AI features are temporarily disabled — try again shortly." };
@@ -145,13 +145,16 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
   const ref = billingRef(app, uid);
 
   return db.runTransaction(async (tx): Promise<QuotaResult> => {
+    const reservationRef = reservationId ? getDatabase(app).collection('users').doc(uid).collection('aiQuotaReservations').doc(reservationId) : null;
+    if (reservationRef && (await tx.get(reservationRef)).exists) return { allowed: true };
     const snap = await tx.get(ref);
+    const reserve = () => { if (reservationRef) tx.set(reservationRef, { id: reservationId, state: 'consumed', createdAt: new Date().toISOString() }); return { allowed: true } as QuotaResult; };
     const state: BillingState = snap.exists
       ? { ...defaultBillingState(), ...(snap.data() as Partial<BillingState>) }
       : defaultBillingState();
 
     if (state.comped) {
-      return { allowed: true };
+      return reserve();
     }
 
     if (state.plan === "free") {
@@ -162,7 +165,7 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
         };
       }
       tx.set(ref, { ...state, freeAiActionsUsed: state.freeAiActionsUsed + 1 }, { merge: true });
-      return { allowed: true };
+      return reserve();
     }
 
     if (state.plan === "pro_monthly") {
@@ -177,7 +180,7 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
           { ...state, proMonthlyAiActionsUsed: 1, proMonthlyPeriodStart: now.toISOString() },
           { merge: true }
         );
-        return { allowed: true };
+        return reserve();
       }
 
       if (state.proMonthlyAiActionsUsed >= flags.proMonthlyLimit) {
@@ -187,7 +190,7 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
         };
       }
       tx.set(ref, { ...state, proMonthlyAiActionsUsed: state.proMonthlyAiActionsUsed + 1 }, { merge: true });
-      return { allowed: true };
+      return reserve();
     }
 
     // byom_monthly / byom_yearly — no spend cap, just the daily safety rail.
@@ -199,7 +202,7 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
         { ...state, byomDailyActionsUsed: 1, byomDailyResetAt: new Date(now + DAY_MS).toISOString() },
         { merge: true }
       );
-      return { allowed: true };
+      return reserve();
     }
     if ((state.byomDailyActionsUsed || 0) >= flags.byomDailyLimit) {
       return {
@@ -208,7 +211,7 @@ export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<Quo
       };
     }
     tx.set(ref, { ...state, byomDailyActionsUsed: (state.byomDailyActionsUsed || 0) + 1 }, { merge: true });
-    return { allowed: true };
+    return reserve();
   });
 }
 
@@ -246,7 +249,8 @@ export const FEATURE_NAMES: Record<string, string> = {
 export async function recordAiUsage(
   app: App,
   uid: string,
-  log: Omit<AiUsageLog, "id" | "uid" | "timestamp"> & { timestamp?: string }
+  log: Omit<AiUsageLog, "id" | "uid" | "timestamp"> & { timestamp?: string },
+  settlementId?: string,
 ): Promise<void> {
   const db = getDatabase(app);
   const now = new Date().toISOString();
@@ -267,6 +271,21 @@ export async function recordAiUsage(
     ...(log.requestId ? { requestId: log.requestId } : {}),
   };
 
+  if (settlementId) {
+    const usageRef = db.collection('users').doc(uid).collection('aiUsageLogs').doc(settlementId);
+    await db.runTransaction(async tx => {
+      if ((await tx.get(usageRef)).exists) return;
+      const ref = billingRef(app, uid);
+      const billing = (await tx.get(ref)).data() || {};
+      const update: Record<string, any> = { lifetimeAiTokensUsed: FieldValue.increment(totalTokens) };
+      if (log.isByom) update.byomDailyTokensUsed = FieldValue.increment(totalTokens);
+      else if ((billing.plan || 'free') === 'free') update.freeAiTokensUsed = FieldValue.increment(totalTokens);
+      else if (billing.plan === 'pro_monthly') update.proMonthlyAiTokensUsed = FieldValue.increment(totalTokens);
+      tx.set(usageRef, logDoc);
+      tx.set(ref, update, { merge: true });
+    });
+    return;
+  }
   // Add the log entry asynchronously
   const logPromise = db.collection("users").doc(uid).collection("aiUsageLogs").add(logDoc);
 

@@ -1,3 +1,4 @@
+import { catalog, checkAssistantTransaction } from '../assistant/policy';
 import { buildJobFromMatch } from "../../src/lib/matchPromotion";
 import { flagResumeClaims } from "../../src/lib/resumeClaims";
 import { randomUUID } from "node:crypto";
@@ -45,6 +46,7 @@ export class AgentService {
   constructor(
     readonly repo: Repository,
     private writesEnabled: () => boolean = () => false,
+    readonly authorizeAssistant: (p: Principal, toolName?: string) => Promise<void> = async () => { throw new DomainError("POLICY_BLOCKED", "Assistant authority unavailable", 403); },
   ) {
     const add = (name: string, tool: Tool) => {
       this.tools[name] = tool;
@@ -825,10 +827,13 @@ export class AgentService {
   actor(p: Principal) {
     return {
       type: p.type,
+      ...(p.runId ? { runId: p.runId } : {}),
       ...(p.connectionId ? { connectionId: p.connectionId } : {}),
     };
   }
   async invoke(p: Principal, name: string, input: unknown) {
+    if (p.type === "assistant") await this.authorizeAssistant(p, name);
+    if (p.type === "assistant" && !catalog(this).includes(name)) throw new DomainError("POLICY_BLOCKED", "Tool unavailable to assistant", 403);
     const tool = this.tools[name];
     if (!tool) throw new DomainError("NOT_FOUND", "Unknown tool", 404);
     if (tool.scope) requireScope(p, tool.scope);
@@ -870,6 +875,8 @@ export class AgentService {
     run: (t: Unit) => Promise<any>,
   ) {
     return this.repo.transaction(p.uid, async (tx) => {
+      if (p.type === "assistant") await this.authorizeAssistant(p, name);
+      await checkAssistantTransaction(p, tx);
       // Recheck the grant inside the same transaction as every agent write.
       if (p.type === "agent") {
         const grant = await required(tx, "agentConnections", p.connectionId!);
@@ -888,7 +895,7 @@ export class AgentService {
           );
       }
       const key = hash({
-          actor: p.connectionId ?? "user",
+          actor: p.runId ?? p.connectionId ?? "user",
           key: a.idempotencyKey,
         }),
         fingerprint = hash({ name, args: a });

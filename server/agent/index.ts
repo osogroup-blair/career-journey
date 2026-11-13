@@ -1,3 +1,5 @@
+import { registerAssistant } from '../assistant';
+import { assistantAuthority } from '../assistant/authority';
 import { getStorage } from "../platform/storage";
 import { ArtifactExports, BucketBlobStore } from "./artifacts";
 import { DomainError } from "./contracts";
@@ -69,12 +71,14 @@ export function registerAgentPlatform(app: express.Express) {
   const service = new AgentService(
     repo,
     () => process.env.AGENT_WRITES_ENABLED === "true",
+    assistantAuthority(admin, repo),
   );
   const operations = new PreparationOperations(
     service,
     new PlatformPreparationRunner(admin),
     () => process.env.AGENT_AI_ENABLED === "true",
   );
+  registerAssistant(app, admin, service);
   // Recovery scans are opt-in with the AI worker; a missing index fails visibly in logs.
   if (process.env.AGENT_AI_ENABLED === "true") {
     let busy = false;

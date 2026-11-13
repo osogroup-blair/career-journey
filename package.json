@@ -26,7 +26,8 @@
     "export:firebase": "node migration/export-firebase.mjs",
     "import:firebase": "tsx server/platform/import.ts",
     "seed:init": "tsx server/platform/seed-init.ts",
-    "seed:apply": "tsx server/platform/maintenance.ts seed"
+    "seed:apply": "tsx server/platform/maintenance.ts seed",
+    "verify:assistant": "tsx server/scripts/verifyAssistant.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

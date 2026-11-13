@@ -154,8 +154,8 @@ export class OsoClient implements StructuredAIClient {
     this.client = createOsoOpenAI();
   }
 
-  async generateStructured<T>({ systemPrompt, prompt, schema }: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>> {
-    return withOsoRetry(async () => {
+  async generateStructured<T>({ systemPrompt, prompt, schema, signal, maxOutputTokens, noRetries }: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>> {
+    const generate = async () => {
       let data, response;
       try {
         ({ data, response } = await this.client.chat.completions
@@ -165,8 +165,9 @@ export class OsoClient implements StructuredAIClient {
               { role: "system", content: systemPrompt + jsonInstruction(z.toJSONSchema(schema)) },
               { role: "user", content: prompt },
             ],
+            ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
             ...osoRoutingFields(),
-          } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming)
+          } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, signal ? { signal } : undefined)
           .withResponse());
       } catch (e) {
         throw toOsoError(e);
@@ -183,7 +184,8 @@ export class OsoClient implements StructuredAIClient {
         model: this.model,
         ...osoResponseMeta(response.headers),
       };
-    });
+    };
+    return noRetries ? generate() : withOsoRetry(generate);
   }
 }
 

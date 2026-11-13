@@ -868,9 +868,9 @@ async function startServer() {
         tickets: ticketsSnap.docs.map((d) => d.data()),
         jobDiscovery: { profile: discoveryProfileSnap?.exists ? discoveryProfileSnap.data() : null, discoveredJobs },
         careerSpotlight: spotlight,
-        agentPlatform: Object.fromEntries(await Promise.all(['agentConnections','agentArtifacts','agentExports','agentPackets','agentApplications','agentEvents','agentClarifications','agentFollowUps'].map(async collection => {
+        agentPlatform: Object.fromEntries(await Promise.all(['agentConnections','agentArtifacts','agentExports','agentPackets','agentApplications','agentEvents','agentClarifications','agentFollowUps','assistantThreads','assistantMessages','assistantRuns','assistantSteps','assistantEvents','assistantApprovals','assistantJourneyProposals'].map(async collection => {
           const snapshot = await db.collection('users').doc(uid).collection(collection).get();
-          return [collection, snapshot.docs.map(d => { const {tokenHash,rateMinute,rateCount,...safe}=d.data();return safe; })];
+          return [collection, snapshot.docs.map(d => { const {tokenHash,sessionHash,rateMinute,rateCount,...safe}=d.data();return safe; })];
         }))),
       });
     } catch (e: any) {

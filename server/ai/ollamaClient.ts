@@ -6,7 +6,7 @@ export class OllamaClient implements StructuredAIClient {
 
   constructor(private baseUrl: string, readonly model: string = "qwen3:14b") {}
 
-  async generateStructured<T>({ systemPrompt, prompt, schema }: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>> {
+  async generateStructured<T>({ systemPrompt, prompt, schema, signal, maxOutputTokens }: GenerateStructuredParams<T>): Promise<StructuredAIResult<T>> {
     // Ollama's native /api/chat accepts a JSON Schema directly via `format` —
     // the documented, stable way to get structured output (its OpenAI-
     // compatible endpoint's structured-output support has been inconsistent
@@ -15,6 +15,7 @@ export class OllamaClient implements StructuredAIClient {
     try {
       response = await fetch(`${this.baseUrl}/api/chat`, {
         method: "POST",
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: this.model,
@@ -24,6 +25,7 @@ export class OllamaClient implements StructuredAIClient {
           ],
           format: z.toJSONSchema(schema),
           stream: false,
+          ...(maxOutputTokens ? { options: { num_predict: maxOutputTokens } } : {}),
         }),
       });
     } catch (e: any) {

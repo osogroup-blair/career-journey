@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
@@ -284,6 +285,7 @@ export default function CareerJourney() {
   const setCareerJourney = useStore((state) => state.setCareerJourney);
 
   const [activeTier, setActiveTier] = useState<string>('meta');
+  useAssistantPageContext({sectionId:activeTier});
   const [rawText, setRawText] = useState('');
   const [jsonError, setJsonError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);

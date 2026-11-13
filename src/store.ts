@@ -52,6 +52,7 @@ interface AppState {
   /** Active feature flags matrix and kill switches */
   featureFlags: FeatureFlags | null;
   hydrate: () => Promise<void>;
+  reconcileAssistantChanges: () => Promise<void>;
   /** Re-fetches billing state on demand — call after returning from Stripe Checkout/Portal, since webhooks land async and the store won't otherwise know a plan changed. */
   refreshBilling: () => Promise<void>;
   /** Re-fetches feature flags on demand */
@@ -184,6 +185,19 @@ export const useStore = create<AppState>((set, get) => {
         isAdmin: idTokenResult?.claims?.admin === true,
         featureFlags: featureFlagsRes,
       });
+    },
+
+    reconcileAssistantChanges: async () => {
+      const beforeRefresh = get();
+      if (dataStore.hasPendingWrites?.() || Object.values(get().activeAiTasks).some(t => t.status === 'running')) throw new Error('Wait for pending saves and AI work before refreshing.');
+      const {jobs,matches,careerJourney} = dataStore.readAssistantSnapshot ? await dataStore.readAssistantSnapshot() : {jobs:await dataStore.listJobs(),matches:await dataStore.listMatches(),careerJourney:await dataStore.getCareerJourney()};
+      if (dataStore.hasPendingWrites?.() || document.documentElement.hasAttribute('data-assistant-dirty') || Object.values(get().activeAiTasks).some(t => t.status === 'running') || get().jobs !== beforeRefresh.jobs || get().matches !== beforeRefresh.matches || get().careerJourney !== beforeRefresh.careerJourney) throw new Error('Page edits started while refreshing. Save or discard them before refreshing.');
+      dataStore.acceptAssistantSnapshot?.({jobs,matches,careerJourney});
+      set(state => ({
+        jobs: Object.fromEntries(Object.entries(jobs).map(([id,job]) => [id, (state.jobs[id] as any)?.revision > (job as any).revision ? state.jobs[id] : migrateLegacyJob(job)])),
+        matches, careerJourney: normalizeCareerJourney(careerJourney ?? DEFAULT_CAREER_JOURNEY),
+      }));
+      window.dispatchEvent(new Event('career-journey:assistant-changed'));
     },
 
     refreshBilling: async () => {

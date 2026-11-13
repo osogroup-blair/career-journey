@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import { useEffect, useState } from "react";
 import { authHeaders } from "../lib/aiClient";
 import { agentCommand } from "../lib/agentClient";
@@ -9,6 +10,7 @@ export default function AgentLibrary() {
     [followUps, setFollowUps] = useState<any[]>([]),
     [selected, setSelected] = useState<any>(null),
     [error, setError] = useState("");
+  useAssistantPageContext(selected ? {selectedEntity:{type:"artifact",id:selected.id}} : {});
   const refresh = async () => {
     try {
       const [a, b, c, d] = await Promise.all(
@@ -50,6 +52,9 @@ export default function AgentLibrary() {
   };
   useEffect(() => {
     void refresh();
+    const refreshListener = () => { void refresh(); };
+    window.addEventListener("career-journey:assistant-changed", refreshListener);
+    return () => window.removeEventListener("career-journey:assistant-changed", refreshListener);
   }, []);
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-5">

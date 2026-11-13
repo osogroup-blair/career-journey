@@ -11,6 +11,10 @@ import { AllowedModelsConfig } from '../types/aiModels';
  * be swapped without touching callers.
  */
 export interface DataStore {
+  hasPendingWrites?(): boolean;
+  readAssistantSnapshot?(): Promise<any>;
+  acceptAssistantSnapshot?(snapshot: any): void;
+  flushWrites?(): Promise<void>;
   getCareerJourney(): Promise<any | null>;
   saveCareerJourney(journey: any): Promise<void>;
 

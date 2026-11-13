@@ -210,3 +210,38 @@ The implementation passed 498 automated tests, TypeScript checking, production b
 If startup logs show `Use a password of 12–256 characters` from `bootstrapAdmin`, the VM has environment-based administrator credentials set with an invalid password length. For the explicit seed workflow, edit `.env` and set both `ADMIN_EMAIL=""` and `ADMIN_PASSWORD=""`, then rerun deployment. Do not change the password minimum or delete the data volume. The deployment script now checks provisioning settings in the built image before stopping the current app or opening its database.
 
 `.deploy/current` is created only after a healthy deployment. If it is missing, do not run commands that read it yet; fix configuration and complete `./scripts/deploy.sh codex/selfhosted-vm` first. With no recorded successful deployment, the script retains failed-container logs and reports that no prior image could be restored. Existing data and backups are preserved.
+
+## In-platform assistant (private beta)
+
+Deploy client and server together using the existing release/deploy scripts. New assistant data uses the existing SQLite DATA_DIR and private application volumes; no additional service, tunnel or proxy is required. Back up the existing data as usual. Start with a verified internal account and review [assistant implementation status](assistant-implementation-status.md), including provider and concurrency limits.
+
+For read-only help on authenticated pages, configure the platform AI provider and set:
+
+```dotenv
+ASSISTANT_ENABLED=true
+ASSISTANT_WRITES_ENABLED=false
+ASSISTANT_JOURNEY_PROPOSALS_ENABLED=false
+```
+
+After the read-only acceptance check, enable job/document actions with `ASSISTANT_WRITES_ENABLED=true`. Canonical proposal drafting/human application additionally needs `ASSISTANT_JOURNEY_PROPOSALS_ENABLED=true`. Preparation actions need `AGENT_AI_ENABLED=true`, which starts the existing shared preparation worker. None of these requires `MCP_ENABLED=true` or external OAuth configuration. Keep `.env` private and restart/redeploy after environment changes.
+
+The launcher appears on every private page; Alt+Shift+A toggles it. Conversations persist across navigation and reload. Users may allow one routine change for a request; otherwise they review exact actions. Career Journey changes always use a separate human Apply control. Save/discard dirty page edits before acknowledging them in the panel. Account/provider/feature rules still apply. BYOM background execution is unavailable and does not silently switch to the platform provider.
+
+Limits are documented in `.env.example`: planner steps/tokens/prompt size, turn timeout and content retention. Each planner/preparation AI call uses the existing quota system. Stop prevents later steps/result publication but does not refund an in-flight provider call. Review `unknown` results and existing activity before starting a replacement generation. Minimal quota reservation identities are kept independently of chat retention. Chat content is sent to the configured platform AI provider; the panel discloses this and offers conversation deletion.
+
+Reproducible checks, using isolated data:
+
+```bash
+npm test
+npm run lint
+npm run build
+npm run verify:assistant             # creates/removes its own temporary DATA_DIR; real provider usage
+# Optional only when a reachable Ollama endpoint/model is configured:
+npm run verify:assistant -- --ollama
+# For the existing seven-step workflow check, set DATA_DIR to an isolated temporary directory:
+npm run verify:agents -- --live --ai
+```
+
+The assistant verifier uses fictional data and no employers. Its optional Ollama check is independent of the Oso workflow check. Check actual provider access, public-HTTPS sign-in, page context, write conflicts, human proposal review, cancellation, reconnect and downloads through the existing Cloudflare Tunnel before wider enablement. The first UI transport is polling, so token streaming/proxy buffering configuration is not required.
+
+To stop assistant execution, disable its three flags and redeploy. Queued work cannot publish through a disabled assistant authority. Existing operations/materials/history remain available in the database; do not delete DATA_DIR to roll back. `AGENT_AI_ENABLED` also serves external agent preparation, so change it separately and deliberately. Continue using `scripts/rollback.sh` for compatible application rollback, retaining newer data and immutable exports.

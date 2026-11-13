@@ -1,3 +1,4 @@
+import { checkAssistantTransaction } from '../assistant/policy';
 import { createHash } from "node:crypto";
 import type { Bucket } from "../platform/storage";
 import { z } from "zod";
@@ -101,7 +102,7 @@ export class ArtifactExports {
       "agentExports",
       exportId,
     );
-    if (cached) return { ...cached, downloadPath: `/mcp/exports/${exportId}` };
+    if (cached) return { ...cached, downloadPath: `${p.type === "assistant" ? "/api/agent" : "/mcp"}/exports/${exportId}` };
     const content =
       artifact.kind === "resume"
         ? artifact.content
@@ -127,6 +128,7 @@ export class ArtifactExports {
         ? "application/pdf"
         : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     const path = `agentArtifacts/${p.uid}/${exportId}.${a.format}`;
+    if (p.type === "assistant") await this.service.authorizeAssistant(p);
     const stored = await this.blobs.putIfAbsent(path, bytes, mime);
     const row = {
       id: exportId,
@@ -141,6 +143,8 @@ export class ArtifactExports {
       renderer: "agent-v1",
     };
     await this.service.repo.transaction(p.uid, async (tx) => {
+      if (p.type === "assistant") await this.service.authorizeAssistant(p);
+      await checkAssistantTransaction(p, tx);
       if (p.type === "agent") {
         const grant = await required(tx, "agentConnections", p.connectionId!);
         if (
@@ -153,7 +157,7 @@ export class ArtifactExports {
       const existing = await tx.get("agentExports", exportId);
       if (!existing) tx.set("agentExports", exportId, row);
     });
-    return { ...row, downloadPath: `/mcp/exports/${exportId}` };
+    return { ...row, downloadPath: `${p.type === "assistant" ? "/api/agent" : "/mcp"}/exports/${exportId}` };
   }
   async download(p: Principal, key: string) {
     requireScope(p, "artifacts:read");

@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { useNavigate } from 'react-router-dom';
@@ -51,6 +52,7 @@ export default function Matches() {
   const [verdict, setVerdict] = useState<VerdictFilter>('any');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<MatchSort>('score');
+  useAssistantPageContext({tabId:view,filters:{view,query:query.slice(0,200),sort}});
   const [showBelowFloor, setShowBelowFloor] = useState(false);
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

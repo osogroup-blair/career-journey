@@ -1,3 +1,5 @@
+import { AssistantProvider } from './assistant/AssistantProvider';
+import AssistantHost from './components/assistant/AssistantHost';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -51,7 +53,8 @@ export default function App() {
   return (
     <ToastProvider>
     <Router>
-      <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <AssistantProvider>
+      <div id="private-app-chrome" className="min-h-screen bg-slate-50 flex flex-col font-sans">
         <Navbar />
         <AiActivityIndicator />
         <FeedbackWidget />
@@ -109,6 +112,8 @@ export default function App() {
         </div>
         <Footer />
       </div>
+    <AssistantHost />
+    </AssistantProvider>
     </Router>
     </ToastProvider>
   );

@@ -51,7 +51,8 @@ export const actorSchema = z
   })
   .strict();
 export interface Principal {
-  type: "user" | "agent";
+  type: "user" | "agent" | "assistant";
+  runId?: string;
   uid: string;
   connectionId?: string;
   scopes: readonly string[];

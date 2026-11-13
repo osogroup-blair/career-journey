@@ -77,6 +77,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     const refresh = () => {
       // Refresh only on explicit focus; never replace active AI results or a pending save.
       if (
+        !document.documentElement.hasAttribute("data-assistant-dirty") &&
         !cloudStore.hasPendingWrites() &&
         !Object.values(useStore.getState().activeAiTasks).some(
           (t) => t.status === "running",

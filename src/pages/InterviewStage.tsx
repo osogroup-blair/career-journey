@@ -1,3 +1,4 @@
+import { useAssistantPageContext } from '../assistant/AssistantProvider';
 import { useState } from 'react';
 import { useStore } from '../store';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -16,6 +17,7 @@ function InterviewStageInner() {
   const updateJob = useStore((s) => s.updateJob);
   const navigate = useNavigate();
   const [expandedRoundId, setExpandedRoundId] = useState<string | null>(null);
+  useAssistantPageContext(expandedRoundId ? {selectedEntity:{type:"interview",id:expandedRoundId}} : {});
 
   if (!job) return null;
 
