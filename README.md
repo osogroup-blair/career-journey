@@ -124,6 +124,7 @@ Requires Node 24+ for local development, or Docker Engine with Compose for a VM.
 npm ci
 cp .env.example .env
 # Set ADMIN_EMAIL and a unique ADMIN_PASSWORD of at least 12 characters.
+# For local development, also set APP_URL=http://localhost:47293.
 npm run dev
 ```
 
@@ -140,7 +141,7 @@ No GitHub Actions or hosted build service is used. After committing changes, pub
 ./scripts/deploy.sh v1.0.0
 ```
 
-The deploy script builds on the VM, backs up persistent state with writers stopped, waits for health, and records the previous image for rollback. Optional Caddy supplies HTTPS, or use your existing reverse proxy. Read [SELF_HOSTING.md](SELF_HOSTING.md) for initial setup, secure configuration, backups, rollback, local account maintenance and Firebase export/import. Existing Firebase data has not automatically been cut over; imported users must set local passwords before production traffic moves.
+The deploy script builds on the VM, backs up persistent state with writers stopped, waits for health, and records the previous image for rollback. The existing VM Cloudflare Tunnel serves `https://career-journey.oso.group` and forwards to the private app origin; no additional reverse proxy is deployed. Read [SELF_HOSTING.md](SELF_HOSTING.md) for initial setup, secure configuration, backups, rollback, local account maintenance and Firebase export/import. Existing Firebase data has not automatically been cut over; imported users must set local passwords before production traffic moves.
 
 ## Verification
 

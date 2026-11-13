@@ -147,6 +147,6 @@ Initial bootstrap creates one verified local administrator only if no accounts e
 
 ## Deployment and known limits
 
-`./scripts/release.sh <tag>` runs checks locally and pushes source/tag to GitHub. `./scripts/deploy.sh <tag-or-branch>` runs on the VM, builds the pinned revision, archives data with writers stopped, waits for health and records rollback state. No GitHub Actions exist. Optional Caddy provides HTTPS. Backups must also be copied off the VM.
+`./scripts/release.sh <tag>` runs checks locally and pushes source/tag to GitHub. `./scripts/deploy.sh <tag-or-branch>` runs on the VM, builds the pinned revision, archives data with writers stopped, waits for health and records rollback state. No GitHub Actions exist. The existing Cloudflare Tunnel provides public HTTPS at `https://career-journey.oso.group`, forwarding to the app’s private HTTP origin. Host-based connectors use `127.0.0.1:47293`; container-based connectors can use the external-network override and `career-journey:47293`. Backups must also be copied off the VM.
 
 The AI provider migration remains partial; full BYOM parity is not implied by the storage migration. Queries currently scan/filter documents at application level. Full live collaborative editing, agent workflow parity, external OAuth consent/provider setup and production employer submission adapters remain future work. Firebase cutover requires a paused-write export/import, local password setup and acceptance testing; the source project is never deleted automatically.

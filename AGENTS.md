@@ -15,7 +15,7 @@ Career Journey is React 19 + Express on Node 24, with local account authenticati
 
 ## Configuration
 
-.env.example is the source of truth. APP_URL is the canonical URL. HTTPS is required for normal production cookies; ALLOW_HTTP_LOCAL=true is only for local HTTP testing. Registration defaults off and requires working SMTP for verification/reset links. Billing requires Stripe env vars; StillOpen remains admin-only until STILLOPEN_LICENSED=true. MCP and its writes/AI worker remain gated by separate flags.
+.env.example is the source of truth. APP_URL is the canonical URL (production: https://career-journey.oso.group). Reuse the existing VM Cloudflare Tunnel; do not create a second tunnel or deploy Caddy. HTTPS is required for normal production cookies; ALLOW_HTTP_LOCAL=true is only for local HTTP testing. Registration defaults off and requires working SMTP for verification/reset links. Billing requires Stripe env vars; StillOpen remains admin-only until STILLOPEN_LICENSED=true. MCP and its writes/AI worker remain gated by separate flags.
 
 ## Conventions and gotchas worth knowing before you edit
 

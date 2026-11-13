@@ -19,11 +19,11 @@ chmod 600 .env
 
 Edit `.env` on the VM:
 
-- `APP_URL=https://career.example.com`
+- `APP_URL=https://career-journey.oso.group`
 - `ADMIN_EMAIL=your-address@example.com`
 - `ADMIN_PASSWORD=` a unique password of at least 12 characters, used only to create the first account in an empty database.
 - Configure Oso or a reachable Ollama server if you want AI. Stripe and SMTP remain optional.
-- For the included Caddy HTTPS proxy, set `APP_HOST=career.example.com` and `COMPOSE_PROFILES=proxy`. Point the domain's DNS at the VM and allow inbound ports 80/443. Leave this profile empty if you already run a reverse proxy, and proxy to `127.0.0.1:47293` instead.
+- Reuse the VM’s existing Cloudflare Tunnel for `career-journey.oso.group`, following the ingress section below. This app does not launch a tunnel or another reverse proxy, and does not publish ports 80/443.
 
 Deploy a published tag or branch:
 
@@ -38,6 +38,34 @@ The script refuses a dirty working tree, locks concurrent deployments, fetches t
 The script runs **on the VM**. It does not SSH to an assumed host, modify a GitHub repository, or create automation. On a fresh VM the first boot creates the administrator. After logging in, remove `ADMIN_PASSWORD` from `.env` and redeploy. If importing existing accounts, import before first boot; bootstrap never replaces imported accounts/passwords.
 
 For localhost-only testing over plain HTTP, set `APP_URL=http://localhost:47293` and `ALLOW_HTTP_LOCAL=true`. Production HTTPS uses Secure, HttpOnly, SameSite=Strict session cookies. The app port binds VM loopback by default; do not expose plain HTTP sessions on the internet.
+
+## Existing Cloudflare Tunnel ingress
+
+Public URL: **https://career-journey.oso.group**. Keep that value in APP_URL so cookie-origin checks, redirects, reset links, Spotlight URLs and MCP host validation all use the public hostname. Browser traffic uses HTTPS; the tunnel can forward to the private HTTP origin. Leave ALLOW_HTTP_LOCAL unset/false so production cookies remain Secure.
+
+If `cloudflared` runs on the VM host (or uses host networking), add a published application route to the **existing tunnel**:
+
+| Setting | Value |
+|---|---|
+| Public hostname | `career-journey.oso.group` |
+| Service type | HTTP |
+| Origin URL | `http://127.0.0.1:47293` |
+| HTTP Host Header | `career-journey.oso.group` |
+
+A locally managed ingress-rule snippet is provided at `deploy/cloudflare-ingress.example.yml`. Add that rule before the existing catch-all; preserve all other application rules and the existing tunnel credentials. For a remotely managed tunnel, enter the same settings in its published application routes. Do not point the origin at the public hostname, which would route back into the tunnel.
+
+If `cloudflared` instead runs in a Docker container on a bridge network, `127.0.0.1` refers to that container, not the VM or this app. Connect Career Journey to the tunnel container’s existing network by setting these values in the VM’s private `.env`:
+
+```dotenv
+COMPOSE_FILE=docker-compose.yml:docker-compose.tunnel.yml
+CLOUDFLARE_TUNNEL_NETWORK=your-existing-tunnel-network
+```
+
+Then use `http://career-journey:47293` as the tunnel service URL, with the same public HTTP Host Header. The override joins an existing external network with the unique `career-journey` alias; it does not create or modify the tunnel container. Only use a network that the existing connector is attached to. No tunnel token belongs in this repository or its app container.
+
+Do not add a Cloudflare cache-everything rule for authenticated pages/API/MCP traffic. After adding the route, verify sign-in over the public HTTPS URL, API reads/writes and (when enabled) authenticated MCP calls. Cloudflare Access, if used on this hostname, is a separate policy and must permit the intended users/clients. The existing tunnel/DNS configuration was not changed by this code update.
+
+References: [Cloudflare published application routing](https://developers.cloudflare.com/tunnel/concepts/routing/) and [HTTP origin troubleshooting](https://developers.cloudflare.com/tunnel/troubleshooting/https-origins/).
 
 ## Publish a release from your workstation
 
@@ -55,7 +83,6 @@ Compose uses these persistent volumes:
 
 - `career-journey_app-data`: `career-journey.sqlite`, SQLite WAL files, `files/` attachments/exports and the private `file-signing.key`.
 - `career-journey_prompt-config` and `career-journey_knowledge-config`: admin prompt/skill changes.
-- With the proxy profile, Caddy certificate/configuration volumes.
 
 Images contain no user database, `.env`, migration export or backup. Never run `docker compose down --volumes` unless you intend to erase persistent data.
 
@@ -117,7 +144,8 @@ The destination must be fresh. The copy runs as the non-root application user; e
 
 ```bash
 npm ci
-# Configure ADMIN_EMAIL/ADMIN_PASSWORD and optional AI in .env, then:
+# Configure ADMIN_EMAIL/ADMIN_PASSWORD and optional AI in .env.
+# For local development set APP_URL=http://localhost:47293, then:
 npm run dev
 npm run maintenance -- create-user     # ordinary user; CREATE_ADMIN=true explicitly grants admin
 npm run maintenance -- set-password   # revokes existing sessions
@@ -134,4 +162,4 @@ SMTP enables verification/reset email. Self-service registration is off by defau
 
 ## Validation of this migration
 
-The implementation passed 498 automated tests, TypeScript checking, production builds, Compose configuration/shell checks, local SQLite/auth/MCP/export integration verification and a production Docker startup/sign-in/write/restart test. The runtime image was checked to contain neither Firebase client nor Admin SDK. Deploy selection, backups and failed-health rollback were tested against disposable Git repositories and a Docker command test double. The image itself was built and exercised with real Docker. HTTPS issuance and a live Firebase cutover still depend on your VM/domain and maintenance window; neither was performed by these checks.
+The implementation passed 498 automated tests, TypeScript checking, production builds, Compose configuration/shell checks, local SQLite/auth/MCP/export integration verification and a production Docker startup/sign-in/write/restart test. The runtime image was checked to contain neither Firebase client nor Admin SDK. Deploy selection, backups and failed-health rollback were tested against disposable Git repositories and a Docker command test double. The image itself was built and exercised with real Docker. The existing Cloudflare Tunnel route and a live Firebase cutover still require VM configuration and a maintenance window; neither was changed by these checks.

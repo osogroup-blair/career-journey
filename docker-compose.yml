@@ -10,6 +10,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      APP_URL: ${APP_URL:-https://career-journey.oso.group}
       NODE_ENV: production
       PORT: "47293"
       DATA_DIR: /app/data
@@ -24,24 +25,7 @@ services:
       - prompt-config:/app/server/promptConfig
       - knowledge-config:/app/server/knowledgeConfig
     shm_size: "256mb"
-  proxy:
-    image: caddy:2
-    profiles: [proxy]
-    restart: unless-stopped
-    environment:
-      APP_HOST: ${APP_HOST:-localhost}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - app
 volumes:
-  caddy-data:
-  caddy-config:
   app-data:
   prompt-config:
   knowledge-config:

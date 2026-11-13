@@ -1,0 +1,8 @@
+# Add this rule to the EXISTING tunnel, before its catch-all. This is a snippet,
+# not a replacement tunnel config. Do not copy tokens or credentials here.
+- hostname: career-journey.oso.group
+  service: http://127.0.0.1:47293
+  originRequest:
+    httpHostHeader: career-journey.oso.group
+# If cloudflared runs in a bridge-network container, join its existing network
+# with docker-compose.tunnel.yml and use http://career-journey:47293 instead.

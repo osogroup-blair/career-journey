@@ -1,0 +1,13 @@
+# Optional override only when the existing cloudflared connector uses a Docker bridge network.
+# Set COMPOSE_FILE=docker-compose.yml:docker-compose.tunnel.yml in the VM .env.
+services:
+  app:
+    networks:
+      default: {}
+      cloudflare-tunnel:
+        aliases:
+          - career-journey
+networks:
+  cloudflare-tunnel:
+    external: true
+    name: ${CLOUDFLARE_TUNNEL_NETWORK:?Set the existing cloudflared Docker network name}
