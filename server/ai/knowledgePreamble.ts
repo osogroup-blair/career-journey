@@ -1,4 +1,4 @@
-import type { App } from "firebase-admin/app";
+import type { App } from "../platform/app";
 import { getKnowledgeFiles, PIPELINE_KNOWLEDGE_FILE_NAMES, BUILDER_KNOWLEDGE_FILE_NAME } from "../knowledge";
 import { getPromptAiConfigFor } from "../promptAiConfig";
 

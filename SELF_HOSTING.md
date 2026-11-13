@@ -1,0 +1,135 @@
+# Self-hosted deployment, releases, and Firebase cutover
+
+Career Journey now runs on one VM with Node 24, SQLite and private local files. Docker Compose packages Node, the application and Chromium. Firebase is not used by the application, sign-in, billing, discovery, support, Spotlight, MCP or document exports. The Firebase Admin SDK is a development-only dependency for the read-only migration exporter.
+
+GitHub stores source and release tags. All tests and builds run on your workstation or VM through explicit scripts. There are no GitHub Actions workflows and no registry publishing requirement.
+
+## First VM deployment
+
+Install Git and Docker Engine with the Compose plugin. Give the deployment account permission to run Docker. Clone the repository onto the VM, using a GitHub deploy key if the repository is private:
+
+```bash
+git clone https://github.com/osogroup-blair/career-journey.git
+cd career-journey
+cp .env.example .env
+chmod 600 .env
+```
+
+Edit `.env` on the VM:
+
+- `APP_URL=https://career.example.com`
+- `ADMIN_EMAIL=your-address@example.com`
+- `ADMIN_PASSWORD=` a unique password of at least 12 characters, used only to create the first account in an empty database.
+- Configure Oso or a reachable Ollama server if you want AI. Stripe and SMTP remain optional.
+- For the included Caddy HTTPS proxy, set `APP_HOST=career.example.com` and `COMPOSE_PROFILES=proxy`. Point the domain's DNS at the VM and allow inbound ports 80/443. Leave this profile empty if you already run a reverse proxy, and proxy to `127.0.0.1:47293` instead.
+
+Deploy a published tag or branch:
+
+```bash
+./scripts/deploy.sh v1.0.0
+# Or deploy a branch that has already been pushed:
+./scripts/deploy.sh codex/selfhosted-vm
+```
+
+The script refuses a dirty working tree, locks concurrent deployments, fetches the chosen revision, builds an image tagged with its commit, stops writers, archives existing data/files/prompts, starts the new image and waits for health. It records the deployed revision under `.deploy/`. A failed replacement attempts to restart the prior recorded application image; backups are never automatically restored over newer data.
+
+The script runs **on the VM**. It does not SSH to an assumed host, modify a GitHub repository, or create automation. On a fresh VM the first boot creates the administrator. After logging in, remove `ADMIN_PASSWORD` from `.env` and redeploy. If importing existing accounts, import before first boot; bootstrap never replaces imported accounts/passwords.
+
+For localhost-only testing over plain HTTP, set `APP_URL=http://localhost:47293` and `ALLOW_HTTP_LOCAL=true`. Production HTTPS uses Secure, HttpOnly, SameSite=Strict session cookies. The app port binds VM loopback by default; do not expose plain HTTP sessions on the internet.
+
+## Publish a release from your workstation
+
+Commit and review the changes on a named branch, then run:
+
+```bash
+./scripts/release.sh v1.0.0
+```
+
+This installs locked dependencies, runs tests/typechecks/build, pushes the current branch, creates an annotated version tag, and pushes that tag to GitHub. It does not merge the branch into main. No GitHub Actions are involved. Then run `./scripts/deploy.sh v1.0.0` on the VM. GitHub credentials/deploy keys must already be configured through Git/SSH; scripts never embed credentials.
+
+## Persistent state and backups
+
+Compose uses these persistent volumes:
+
+- `career-journey_app-data`: `career-journey.sqlite`, SQLite WAL files, `files/` attachments/exports and the private `file-signing.key`.
+- `career-journey_prompt-config` and `career-journey_knowledge-config`: admin prompt/skill changes.
+- With the proxy profile, Caddy certificate/configuration volumes.
+
+Images contain no user database, `.env`, migration export or backup. Never run `docker compose down --volumes` unless you intend to erase persistent data.
+
+Deployment archives are private `.tgz` files under `backups/` on the VM. Copy them to encrypted off-VM storage; backups on the same disk do not protect against VM/disk loss. Deployment performs a stopped-writer archive containing the complete app data and prompt volumes, including SQLite WAL files. `npm run maintenance -- backup /secure/directory` creates an online SQLite-only snapshot for local Node installations; also archive private files/signing keys with writers stopped for a full snapshot.
+
+Application rollback:
+
+```bash
+./scripts/rollback.sh
+```
+
+This restarts the previously recorded image without changing the data. For full data recovery, stop the app, preserve the current volumes, inspect the archive (`tar -tzf backups/<file>.tgz`), and restore its `data/`, `server/promptConfig/` and `server/knowledgeConfig/` contents into the corresponding volumes using a one-off container. Restore with the app stopped, preserve node user ownership, then restart and verify sign-in, jobs, PDFs and MCP revocation. Do not mix a database snapshot from one time with files from another. Keep the previous image until the release is accepted.
+
+This is designed for one application instance on one VM. SQLite WAL is appropriate for that deployment; do not share the data volume over network storage or scale the service to multiple independent replicas. Retain disk-space monitoring and backups.
+
+## Existing Firebase data: read-only export and local import
+
+Cut over during a maintenance window. Stop writes to the old Firebase-backed app first so the export is consistent. The exporter does not lock a live Firebase project, delete data, deploy rules or change Firebase credentials.
+
+On a trusted machine with the **old** Firebase credentials and development dependencies installed:
+
+```bash
+npm ci
+# FIREBASE_SERVICE_ACCOUNT_JSON and VITE_FIREBASE_STORAGE_BUCKET are used ONLY by this exporter.
+npm run export:firebase -- migration-export
+```
+
+The exporter recursively walks documents (including subcollections below missing parent documents), exports accounts with their UIDs/admin claims, and downloads private storage objects. `migration-export/` is private, gitignored, and excluded from images. Treat it as personal data and credentials-adjacent material; transfer it securely to the VM. Keep the original Firebase project intact until acceptance.
+
+Validate and import into a fresh local data directory:
+
+```bash
+DATA_DIR=./imported-data npm run import:firebase -- migration-export
+DATA_DIR=./imported-data npm run import:firebase -- migration-export --apply
+```
+
+The importer checks the manifest and document paths, refuses a nonempty target database, and retains original UIDs. Existing Stripe subscriptions keep resolving through the legacy `firebaseUID` metadata field; newly created subscriptions use `appUID`.
+
+Firebase password hashes and sessions are **not reused**. Before cutover, set a local password for the imported administrator:
+
+```bash
+# Supply ADMIN_EMAIL / ADMIN_PASSWORD securely through your environment or a private env file.
+DATA_DIR=./imported-data npm run maintenance -- set-password
+```
+
+Other users need local password resets via configured SMTP or administrator CLI maintenance. Imported email verification and account suspension/admin flags are retained. Social-only Firebase accounts also require a local password; social federation is not implemented in this release.
+
+For Compose, put the validated directory contents in the `app-data` volume before starting the app. Example using the built image (run from the repository after building it):
+
+```bash
+APP_VERSION=local docker compose build app
+# Creates/mounts the volume; copies ONLY the validated import directory, not .env or the old service-account key.
+APP_VERSION=local docker compose run --rm --no-deps -v "$PWD/imported-data:/import:ro" --entrypoint sh app -c 'cp -a /import/. /app/data/'
+```
+
+The destination must be fresh. The copy runs as the non-root application user; ensure the import directory is readable by that user. Never copy an import over a running/populated instance. Validate user/document/file counts, sign-in, billing ownership, canonical Career Journey, jobs, resume exports, support attachments, Spotlight and MCP permissions before redirecting traffic and retiring Firebase. This repository change does not perform a live cutover for you.
+
+## Local maintenance
+
+```bash
+npm ci
+# Configure ADMIN_EMAIL/ADMIN_PASSWORD and optional AI in .env, then:
+npm run dev
+npm run maintenance -- create-user     # ordinary user; CREATE_ADMIN=true explicitly grants admin
+npm run maintenance -- set-password   # revokes existing sessions
+npm run set:admin -- person@example.com
+npm run verify:agents -- --live       # disposable LOCAL account/files; no Firebase
+npm test
+npm run lint
+npm run build
+```
+
+The `--ai` verifier option makes real provider calls and consumes provider usage. The non-AI check verifies local authentication, SQLite persistence, private PDF/DOCX downloads, MCP scopes, reports and revocation, then removes its disposable test data.
+
+SMTP enables verification/reset email. Self-service registration is off by default and requires both `ALLOW_REGISTRATION=true` and working SMTP. There is no public built-in demo password. Changing a password requires a recent sign-in; reset links are expiring and single-use. Do not place human cookies/session tokens in agents; agents use separate scoped, revocable credentials.
+
+## Validation of this migration
+
+The implementation passed 498 automated tests, TypeScript checking, production builds, Compose configuration/shell checks, local SQLite/auth/MCP/export integration verification and a production Docker startup/sign-in/write/restart test. The runtime image was checked to contain neither Firebase client nor Admin SDK. Deploy selection, backups and failed-health rollback were tested against disposable Git repositories and a Docker command test double. The image itself was built and exercised with real Docker. HTTPS issuance and a live Firebase cutover still depend on your VM/domain and maintenance window; neither was performed by these checks.

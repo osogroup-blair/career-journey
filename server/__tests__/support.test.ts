@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getTicketForUser, TicketAccessError, TicketNotFoundError, listTicketsForUser } from '../support';
-import type { App } from 'firebase-admin/app';
+import type { App } from '../platform/app';
 
-// Set up mock for firebase-admin/firestore
+// Set up mock for ../platform/database
 const mockGet = vi.fn();
 const mockOrderBy = vi.fn();
 const mockWhere = vi.fn();
@@ -26,9 +26,9 @@ mockDoc.mockReturnValue({
   collection: mockCollection
 });
 
-vi.mock('firebase-admin/firestore', () => {
+vi.mock('../platform/database', () => {
   return {
-    getFirestore: () => ({
+    getDatabase: () => ({
       collection: mockCollection,
       runTransaction: vi.fn()
     })

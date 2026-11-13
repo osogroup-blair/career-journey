@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { App } from 'firebase-admin/app';
+import type { App } from '../platform/app';
 
 const mockAdd = vi.fn();
-vi.mock('firebase-admin/firestore', () => ({
-  getFirestore: () => ({ collection: () => ({ add: mockAdd }) }),
+vi.mock('../platform/database', () => ({
+  getDatabase: () => ({ collection: () => ({ add: mockAdd }) }),
   Timestamp: { fromMillis: (ms: number) => ({ ms }) },
 }));
 

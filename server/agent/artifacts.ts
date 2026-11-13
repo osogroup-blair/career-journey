@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Bucket } from "@google-cloud/storage";
+import type { Bucket } from "../platform/storage";
 import { z } from "zod";
 import { buildResumeDocx, buildCoverLetterDocx } from "../docxBuilder";
 import { buildResumePdf, buildCoverLetterPdf } from "../pdfBuilder";

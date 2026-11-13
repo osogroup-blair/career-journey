@@ -1,6 +1,6 @@
-import type { App } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import type { App } from "../platform/app";
+import { getAuth } from "../platform/auth";
+import { getDatabase } from "../platform/database";
 import { getFeatureFlags, isFeatureEnabled, isFeatureKilled } from "../featureFlags";
 import { getBillingState } from "../billing";
 import { claimRun, deleteAllDiscoveryData, runDiscoverySearch, scheduleRef } from "./runSearch";
@@ -55,7 +55,7 @@ export async function runDueDiscoverySearches(app: App, now = new Date()): Promi
     const flags = await getFeatureFlags(app);
     if (flags.killSwitches.aiPipeline || isFeatureKilled(flags, "job_discovery")) return 0;
 
-    const db = getFirestore(app);
+    const db = getDatabase(app);
     const due = await db.collection("discoverySchedules").where("nextRunAt", "<=", now.toISOString()).limit(USERS_PER_TICK).get();
     for (const doc of due.docs) {
       const uid = doc.id;

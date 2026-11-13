@@ -1,15 +1,15 @@
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp } from '../platform/app';
+import { getAuth } from '../platform/auth';
+import { getDatabase } from '../platform/database';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 dotenv.config();
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON as string);
-const app = initializeApp({ credential: cert(serviceAccount) });
+
+const app = initializeApp();
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db = getDatabase(app);
 
 const emailsToDelete = [
   'test-signup-verify@career-journey.app',

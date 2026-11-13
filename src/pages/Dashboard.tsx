@@ -15,14 +15,14 @@ import DashboardSection from '../components/dashboard/DashboardSection';
 import JobStatTiles from '../components/dashboard/JobStatTiles';
 import { averageCompleteness, computeJourneyCompleteness, computeJourneyGaps } from '../lib/careerJourneyGaps';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
-import { isFirebaseConfigured } from '../lib/firebase';
+import { isServerConfigured } from '../lib/auth';
 import { ArrowRight, FileText, MessagesSquare, FileDown, Sparkles, Compass, Briefcase } from 'lucide-react';
 
 export default function Dashboard() {
   const { careerJourney, jobs, matches, matchPreferences } = useStore();
   const navigate = useNavigate();
   // Same gate as the Navbar's Discover link: needs server-side storage and feature access.
-  const showDiscover = useFeatureAccess('job_discovery').allowed && isFirebaseConfigured;
+  const showDiscover = useFeatureAccess('job_discovery').allowed && isServerConfigured;
 
   const [stageFilter, setStageFilter] = useState<JobStage | null>(null);
 

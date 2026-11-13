@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { isFeatureEnabled, getFeatureFlags, setFeatureFlags, _resetFeatureFlagsCache, validateFeatureFlagsUpdate } from '../featureFlags';
 import { getDefaultFeatureMatrix, FeatureFlags } from '../../src/types/featureFlags';
-import type { App } from 'firebase-admin/app';
+import type { App } from '../platform/app';
 
 const mockSet = vi.fn();
 const mockGet = vi.fn();
@@ -17,9 +17,9 @@ mockCollection.mockReturnValue({
   doc: mockDoc,
 });
 
-vi.mock('firebase-admin/firestore', () => {
+vi.mock('../platform/database', () => {
   return {
-    getFirestore: () => ({
+    getDatabase: () => ({
       collection: mockCollection,
     }),
   };

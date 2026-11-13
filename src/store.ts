@@ -4,7 +4,7 @@ import { BillingState } from './types/billing';
 import { FeatureFlags } from './types/featureFlags';
 import { DEFAULT_CAREER_JOURNEY } from './lib/defaultData';
 import { dataStore } from './data';
-import { auth } from './lib/firebase';
+import { auth } from './lib/auth';
 import { generateId } from './lib/utils';
 import { buildJobFromMatch } from './lib/matchScan';
 import { normalizeCareerJourney } from './lib/careerJourneyNormalize';

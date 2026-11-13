@@ -1,5 +1,5 @@
-import type { App } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import type { App } from './platform/app';
+import { getDatabase } from './platform/database';
 import { generateId } from '../src/lib/utils';
 
 export interface AdminAuditLog {
@@ -36,7 +36,7 @@ export async function logAdminAction(
   adminApp: App,
   event: Omit<AdminAuditLog, 'id' | 'timestamp'>
 ): Promise<AdminAuditLog> {
-  const db = getFirestore(adminApp);
+  const db = getDatabase(adminApp);
   const logEntry: AdminAuditLog = {
     id: `audit_${Date.now()}_${generateId().slice(0, 8)}`,
     ...event,
@@ -59,7 +59,7 @@ export async function listAuditLogs(
   adminApp: App,
   limitCount = 50
 ): Promise<AdminAuditLog[]> {
-  const db = getFirestore(adminApp);
+  const db = getDatabase(adminApp);
   try {
     const snap = await db
       .collection('admin_audit_logs')

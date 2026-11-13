@@ -1,38 +1,20 @@
 # Architecture
 
-Technical reference for how Career Journey actually works today. This is the ground-truth doc — if it disagrees with `README.md`'s narrative sections, this file wins. Written primarily for a coding agent picking up work in this repo; see [AGENTS.md](AGENTS.md) for operational guidance (how to run things, known gaps, gotchas).
-
-## Contents
-
-- [High-level shape](#high-level-shape)
-- [Frontend](#frontend)
-- [Backend / API surface](#backend--api-surface)
-- [AI provider abstraction](#ai-provider-abstraction)
-- [Billing & plans](#billing--plans)
-- [Admin console](#admin-console)
-- [Support / feedback loop](#support--feedback-loop)
-- [Data model](#data-model)
-- [Career Spotlight](#career-spotlight)
-- [Auth model](#auth-model)
-- [Known inconsistencies / incomplete migrations](#known-inconsistencies--incomplete-migrations)
-
----
+Current deployment is a self-hosted Node 24 + Express application with React 19, SQLite and private local files. Firebase is only used by the optional one-time migration exporter in `migration/export-firebase.mjs`; no application runtime or browser code uses its SDK. Historical `*-plan.md` documents describe earlier Firebase architecture and are not current operational instructions.
 
 ## High-level shape
 
-- **Single Express app** (`server.ts`, ~1950 lines) serves both the API and, in production, the built SPA. In dev, Vite runs in middleware mode inside the same process (`npm run dev` → `tsx watch server.ts`); there's no separate `vite dev` server.
-- **Single Zustand store** (`src/store.ts`) is the frontend's only source of truth for jobs, matches, Career Journey, billing state, admin flag, and in-flight AI tasks. Every page reads from it; every mutation goes through it.
-- **Dual persistence** via a `DataStore` interface (`src/data/DataStore.ts`): `LocalStorageDataStore` (default, no backend account needed) or `FirestoreDataStore` (once Firebase env vars are set and the user signs in). Both implement the same interface, so pages never know which one is active.
-- **Platform AI runs through the Oso Model Router** (with local Ollama as the zero-config fallback); **BYOM** users can bring Gemini, OpenAI, Anthropic or Ollama, but only for 3 of 22 endpoints — see [AI provider abstraction](#ai-provider-abstraction).
-- **Stripe billing**, an **admin console**, and a **support-ticket system** are layered on top of the original single-user job-pipeline app; all three were added after the core pipeline and are documented in `payment-system-plan.md` / `admin-support-feedback-plan.md` / `admin-support-hardening-plan.md`, which are worth reading for *why* things are shaped the way they are, not just *what* they are.
+One Express process (`server.ts`) serves API routes and the SPA; Vite middleware is used in development. `server/platform.ts` supplies authenticated user/admin middleware. `server/platform/database.ts` provides the SQLite-backed document reference/query/transaction API used by domain services. `server/platform/storage.ts` handles private VM files and short-lived download signatures. `src/data/HttpDataStore.ts` accesses only authenticated owner-scoped HTTP routes.
 
----
+SQLite runs in WAL mode with busy timeout and a serialized write queue. Schema setup is additive and versioned in `schema_migrations`. The document repository stores existing logical paths as primary keys in `documents(path,body)`; JSON values preserve imported identifiers and timestamp semantics. Transaction callbacks must not perform external network calls. This is a single-instance, single-VM deployment; queries currently filter/order document snapshots in application code, so large data volumes may warrant indexed relational tables later.
+
+All account/application data, the database/WAL and private files/signing key are under `DATA_DIR`. Docker persists them on `app-data`; admin prompt/knowledge overrides have their own volumes. No database contents or secrets are baked into images. See [SELF_HOSTING.md](SELF_HOSTING.md) for releases, deployment and migration.
 
 ## Frontend
 
 ### Routing (`src/App.tsx`)
 
-`HashRouter`. Global chrome (`Navbar`, `AiActivityIndicator`, `FeedbackWidget`, `Footer`) wraps every route inside a `ToastProvider`. Auth gating happens one layer up, in `src/main.tsx`: if `isFirebaseConfigured` (i.e. `VITE_FIREBASE_*` env vars are set), the entire `<App/>` tree is wrapped in `<AuthGate>`; otherwise the app boots straight into local-only mode with no sign-in at all.
+`HashRouter`. Global chrome (`Navbar`, `AiActivityIndicator`, `FeedbackWidget`, `Footer`) wraps every route inside a `ToastProvider`. Auth gating happens in `src/main.tsx`: `<AuthGate>` always requires a local account before rendering the private app.
 
 | Path | Component | Notes |
 |---|---|---|
@@ -44,7 +26,7 @@ Technical reference for how Career Journey actually works today. This is the gro
 | `/journey` | `CareerJourney` | "Advanced Editor" — full raw-schema editor, 2929 lines, every section as a tab |
 | `/matches` | `Matches` | Job discovery / bulk AI scan, gated to paid plans |
 | `/discover` | `Discover` | Scheduled StillOpen job search from a CV snapshot; pick listings to light-scan, promote into the pipeline. Admin-only until licensed — see [Job Discovery](#job-discovery-stillopen) |
-| `/migrate` | `Migrate` | One-time localStorage → Firestore copy |
+| `/migrate` | `Migrate` | One-time localStorage → SQLite copy |
 | `/applications` | `JobTracker` | Board (Kanban), List and Archived views of pipeline jobs |
 | `/compare-offers` | `CompareOffers` | AI comparison across every job in the Offer stage |
 | `/upgrade` | `Upgrade` | Plan cards → Stripe Checkout, or Customer Portal link |
@@ -60,28 +42,11 @@ Technical reference for how Career Journey actually works today. This is the gro
 
 The pipeline used to have more top-level stages (`keywords`, `context`, `patch`, `fit` as separate steps; `strategy`/`export`/`preview`/`cover-letter` as separate steps). These were consolidated into `rating` (4 sub-tabs: Fit & Gate, Keywords, Gaps, Patch) and `tailored` (4 sub-tabs: Resume, Cover Letter, Assistant, Form) respectively — see `job-fit-tool-iteration-plan.md` for the rationale. The old URLs still resolve via `<Navigate replace>` redirects in `App.tsx:79-87`, so don't remove them without checking for external bookmarks/links first.
 
-### State (`src/store.ts`)
+### State and persistence
 
-Zustand store, `useStore`. Key shape:
+Zustand `src/store.ts` remains the UI state/orchestration layer. On sign-in, `AuthGate` selects `HttpDataStore` and hydrates Career Journey, jobs, matches, preferences, billing and admin claims. `LocalStorageDataStore` remains available for reading/importing older browser data; it is not the default public unauthenticated deployment mode.
 
-```
-jobs: Record<string, JobAnalysis>
-matches: Record<string, JobMatch>
-matchPreferences: MatchPreferences
-careerJourney: CareerJourney
-activeAiTasks: Record<string, AiTask>
-billing: BillingState | null      // null = local-only mode, no paywall
-isAdmin: boolean                   // from the `admin` custom claim on the ID token
-```
-
-`hydrate()` loads all of the above (jobs, matches, journey, billing, admin claim) in parallel on boot, and migrates any legacy job shape via `migrateLegacyJob()`. `runAiTask()` is the single choke point every AI-triggering UI action goes through: fire-and-forget from the caller, keeps running even if the user navigates away, auto-advances pipeline stage where eligible, surfaces toasts via an imperative `toastBridge` (so the store, which isn't a React component, can still trigger UI toasts). `AiActivityIndicator` renders whatever's in `activeAiTasks`.
-
-### Persistence (`src/data/`)
-
-- `DataStore.ts` — the interface. Note `getBilling()` and `getAllowedModels()` are explicitly read-only from the client (both are written server-side only).
-- `LocalStorageDataStore.ts` — everything under `career-journey:*` keys. `getBilling()`/`getAllowedModels()` return `null` (no paywall applies locally).
-- `FirestoreDataStore.ts` — everything under `users/{uid}/...`. `getBilling()` falls back to `defaultBillingState()` (free plan) rather than `null` — this distinction matters: `null` means "local-only, no gating at all," a default free-plan object means "cloud, gate as free tier." Conflating these was a real shipped bug, fixed in Phase 2 of `payment-system-plan.md`.
-- `index.ts` — module-level swappable binding; `AuthGate.tsx` calls `setDataStore(new FirestoreDataStore(...))` on sign-in.
+Jobs/matches use `/api/agent/save` and `/api/agent/delete` with expected revisions, queued acknowledged writes and visible conflict errors. Career Journey, preferences and per-user prompts use explicit `/api/data` owner-scoped routes. `/api/data` rejects agent credentials and never accepts a caller-supplied UID or arbitrary database path. Billing and allowed models are read-only at this boundary. Focus refresh avoids replacing pending saves/active AI work; full real-time collaborative reconciliation remains future work.
 
 ### Career Journey schema (`src/types/careerJourney.ts`)
 
@@ -95,88 +60,11 @@ The canonical Zod schema for the whole profile: `meta`, `person`, `education`, `
 
 ## Backend / API surface
 
-`server.ts` mounts middleware groups by path prefix before any individual route:
+`server.ts` retains the existing API routing and feature/quota checks. The Stripe webhook stays before JSON middleware and the cookie CSRF gate so signature verification receives raw bytes. All private route groups use `requireUser`; admin groups also use `requireAdmin`. Both read identity from a verified local session, never the request body. There is no development authentication bypass.
 
-| Prefix | Middleware |
-|---|---|
-| `/api/ai` | `requireFirebaseAuth` + `requireWithinAiQuota` |
-| `/api/sources` | `requireFirebaseAuth` + `requireAnyPaidPlan` |
-| `/api/discovery` | `requireFirebaseAuth` + `requireFeature("job_discovery")` (admin-only while unlicensed) |
-| `/api/spotlight` | `requireFirebaseAuth` + `requireFeature("career_spotlight")` |
-| `/api/public/spotlights`, `/s/:slug` | None — public Career Spotlight pages, per-IP rate limited (`server/spotlight.ts`) |
-| `/api/admin` | `requireFirebaseAuth` + `requireAdmin` |
-| `/api/export` | `requireFirebaseAuth` |
-| `/api/billing` | `requireFirebaseAuth` |
-| `/api/support` | `requireFirebaseAuth` |
-| `/api/user` | `requireFirebaseAuth` |
+New account endpoints: `/api/auth/login`, `register`, `session`, `logout`, `profile`, `password`, `send-verification`, `send-reset`, `verify-email`, `reset-password`. Data endpoints: `/api/data/read`, `write`, `models`, `prompt-history`. `/api/private-files` validates a short-lived file signature. Existing `/api/ai`, `/api/export`, `/api/billing`, `/api/support`, `/api/admin`, `/api/discovery`, `/api/spotlight` and public Spotlight endpoints retain their business behavior.
 
-All of these no-op in local dev without `FIREBASE_SERVICE_ACCOUNT_JSON` set, **except** `requireFirebaseAuth`, which fails closed (500) if `NODE_ENV === "production"` and Firebase Admin isn't configured. The Stripe webhook route is registered with `express.raw()` *before* the global `express.json()` — required because Stripe signature verification needs the raw body.
-
-Individual handlers re-derive `uid`/plan/admin status from the verified token rather than trusting the request body — this is called out explicitly in a comment at `server.ts:220-221` and is the load-bearing security assumption for the whole `/api/*` surface.
-
-### Route groups (full list)
-
-**Billing** — `POST /api/billing/webhook`, `createCheckoutSession`, `createPortalSession`, `byomSettings`, `validateByomKey`.
-**Support** — `POST/GET /api/support/tickets`, `GET/POST /api/support/tickets/:id/messages`.
-**User & Privacy** — `GET /api/user/export-data` (full GDPR data archive), `DELETE /api/user/account` (self-service account purge — see [Data model](#data-model) for what deletion removes).
-**Admin** — `/api/admin/tickets*` (list/get/update/reply/screenshot), `/api/admin/featureFlags` (get/set), `/api/admin/allowedModels` (set), `/api/admin/users` (list + plan override + quota reset + comp toggle), `GET /api/admin/users/:uid/detail`, `POST /api/admin/users/:uid/status` (suspend/reactivate), `POST /api/admin/users/:uid/send-reset`, `DELETE /api/admin/users/:uid`, `GET /api/admin/audit-logs`, `/api/admin/prompts*` (list/save/restore/test-run), `GET /api/admin/ai-calls` (the AI call log below, newest first, `?limit=` up to 1000).
-**AI pipeline** — `parse`, `keywords`, `clarifyQuestions`, `fitScore`, `auditGates`, `liteScan` (also individually gated by `requireAnyPaidPlan`), `patchJourney`, `resumeStrategy`, `generateResume`, `regenerateResumeSection` (rewrites one summary/skills/role section in place), `scoreResume` (Tailored Application stage's on-demand AI scan: rubric score plus approvable line edits; the live keyword-match score beside it is client-side, `src/lib/resumeScore.ts`), `coverLetter`, `applicationAssistant`, `generateFormAnswers`, `interviewPrep`, `interviewPrepChat`, `offerGuidance`, `compareOffers`, `buildJourneyFromResume`, `buildJourneyChat`, `refineFromInterviewAnswer`, `journeySectionAssist` (the Simple Editor's per-section assistant: sends only that section's slice of the journey from `buildSectionContext`, and returns draft proposals cleaned by `sanitizeProposals` — allowed fields only, links to existing ids only; the user accepts each one, which applies it via `applyProposal` and appends a line to `meta.version_X_Y_changes`, all in `src/lib/journeyAssist.ts`), `discoverySearchProfile` (CV text → StillOpen searches; gated to `job_discovery` *before* the quota middleware).
-**Sources** — `fetchCompanyJobs` (Greenhouse/Lever board scrape), `fetchJobFromUrl` (structured board parse with generic-HTML fallback).
-**Discovery** (`server/discovery/routes.ts`, an Express Router mounted from `server.ts`) — `GET/PUT /api/discovery/profile`, `POST /api/discovery/run` (starts a run, returns 202; the page polls the profile), `GET /api/discovery/jobs` (re-checks status first if older than 6h), `GET /api/discovery/jobs/:id/detail` (proxies the full ad, only for ids already in the user's list), `PATCH /api/discovery/jobs/:id`, `GET /api/discovery/listings/:id/status` (the Apply stage's still-open check — only for a listing behind one of the caller's own jobs or matches).
-**Export** — `resume.docx`, `resume.pdf`, `coverLetter.docx`, `coverLetter.pdf`. The resume PDF is printed by headless Chrome from `/print.html` (`src/print/main.tsx`, the same `ResumeTemplates.tsx` components the Tailored Application page shows) via `server/pdfRenderer.ts`, falling back to `server/pdfBuilder.ts` if no Chrome is found (`CHROME_PATH`). The resume `.docx` is a per-template hand-built approximation in `server/docxBuilder.ts` — mirror any template change there. The request carries `template` (`classic|modern|executive`).
-**Health** — `GET /api/health`.
-
-### Supporting modules
-
-- **`server/featureFlags.ts`** — single Firestore doc `config/featureFlags` (`freeLifetimeLimit`, `proMonthlyLimit`, `byomBurstPerMinute`, `byomDailyLimit`, `killSwitches: {matches, aiPipeline}`), env-var fallbacks, 30s in-memory cache invalidated on write.
-- **`server/promptStore.ts`** (~31KB) — 20 hardcoded default prompt templates, one per pipeline stage. Admin overrides persist as **local JSON files** under `server/promptConfig/{id}.json`, not Firestore — a deliberate dev-mode shortcut per an inline comment ("local JSON file in dev; Firestore once that's live"), meaning admin prompt edits currently don't survive a redeploy to a fresh environment.
-- **`server/knowledge.ts`** — loads `server/knowledge/*.md` once at process startup into `FULL_KNOWLEDGE` (six files, prepended as system prompt to most `/api/ai/*` calls) and `CAREER_JOURNEY_BUILDER_KNOWLEDGE` (one file, used only by the three Builder endpoints). These `.md` files are the job-pipeline AI's own prompt content — not developer docs — and are provider-agnostic already (no hardcoded references to Gemini/OpenAI/Anthropic).
-- **`server/rateLimiter.ts`** — `requireWithinAiQuota`: falls back to a flat in-memory daily cap for unauthenticated/no-admin-app requests; for authenticated BYOM users, layers an in-memory per-minute burst check on top of the Firestore-backed quota transaction in `billing.ts`.
-- **`server/email.ts`** — thin Nodemailer wrapper for Gmail SMTP ticket notifications (`SMTP_USER`, `SMTP_PASS`), separate from Firebase Auth's built-in mailer (which can only send fixed verification/reset templates). Never throws; no-ops (logs only) if `SMTP_USER` or `SMTP_PASS` is unset.
-- **`src/lib/resumeBuild.ts`** — the deterministic half of tailored-resume generation, shared by client and server. A job's `resumeBuildOptions` (page target 1/2, each Career Journey role as `full` / `condensed` / `excluded`, optional per-role bullet cap, free-text guidance) drives four things.
-  - `projectCareerJourneyForResume` strips non-full roles before the prompt, plus the non-evidence noise: the `links` graph (after folding each achievement's timeline-mapped roles into its `role_ids`) and `meta`'s version changelogs. On a mature Career Journey that's well over half the tokens. The keyword prompt gets the same strip through `stripCareerJourneyNoise`.
-  - `buildResumeConstraintsBlock` appends a "Resume Constraints" block after the admin-editable prompt text, so an override can't drop it. Bullet limits are stated as ceilings, not targets.
-  - `computeBulletBudget` gives the top rungs of the page-target ladder to the roles that evidence the most JD keywords (recency breaks ties).
-  - `enforceResumeConstraints` runs on the model's output. It drops entries for non-full roles (matched by `roleId`, falling back to company name), caps bullets (dropping uncited bullets first), orders roles by recency, and rebuilds `earlierExperience` (condensed one-liners) from the Career Journey, never the model. It also rewrites experience dates ("March 2026 – Present"), the name and the contact line (`formatContactLine`, US phones as 616.540.1669) from the Career Journey.
-
-  Defaults come from `person.resume_preferences` and `role.resume_default` in the Career Journey; with neither set, roles that ended more than 10 years ago start condensed.
-  - **Format** (`options.format`, Build Settings' Format card, defaults in `DEFAULT_RESUME_FORMAT`, saved defaults in `person.resume_preferences.format`):
-    - `combineEmployerRoles` (on by default): `resumeUnits` groups full roles by employer, ignoring legal suffixes. A group becomes one entry filed under its most JD-relevant role, with `roleIds` and dates spanning all of them. Its bullet budget is one ladder rung plus one bullet per extra role (max 8). Enforcement merges any per-role entries the model still writes.
-    - `selectedOutcomes`: the strategy's outcomes (as edited on Strategy Review) become `resume.selectedOutcomes`, parsed by `parseOutcome`.
-    - `roleNarratives` (`entry.narrative`) and `boldLeads` (`bullet.lead`).
-    - `skillsPosition` (`resume.skillsPosition`).
-
-    Rendering is data-driven. The three templates, `server/docxBuilder.ts` and `server/pdfBuilder.ts` show whatever the resume carries, and `enforceResumeConstraints` strips the fields whose toggle is off.
-- **`src/lib/resumeKeywordPlan.ts`** — the "JD Keyword Plan" block the strategy, generate and regenerate-section prompts get, built from the Rating stage's keyword breakdown and the candidate's approved context entries. Keywords are grouped USE / USE IF SUPPORTED / DO NOT CLAIM, and hard gates are left out. A full build also fills a planning-only `keywordPlan` (each USE keyword → summary / skills / roleId) as the first field of its output; the server strips it with `withoutKeywordPlan` before enforcement. Like the constraints block, it's appended in code, after the admin-editable text. `server/resumePipelinePrompts.ts` assembles the parse/keywords/strategy/generate/regenerate prompt text for both the routes and `npm run eval:resume`.
-- **`src/lib/resumeClaims.ts`**: deterministic honesty checks on the tailored resume, run in the browser on every edit. `flagResumeClaims` checks the resume against the Career Journey plus approved Rating-stage context. It raises:
-  - `invented-number`: a %, $, multiple, "20+" or multi-digit figure the evidence never states. Years, single digits and named lists like Fortune 500 are skipped.
-  - `jd-copy`: 5+ consecutive words shared with the JD but not the evidence, carrying at least 2 words beyond JD keywords and filler.
-  - `unsupported-term`: an unsupported or unconfirmed keyword the evidence never mentions.
-  - `unknown-evidence`: a cited id that doesn't exist.
-  - `no-evidence`: an uncited bullet.
-  - `title-reframe`: a title segment that isn't a real or `resume_title` title.
-
-  The Claims panel (`src/components/tailored/ClaimReviewPanel.tsx`) offers Keep, Remove and Rewrite. Rewrite is a section regenerate with a targeted instruction. Kept flags are stored in `job.resumeClaimDecisions`, keyed by kind + item text + detail, so editing the text re-checks it. Flagged bullets, outcomes and narratives are highlighted through `ClaimHighlightContext`; the print/export render has no provider, so exports never show highlights. Strategies also carry `omitKeywords` (shown as "Won't claim" on Strategy Review), kept apart from `keywordPlacement`.
-- **`src/lib/keywordList.ts`** — keywords are ATS terms of 1–4 words (`phrase`), plus `aliases` (acronym/long-form pairs the keyword gate also accepts) and `requirementText` (the JD clause the term came from). `cleanKeywordBreakdown` runs on every `/api/ai/keywords` response. It merges duplicates by phrase or alias, drops model aliases that are only a broader or narrower form of the term ("adoption" for "Post-sale adoption"), files gate verdicts as hard gates, caps top-critical at 8 and makes ids unique. The same module holds the Keyword Breakdown table's edits: edit, star, remove, merge, add. Context entries follow their keyword, and `carryContextForward` re-attaches approved context by phrase when a re-analysis replaces the ids (each entry stores the `keywordPhrase` it was saved against). Breakdowns averaging more than 4 words per phrase predate this change, and the table offers a re-analyze banner for them. `src/lib/resumeEdits.ts` holds the immutable edit helpers behind the preview's hover controls.
-- **Tailored resume flow** — Rating's Finalize only navigates. The Tailored Application stage then goes Build Settings → `resumeStrategy` → editable Strategy Review → `generateResume` → editor. The editor has per-bullet and per-role hover controls, single-section regenerate, and a page-count estimate (`src/hooks/usePageEstimate.ts`). "Build without review" and the keyword gate's "Full rebuild" run both AI calls back to back (`runGenerateTailoredApplication`). The main path from scan to resume is **Recommended edits** (`src/components/tailored/RecommendedEdits.tsx`, `src/lib/resumeEditSuggestions.ts`). `scoreResume` gets the resume as id-addressed lines (`resumeLinesForPrompt`: `summary`, `skills.N`, `role.N.bullet.M`, …) and returns `edits` (replace or add, the exact new text, keywords added, `evidenceRefs`, `support: backed | inferred`). `normalizeEditSuggestions` resolves each one against the scored resume into a text-anchored target and drops edits that point nowhere. It also drops phantom citations and demotes an edit with no real citation to inferred, and moves labels the model repeated into `lead`. Approve runs `applyEditSuggestion` with no AI call. An edit whose line changed since the scan shows as outdated, and status lives on `resumeAiScore.edits`. Inferred edits need a one-by-one confirm and are left out of "Approve all backed". The keyword card's secondary action, "Rewrite sections", goes through `src/lib/resumeKeywordFix.ts`. `planKeywordFixes` sends each missing keyword to the experience entry holding its evidence, otherwise to the summary (top-critical) or the skills. Only those sections are regenerated, in parallel, so manual edits elsewhere survive. The Rating stage's Patch tab shows `diffCareerJourney` (`src/lib/careerJourneyDiff.ts`) before Approve & Merge: an id-based diff of roles, deliverables, achievements, skills, capabilities, education and certifications against the saved Career Journey.
-- **`server/docxBuilder.ts`** — builds resume (three templates) and cover-letter `.docx` binaries with the `docx` package.
-- **`server/pdfRenderer.ts`** / **`server/pdfBuilder.ts`** — resume PDF via headless Chrome (matches the screen) / basic pdfkit fallback and cover-letter PDF.
-
-### `server/scripts/`
-
-| Script | npm alias | Purpose |
-|---|---|---|
-| `seedDemo.ts` | `seed:demo` | Idempotent reset of the shared demo account (Pro-comped, full fixture data from `src/lib/demo/`) |
-| `setAdmin.ts` | `set:admin -- <email> [--revoke]` | Grants/revokes the `admin` Firebase custom claim |
-| `seedAllowedModels.ts` | `seed:allowedModels` | Overwrites `config/allowedModels` with the current BYOM model list |
-| `verifyAiProviders.ts` | `verify:ai` | Smoke-tests the pilot schemas against every provider with a configured key |
-| `verifyOso.ts` | `verify:oso` | Sends every prompt's sample input to its mapped Oso alias and checks the reply is schema-valid |
-| `migrateAiConfigToOso.ts` | `migrate:oso` | Dry-run by default (`-- --apply` to write): moves stored AI defaults / per-prompt overrides off direct providers onto Oso aliases |
-| `evalResume.ts` | `eval:resume -- --cj <path> --jd <path> [--options --terms --reuse --score-text]` | Runs parse → keywords → strategy → resume on env-default models (no Firestore) and prints prompt tokens, JD-term coverage, uncited bullets and unsupported terms; `--score-text` scores any resume text. Fixtures in `server/scripts/fixtures/`. See `resume-quality-plan.md` |
-| `pullBacklog.ts` | `backlog:pull` | Exports triaged tickets to gitignored `backlog/*.md` |
-| `cleanupUsers.ts` | `cleanup:users` | Clean up stale test/demo user accounts from Auth and Firestore |
-
----
+AI clients live in `server/ai/`; quotas/billing in `server/billing.ts`; subscriptions/webhooks in `server/stripe.ts`; support in `server/support.ts`; feature and prompt settings in their existing modules. SQLite transactions replace previous cloud transactions, including quota increments and webhook idempotency. New Stripe metadata uses `appUID` and still reads legacy `firebaseUID` so imported subscriptions retain ownership.
 
 ## AI provider abstraction
 
@@ -191,7 +79,7 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 - Prompt → alias assignments live in `server/ai/osoAliasMap.ts`; verify with `npm run verify:oso`.
 - Failures surface as `OsoRouterError` (router error envelope + `request_id`), mapped in `server.ts`'s `handleAiRouteError` to 429/503/502 without leaking upstream messages.
 - `usage` is normalized by the router; `aiUsageLogs` additionally store `requestId` (and `actualModel` when the router reports `x-oso-actual-model`, which the chat-completions endpoint currently does not).
-- Every AI call, success or failure and whatever the provider, also goes to the operational call log (`server/aiCallLog.ts`): one `[ai-call] …` stdout line plus a doc in the top-level `aiCallLogs` collection (prompt id, requested/actual model, how it was resolved — prompt override / global default / BYOM / admin test run — latency, tokens, error code, router request id, uid; never prompt or response content). The wrapping happens where clients are handed out (`getLegacyClientForPrompt` in `server.ts`, `getAIClientForRequest`), so new endpoints get it for free. Admin page: `#/admin/ai-calls`. Docs carry an `expireAt` 30 days out for a Firestore TTL policy, which has to be enabled once in the console.
+- Every AI call, success or failure and whatever the provider, also goes to the operational call log (`server/aiCallLog.ts`): one `[ai-call] …` stdout line plus a doc in the top-level `aiCallLogs` collection (prompt id, requested/actual model, how it was resolved — prompt override / global default / BYOM / admin test run — latency, tokens, error code, router request id, uid; never prompt or response content). The wrapping happens where clients are handed out (`getLegacyClientForPrompt` in `server.ts`, `getAIClientForRequest`), so new endpoints get it for free. Admin page: `#/admin/ai-calls`. Docs carry an `expireAt` 30 days out for a retention marker; no cloud TTL service is involved.
 - Context windows for `oso` models come from `GET /v1/models` (10-minute cache, `contextWindows.ts`); admin overrides still win.
 - Admin: AI Defaults shows router status (`GET /api/admin/oso/status`); Models has "Sync from Oso" (`POST /api/admin/allowedModels/syncOso`). `npm run verify:oso` exercises every prompt against its alias; `npm run migrate:oso` rewrites stored admin config off direct providers. `.mcp.json` registers the router's read-only MCP server (`list_models`, `router_health`, `get_openapi_spec`) for coding agents — it cannot run inference.
 
@@ -205,72 +93,17 @@ Individual handlers re-derive `uid`/plan/admin status from the verified token ra
 
 ---
 
-## Billing & plans
+## Billing, administration and support
 
-Plans (`src/types/billing.ts`): `free | pro_monthly | byom_monthly | byom_yearly`.
+Plans remain `free`, `pro_monthly`, `byom_monthly`, `byom_yearly`. Feature gates, comp overrides, quotas and provider rules are unchanged. Billing records at `users/{uid}/meta/billing` are server-write-only through the API. Admin claims are stored on local identity records and rechecked on every request, so revocation does not wait for an old JWT to expire.
 
-Entitlement state lives at `users/{uid}/meta/billing`, lazily created with `defaultBillingState()` on first read, and is **server-write-only** (Firestore rules: `read: owner, write: false`) — the client can display it but never set it. Two independent gates:
-
-- **`requireAnyPaidPlan`** (`server/billing.ts`) — hard 403 for free-tier users on `/api/sources/*` and `/api/ai/liteScan` (i.e. Matches/Job Discovery is entirely paywalled). Comped users always pass. Also enforces the `killSwitches.matches` feature flag (503 if tripped).
-- **`checkAndConsumeAiQuota`** (`server/billing.ts`, atomic Firestore transaction, invoked by `requireWithinAiQuota`) — the general `/api/ai/*` quota gate:
-  - `comped: true` → unlimited, no consumption tracked.
-  - `free` → lifetime cap (`freeLifetimeLimit`, default 20), never resets.
-  - `pro_monthly` → per-calendar-month cap (`proMonthlyLimit`, default 100); resets on an elapsed-calendar-month approximation of the billing period, not the real Stripe period boundary (a known simplification, noted in code).
-  - `byom_monthly`/`byom_yearly` → no spend cap (the user pays their own provider), just an abuse-guard: 24h rolling cap (`byomDailyLimit`, default 500) plus a separate in-memory per-minute burst cap (`byomBurstPerMinute`, default 30, enforced in `rateLimiter.ts` since a Firestore transaction is too slow for sub-minute windows).
-  - Also checks the global `killSwitches.aiPipeline` emergency stop.
-
-**Stripe** (`server/stripe.ts`): one Product, three recurring Prices via env vars. `createCheckoutSession` carries the Firebase `uid` two ways (`client_reference_id` and `subscription_data.metadata.firebaseUID`) for webhook resolution. Webhook handler dedupes via a `stripeEvents/{eventId}` idempotency ledger and handles `checkout.session.completed`, `customer.subscription.created` **and** `.updated` (both route to the same handler — Stripe fires `created`, not `updated`, on a brand-new subscription; missing this was a real shipped bug, see `payment-system-plan.md`), `customer.subscription.deleted` (reverts to free), `invoice.payment_failed` (marks `past_due`).
-
-`comped: boolean` on the billing doc is an admin override (toggled via `POST /api/admin/users/:uid/comp`) that bypasses both the paid-plan gate and all quota checks — but is deliberately checked *after* the kill switches, so an emergency stop still overrides even a comped account.
-
----
-
-## Admin console
-
-Five pages under `/admin/*` (`AdminLayout` sidebar + `RequireAdmin` client gate): **Users** (cross-references every Firebase Auth account with its billing doc — plan, subscription status, usage, comp toggle; not paginated), **Tickets** (support triage), **Flags** (feature-flag/quota editor), **Models** (BYOM allowed-models curation), **Prompts** (AI prompt-template editor with restore-default and a Gemini-only test-run for the `parse` template).
-
-Every admin page's real security boundary is server-side (`requireAdmin` on `/api/admin/*`) — the client-side `RequireAdmin` component exists purely so non-admins don't see broken/empty admin UI, and says as much in its own source comment.
-
----
-
-## Support / feedback loop
-
-`FeedbackWidget.tsx` (floating, global) → `POST /api/support/tickets` → `MyFeedback.tsx` (user's own thread) / `AdminTickets.tsx` (triage) → `npm run backlog:pull` → `backlog/*.md`.
-
-- Screenshot capture is client-side (`html2canvas-pro`), opt-in per submission, uploaded directly to Firebase Storage via `uploadTicketScreenshot` in `src/lib/supportClient.ts`. Users can view their own attached screenshot in `MyFeedback.tsx` via signed URLs (`getTicketScreenshotUrlForUser`).
-- `adminNotes` is documented as internal-only and must never reach the ticket's owner — enforced via a `stripAdminFields` helper applied in the user-facing read paths only. If you touch `server/support.ts`, keep this filter in place; it was a real shipped leak, fixed in the hardening pass.
-- Ticket list queries sort in-memory rather than using Firestore `.orderBy()`, because the required composite indexes were never deployed (same CLI-access constraint as above). Fine at current volume; a real cost at scale.
-- Notifications (new ticket, user reply, admin reply) are fire-and-forget emails via Nodemailer (Gmail SMTP), no-op if `SMTP_USER`/`SMTP_PASS` are unconfigured.
-- `pullBacklog.ts` only exports tickets with `triageType` in `{bug, enhancement}` and `status` in `{triaged, backlogged, in_progress}` — a ticket disappears from `backlog/` the moment it's marked `resolved`, regardless of whether a fix has actually shipped.
-
----
+Support tickets/messages remain top-level tenant-checked documents. Screenshot uploads go through the support server endpoint and are saved under private `files/ticketScreenshots/{uid}/`; owner/admin reads use the existing access checks and expiring local signed URLs. `adminNotes` must never appear in user-facing responses. SMTP notifications are optional. Per-user and admin prompt override systems remain distinct.
 
 ## Data model
 
-### Firestore
+The SQLite document table retains logical paths such as `users/{uid}/careerJourney/current`, `users/{uid}/jobs/{id}`, `users/{uid}/matches/{id}`, `users/{uid}/meta/billing`, `config/featureFlags`, `tickets/{id}/messages/{id}`, `stripeEvents/{id}`, discovery records and Spotlight records. Auth identities, sessions and single-use action tokens use private `authUsers`, `authSessions`, `authActions` paths; none is exposed through generic data APIs. Password hashes and token hashes never appear in session/user responses.
 
-Client-writable (owner-only, `users/{uid}/...`):
-`careerJourney/current`, `jobs/{jobId}`, `matches/{matchId}`, `matchPreferences/current`, `promptConfigs/{promptId}` (+ `changeLog` subcollection).
-
-> Note: `promptConfigs` here is a **separate, per-user** prompt-override mechanism from the server's admin-level `promptStore.ts` file-based overrides — two distinct override systems currently coexist and are not reconciled. Confirm which one a given code path actually reads before assuming "prompt overrides" means one specific thing.
-
-Server/Admin-SDK-only (client read-only or fully denied):
-- `users/{uid}/meta/billing` — owner-read, write:false.
-- `config/featureFlags`, `config/allowedModels` — any-signed-in-user-read, write:false.
-- `stripeEvents/{eventId}` — fully denied to clients (idempotency ledger).
-- `tickets/{ticketId}` (+ `messages` subcollection) — top-level (not nested under `users/`, so admin can query cross-account), owner-read-own-only, write:false.
-- `users/{uid}/spotlight/settings`, `users/{uid}/spotlight/ogImage`, `users/{uid}/spotlight/stats`, `spotlights/{slug}` — Career Spotlight; fully denied to clients, read/written only through `/api/spotlight` (owner) and `/api/public/spotlights` / `/s/:slug` (public). `spotlights/{slug}` is top-level and keyed by slug so a public read is one doc fetch; it carries `ownerUid`, which account deletion and the GDPR export query on (single-field equality, no composite index).
-- `users/{uid}/discovery/profile`, `users/{uid}/discoveredJobs/{stillopenId}`, `discoverySchedules/{uid}` — Job Discovery; fully denied to clients, read/written only through `/api/discovery`. `discoverySchedules` is top-level so the scheduler's `nextRunAt <= now` query needs no collection-group index. All three are included in the GDPR export and removed by both account-delete paths.
-
-**Account deletion** — both `DELETE /api/user/account` (self-service: data, then Auth user) and `DELETE /api/admin/users/:uid` (Auth user, then data, then `delete_user` audit log) go through `purgeUserData` in `server/userData.ts`, which runs `recursiveDelete` on `users/{uid}`. Firestore never cascades a doc delete to its subcollections, so this is what removes everything above plus `meta/billing` and `aiUsageLogs` — and any per-user subcollection added later, with no code change. It first deletes the account's published `spotlights/{slug}` pages (by `ownerUid`), so a public page never outlives the account, and afterwards `discoverySchedules/{uid}`. Top-level per-user records (`tickets/`, `aiCallLogs/`) are left in place.
-
-`firestore.indexes.json` is currently empty by design — the codebase avoids queries that would need a composite index (see the support-ticket in-memory-sort note above).
-
-### Storage
-
-`ticketScreenshots/{uid}/{fileName}` — intended rules (owner-write, <5MB, image/* only, read:false always) are written in `storage.rules` but **not deployed**; see [Support / feedback loop](#support--feedback-loop).
-
----
+`server/userData.ts` removes user-owned application descendants, private agent exports and published Spotlight pages; local identity deletion revokes sessions and removes pending auth actions. Existing top-level audit/support retention behavior remains unchanged and should be reviewed for any broader privacy policy change. SQLite has no Firebase rules/index deployment prerequisite; server access checks are the security boundary.
 
 ## Job Discovery (StillOpen)
 
@@ -279,7 +112,7 @@ Server/Admin-SDK-only (client read-only or fully denied):
 - **CV snapshot** — `careerJourneyToText` (`src/lib/careerJourneyText.ts`) is deterministic and omits contact details; "out of date" is a string comparison with a fresh render. Refreshing the CV never rewrites the searches.
 - **Searches** — StillOpen is keyword + exact-value filters (`loc`, `level`, `area`, `pay`), not CV-in. `discoverySearchProfile` (AI, user-triggered) proposes 3–6 queries and filters; `sanitizeAiSearchProfile` drops any value StillOpen wouldn't accept. Gotchas checked live: it takes `uk`, not `gb`; regions are `worldwide|emea|apac|latam|na` only; most listings have `level: unspecified`, so any level filter hides them. New country codes are probed against the live API on save.
 - **Runs** (`server/discovery/runSearch.ts`) — no AI. Fan out queries × filters (capped at 24 calls), merge into `discoveredJobs` keeping the user's state (dismissed/scanned/promoted), status re-check everything else, delete closed listings and untouched ones not found for 14 days.
-- **Scheduler** (`server/discovery/scheduler.ts`) — in-process `setInterval` every 15 min (the server is one long-running container), started in `app.listen`. Off without Firebase Admin or with `DISCOVERY_SCHEDULER=off`. Each run is claimed with a transaction on `discoverySchedules/{uid}.lockedUntil`, so extra replicas or a simultaneous "Search now" can't double-run a user. A user who has lost access has their discovery data deleted on their next due tick.
+- **Scheduler** (`server/discovery/scheduler.ts`) — in-process `setInterval` every 15 min (the server is one long-running container), started in `app.listen`. Off with `DISCOVERY_SCHEDULER=off`. Each run is claimed with a transaction on `discoverySchedules/{uid}.lockedUntil`, so extra replicas or a simultaneous "Search now" can't double-run a user. A user who has lost access has their discovery data deleted on their next due tick.
 - **StillOpen client** (`server/discovery/stillOpenClient.ts`) — one process-wide throttle (~40/min, under the 60/min per-IP limit, since every user's run leaves from this server's IP), 10s timeouts, one retry honouring `Retry-After`, Zod-validated requests and responses.
 - **Picking jobs** — the page ranks listings cheaply (`src/lib/discoveryRank.ts`), the user selects up to 15 to "Quick scan": the full ad is fetched on demand (never stored in `discoveredJobs`), then the existing light scan runs via `scanPostingIntoMatch` (`src/lib/matchScan.ts`, shared with Matches) and creates a `JobMatch` with `source: 'stillopen'`.
 - **What a scan carries over** — the ad is built from StillOpen's `description_html` with `htmlToText` (`server/htmlToText.ts`, shared with the Greenhouse/Lever source routes), because its `description_text` has every line break stripped (one 7k-character line, checked live), which also left nothing for JD segmentation to split on. The match also gets `applyUrl` (the employer's own application page), `compensationRange` and `locationNotes` (`src/lib/discoveryFormat.ts`). Scanned rows on Discover show "Apply on employer site" and a "View JD" toggle; Matches cards show an Apply link.
@@ -293,10 +126,10 @@ Server/Admin-SDK-only (client read-only or fully denied):
 
 A public, read-only hiring page built from the Career Journey (`career-spotlight-plan.md`).
 
-- **Snapshot, not live data** — `buildSpotlightSnapshot` (`src/lib/spotlightSnapshot.ts`) projects the journey plus the owner's settings into a `SpotlightSnapshot` (`src/types/spotlight.ts`), field by field from an allowlist; a sentinel test fails if any unlisted field gets through. Hidden roles disappear everywhere. The same function runs in the editor's preview and in `POST /api/spotlight/publish`, which always builds from the journey it reads from Firestore — the client sends settings, never content. Edits to the journey only go public on the next publish; the editor names what changed (`diffSpotlightSnapshots`).
+- **Snapshot, not live data** — `buildSpotlightSnapshot` (`src/lib/spotlightSnapshot.ts`) projects the journey plus the owner's settings into a `SpotlightSnapshot` (`src/types/spotlight.ts`), field by field from an allowlist; a sentinel test fails if any unlisted field gets through. Hidden roles disappear everywhere. The same function runs in the editor's preview and in `POST /api/spotlight/publish`, which always builds from the journey it reads from SQLite — the client sends settings, never content. Edits to the journey only go public on the next publish; the editor names what changed (`diffSpotlightSnapshots`).
 - **Routes** (`server/spotlight.ts`) — owner: `GET /api/spotlight`, `PUT /api/spotlight/settings`, `GET /api/spotlight/slug/:slug` (shape/reserved/taken), `POST`/`DELETE /api/spotlight/publish`. Public: `GET /api/public/spotlights/:slug` (JSON) and `GET /s/:slug` (HTML with title/description/Open Graph/robots and the snapshot inlined, registered ahead of the SPA fallback; Vite-transformed `spotlight.html` in dev, `dist/spotlight.html` in production). Missing, unpublished, malformed and kill-switched pages all get the same 404. Unlisted pages send `noindex`.
 - **Publish** — one transaction claims the slug (409 if another account owns it), moves the page if the slug changed, and saves the settings. Free plans always keep the footer mark (`showBadge`), enforced server-side.
-- **Front end** — `spotlight.html` → `src/spotlight/main.tsx`, a separate Vite entry with no auth, store or Firebase SDK (~71KB gzipped JS). The page components (`src/components/spotlight/`) use one scoped stylesheet with light/dark/print themes and container queries; the evidence drawer renders in a portal because the container query makes `.sp` the containing block for `position: fixed`. `?evidence=<skill|capability|achievement id>` opens the drawer on load.
+- **Front end** — `spotlight.html` → `src/spotlight/main.tsx`, a separate Vite entry with no auth, store or external database SDK (~71KB gzipped JS). The page components (`src/components/spotlight/`) use one scoped stylesheet with light/dark/print themes and container queries; the evidence drawer renders in a portal because the container query makes `.sp` the containing block for `position: fixed`. `?evidence=<skill|capability|achievement id>` opens the drawer on load.
 - **Templates** — five skins (`SPOTLIGHT_SKINS`: Editorial, Executive, Studio, Technical, Classic), chosen in the editor's Template panel and stored as `style.skin` on the snapshot (absent on older pages, read as Editorial). All render the same components; `spotlight-skins.css` gives each its fonts (self-hosted via `@fontsource-variable`), neutrals and layout under `.sp[data-skin=…]`, and `src/lib/spotlightSkins.ts` holds the few structural flags (career shown as a staircase arc or a log) plus the page colours the contrast tests check every accent against. Skins also restyle the link-preview card. Dark themes are screen-only, so printing always comes out light.
 - **Link-preview image, PDF, views** — after each publish, `refreshSpotlightImage` screenshots `SpotlightCard` (1200×630 JPEG) in headless Chromium via `server/pdfRenderer.ts` (`withPage`, the same own-origin-only page setup the résumé PDF uses), stores it at `users/{uid}/spotlight/ogImage` and sets the page's `imageVersion`; `/s/:slug/og.jpg` serves it and the HTML advertises it (`summary_large_image`). A newer publish wins; without Chromium pages just have no image. `/s/:slug/pdf` renders the print view on demand (cached in memory per slug + publish time, 6/min per IP, 503 without Chromium); the public page fetches it from a "Download PDF" button. Views: each `GET /s/:slug` from a real browser increments `users/{uid}/spotlight/stats` (`total`, `days.YYYY-MM-DD`) — link unfurlers, crawlers, scripts and the editor's own "Open public page" (`?from=editor`) are skipped, and nothing about the visitor is stored. The editor shows 7-day, 30-day and all-time counts.
 - **Gating** — feature `career_spotlight` (all plans by default) and kill switch `killSwitches.spotlight` (Admin › Flags), which takes every public page offline. The `aiPipeline` switch doesn't apply: Spotlight makes no AI calls (`NON_AI_FEATURES`).
@@ -304,33 +137,16 @@ A public, read-only hiring page built from the Career Journey (`career-spotlight
 
 ## Auth model
 
-- **End users**: Firebase Auth, self-service email/password sign-up (`AuthGate.tsx`) plus a one-click demo login. Every authenticated request carries `Authorization: Bearer <idToken>`; `requireFirebaseAuth` verifies it and stashes `req.uid`/`req.isAdmin`.
-- **Admins**: identified purely by a Firebase custom claim (`admin: true`), not a Firestore field or billing-doc role. Granted via `npm run set:admin -- <email>`. Embedded in the ID token, so `requireAdmin` is a single flag check with no extra round-trip — but also means a newly-granted admin must sign out/in (or wait ~1h for token refresh) before the claim takes effect.
-- **BYOM keys** are an orthogonal concept — per-request headers from client-side storage, never tied to any auth claim or persisted server-side.
+Local accounts use random salted scrypt hashes, unique normalized email identifiers, revocable random session tokens stored only as hashes, and HttpOnly/SameSite=Strict cookies. Production cookies are Secure unless `ALLOW_HTTP_LOCAL=true` is explicitly set for a local HTTP test. Password changes require recent sign-in and revoke all sessions. Login/reset paths are rate limited. Cookie mutations require `X-CJ-Request: 1` and a matching Origin when supplied; no cross-origin API policy is enabled.
 
----
+Initial bootstrap creates one verified local administrator only if no accounts exist and ADMIN_EMAIL/ADMIN_PASSWORD are set. Public signup defaults off and requires working SMTP; signup email is verified through an expiring single-use link. Reset links have the same one-use/expiry behavior. Imported Firebase passwords/sessions are not reused. Admins can create/reset local accounts through maintenance CLI or configured reset mail. Agent bearer credentials cannot enter human-only Career Journey/security writers.
 
-## Known inconsistencies / incomplete migrations
+## Agent platform
 
-Kept here as a single list so nothing gets rediscovered from scratch. See `AGENTS.md` for which of these are worth picking up first.
+`server/agent/` provides stateless Streamable HTTP MCP, scoped expiring connections, strict commands, immutable draft/export/packet records, external application reports and durable preparation operations. It now uses SQLite/local private files. `MCP_ENABLED`, `AGENT_WRITES_ENABLED`, `AGENT_AI_ENABLED` remain off by default. A managed employer adapter and full OAuth onboarding/parity are still not released; see [agent implementation status](agent-platform-implementation-status.md).
 
-1. **AI provider abstraction is 3/22 endpoints migrated.** BYOM users' calls to everything except `keywords`/`fitScore`/`discoverySearchProfile` silently run on the platform provider (Oso/Ollama). (`server/ai/`, `payment-system-plan.md`)
-2. **Two separate prompt-override mechanisms**: `server/promptStore.ts` (admin, local JSON files) vs. `users/{uid}/promptConfigs` (per-user, Firestore). Not reconciled.
-3. **`storage.rules` and the newest `firestore.rules`/`firestore.indexes.json` additions have never been deployed** to the live Firebase project — no authenticated `firebase login` CLI session exists in this environment. Screenshot uploads operate client-side (`uploadTicketScreenshot`), but rules/indexes remain unpushed until a CLI session deploys them.
-4. **Admin prompt overrides live in local JSON files**, not Firestore — won't survive a redeploy to a fresh environment (the Docker setup keeps them on named volumes, so they survive image rebuilds on the same host, but not a move to a new one).
-5. **`server/knowledge/project_instructions.md` references `build_resume.js`**, which doesn't exist in this repo (actual resume generation is `server/docxBuilder.ts` + the `generateResume`/`resumeStrategy` AI endpoints). This is prompt content fed to the app's own AI, not developer docs — worth fixing but touches AI behavior, so treat as a deliberate follow-up, not a docs typo.
-6. **`config/allowedModels`'s seeded model list doesn't include the Gemini client's own hardcoded default** (`gemini-3.1-pro-preview`).
-7. **Ticket-submission rate limiting is transactionally enforced in Firestore** (`requireWithinDailyTicketLimit` in `server/support.ts`).
-8. **Automated test suite configured with Vitest** (`vitest.config.ts`, `server/__tests__/support.test.ts`). Run via `npm test` or `npx vitest run`.
-9. **`package.json`'s `name` field is still `"react-example"`** and `version` is `"0.0.0"`, both unused placeholders from initial scaffolding.
+## Deployment and known limits
 
+`./scripts/release.sh <tag>` runs checks locally and pushes source/tag to GitHub. `./scripts/deploy.sh <tag-or-branch>` runs on the VM, builds the pinned revision, archives data with writers stopped, waits for health and records rollback state. No GitHub Actions exist. Optional Caddy provides HTTPS. Backups must also be copied off the VM.
 
-## Agent platform (private beta, disabled by default)
-
-`server/agent/` supplies a stateless Streamable HTTP MCP endpoint at `/mcp`, scoped expiring connections, strict job-search commands and durable preparation operations. Agents can read Career Journey; no agent command can write canonical evidence, stage/approve a canonical patch or save canonical resume defaults. Firebase credentials are never issued to an agent.
-
-Human-authenticated `/api/agent` routes manage connections, invoke shared commands, save/delete jobs and matches with expected revisions, and download private exports. `FirestoreDataStore` uses these routes for job/match mutations; local-only persistence is unchanged. Client/server deployment must be coordinated with the narrowed Firestore rules so old clients cannot overwrite revisioned records.
-
-Immutable records live under each user in `agentArtifacts`, `agentExports`, `agentPackets`, `agentApplications`, `agentEvents`, `agentClarifications`, `agentFollowUps`, `agentCommands`, `agentConnections` and `agentOperations`. Private exported bytes use `agentArtifacts/{uid}/` in Storage. The library distinguishes draft documents and externally reported application receipts; managed employer submission is not enabled. The tested coordinator in `server/agent/submissions.ts` has no production employer adapter.
-
-`MCP_ENABLED`, `AGENT_WRITES_ENABLED`, and `AGENT_AI_ENABLED` independently gate remote access, agent writes and the preparation worker. Optional external OAuth verification is resource-server support, not a complete authorization/consent provider. See [implementation status](agent-platform-implementation-status.md) for current limitations, validation and rollout blockers, and [the plan](mcp-agent-platform-plan.md) for the full intended parity scope. `npm run verify:agents -- --live --ai` exercises an isolated cloud account and real AI preparation; it does not apply to an employer or onboard an external agent.
+The AI provider migration remains partial; full BYOM parity is not implied by the storage migration. Queries currently scan/filter documents at application level. Full live collaborative editing, agent workflow parity, external OAuth consent/provider setup and production employer submission adapters remain future work. Firebase cutover requires a paused-write export/import, local password setup and acceptance testing; the source project is never deleted automatically.

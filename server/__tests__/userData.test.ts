@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { purgeUserData, deleteOwnAccount, adminDeleteUser } from '../userData';
-import type { App } from 'firebase-admin/app';
+import type { App } from '../platform/app';
 
 // Every mocked side effect appends here, so tests can assert ordering across
 // Auth, Firestore and the audit log.
@@ -16,8 +16,8 @@ const mockLogAdminAction = vi.fn(async (_app: App, entry: { action: string; targ
   calls.push(`audit:${entry.action}:${entry.targetUid}`);
 });
 
-vi.mock('firebase-admin/firestore', () => ({
-  getFirestore: () => ({
+vi.mock('../platform/database', () => ({
+  getDatabase: () => ({
     collection: (name: string) => ({
       doc: (id: string) => ({
         path: `${name}/${id}`,
@@ -30,11 +30,11 @@ vi.mock('firebase-admin/firestore', () => ({
   }),
 }));
 
-vi.mock('firebase-admin/storage', () => ({
+vi.mock('../platform/storage', () => ({
   getStorage: () => ({ bucket: () => ({ deleteFiles: async ({ prefix }: { prefix: string }) => { calls.push(`storage.deleteFiles:${prefix}`); } }) }),
 }));
 
-vi.mock('firebase-admin/auth', () => ({
+vi.mock('../platform/auth', () => ({
   getAuth: () => ({ deleteUser: mockDeleteUser }),
 }));
 

@@ -72,7 +72,7 @@ let adminConfigured = true;
 let flags = { killSwitches: { matches: false, aiPipeline: false, discovery: false, spotlight: false } };
 let plan = 'free';
 
-vi.mock('firebase-admin/firestore', () => ({ getFirestore: () => fakeDb, FieldValue: { increment: (n: number) => ({ __inc: n }) } }));
+vi.mock('../platform/database', () => ({ getDatabase: () => fakeDb, FieldValue: { increment: (n: number) => ({ __inc: n }) } }));
 
 // Chromium renders, stubbed: the real ones are exercised by hand (see career-spotlight-plan.md).
 const renders = { image: 0, pdf: 0, failPdf: false };
@@ -87,7 +87,7 @@ vi.mock('../pdfRenderer', () => ({
     return Buffer.from('%PDF-1.7 test');
   },
 }));
-vi.mock('../firebaseAdmin', () => ({ getAdminApp: () => (adminConfigured ? {} : null) }));
+vi.mock('../platform', () => ({ getPlatformApp: () => (adminConfigured ? {} : null) }));
 vi.mock('../featureFlags', () => ({ getFeatureFlags: async () => flags }));
 vi.mock('../billing', () => ({
   getBillingState: async () => ({ plan, comped: false }),

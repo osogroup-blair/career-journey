@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ExternalLink, Eye, Maximize2, Printer, Sparkles } from 'lucide-react';
 import { useStore } from '../store';
-import { isFirebaseConfigured } from '../lib/firebase';
+import { isServerConfigured } from '../lib/auth';
 import { useLocalPreference } from '../hooks/useLocalPreference';
 import {
   buildSpotlightSnapshot,
@@ -229,7 +229,7 @@ export default function Spotlight() {
             </Button>
           </div>
         )}
-        {hasJourney && blockedInfo && isFirebaseConfigured && (
+        {hasJourney && blockedInfo && isServerConfigured && (
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
             <AlertCircle className="h-4 w-4 shrink-0 text-slate-400" />
             <p className="min-w-0 flex-1">{blockedInfo.text}</p>

@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp } from '../platform/app';
+import { getDatabase } from '../platform/database';
 import { PROMPT_OSO_ALIASES, DEFAULT_OSO_ALIAS } from '../ai/osoAliasMap';
 import { PLATFORM_PROVIDERS } from '../../src/types/billing';
 import { logAdminAction } from '../auditLog';
@@ -17,12 +17,8 @@ import { logAdminAction } from '../auditLog';
  */
 async function main() {
   const apply = process.argv.includes('--apply');
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('FIREBASE_SERVICE_ACCOUNT_JSON is not set in .env.');
-    process.exit(1);
-  }
-  const app = initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)) });
-  const db = getFirestore(app);
+  const app = initializeApp();
+  const db = getDatabase(app);
   const isPlatform = (p: unknown) => PLATFORM_PROVIDERS.includes(p as any);
   const changes: string[] = [];
 

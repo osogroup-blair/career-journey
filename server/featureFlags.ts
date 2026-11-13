@@ -1,5 +1,5 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import type { App } from "./platform/app";
+import { getDatabase } from "./platform/database";
 import type { FeatureKey, FeatureFlags } from "../src/types/featureFlags";
 import { getDefaultFeatureMatrix, FEATURE_METADATA } from "../src/types/featureFlags";
 import type { PlanId } from "../src/types/billing";
@@ -28,7 +28,7 @@ let cache: { flags: FeatureFlags; expiresAt: number } | null = null;
 const CACHE_TTL_MS = 30_000;
 
 function flagsRef(app: App) {
-  return getFirestore(app).collection("config").doc("featureFlags");
+  return getDatabase(app).collection("config").doc("featureFlags");
 }
 
 export async function getFeatureFlags(app: App): Promise<FeatureFlags> {

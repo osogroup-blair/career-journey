@@ -1,5 +1,5 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import type { App } from "./platform/app";
+import { getDatabase } from "./platform/database";
 import type { AIProviderId } from "./ai/types";
 import { PLATFORM_PROVIDERS } from "../src/types/billing";
 import { getAllKnowledgeFileNames } from "./knowledge";
@@ -26,7 +26,7 @@ let cache: { configs: PromptAiConfigMap; expiresAt: number } | null = null;
 const CACHE_TTL_MS = 30_000;
 
 function docRef(app: App) {
-  return getFirestore(app).collection("config").doc("promptAiConfig");
+  return getDatabase(app).collection("config").doc("promptAiConfig");
 }
 
 export async function getPromptAiConfigMap(app: App | null): Promise<PromptAiConfigMap> {

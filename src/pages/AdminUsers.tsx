@@ -1011,7 +1011,7 @@ export default function AdminUsers() {
                               Are you sure you want to permanently delete this account?
                             </div>
                             <p className="text-[11px] text-red-700">
-                              This action will immediately delete the Firebase Auth user and all associated Firestore data. This cannot be undone.
+                              This action will immediately delete the local account and all associated application data. This cannot be undone.
                             </p>
                             <div className="flex items-center gap-2 pt-1">
                               <Button

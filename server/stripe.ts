@@ -1,6 +1,6 @@
 import Stripe from "stripe";
-import type { App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import type { App } from "./platform/app";
+import { getDatabase } from "./platform/database";
 import type { Request, Response } from "express";
 import { setBillingFields } from "./billing";
 import type { PlanId, SubscriptionStatus } from "../src/types/billing";
@@ -69,7 +69,7 @@ export async function createCheckoutSession(params: {
     ...(params.existingStripeCustomerId
       ? { customer: params.existingStripeCustomerId }
       : { customer_email: params.email }),
-    subscription_data: { metadata: { firebaseUID: params.uid } },
+    subscription_data: { metadata: { appUID: params.uid } },
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
   });
@@ -121,11 +121,13 @@ function planFromSubscription(sub: Stripe.Subscription): PlanId | null {
 }
 
 async function uidFromSubscription(stripe: Stripe, sub: Stripe.Subscription): Promise<string | null> {
+  if (sub.metadata?.appUID) return sub.metadata.appUID;
   if (sub.metadata?.firebaseUID) return sub.metadata.firebaseUID;
   // Fallback for subscriptions created/modified without our metadata (shouldn't
   // happen via this app's own Checkout flow, but defensive against manual
   // Dashboard edits during testing).
   const customer = await stripe.customers.retrieve(sub.customer as string);
+  if (customer.deleted !== true && customer.metadata?.appUID) return customer.metadata.appUID;
   if (customer.deleted !== true && customer.metadata?.firebaseUID) return customer.metadata.firebaseUID;
   return null;
 }
@@ -140,7 +142,7 @@ async function handleCheckoutSessionCompleted(app: App, session: Stripe.Checkout
   const stripe = getStripeClient()!;
   // Stamp the customer with the uid too, as a second path to resolve it
   // (belt-and-suspenders alongside subscription_data.metadata above).
-  await stripe.customers.update(customerId, { metadata: { firebaseUID: uid } });
+  await stripe.customers.update(customerId, { metadata: { appUID: uid } });
 
   const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
   const plan = subscriptionId ? planFromSubscription(await stripe.subscriptions.retrieve(subscriptionId)) : null;
@@ -200,8 +202,8 @@ async function handleInvoicePaymentFailed(app: App, invoice: Stripe.Invoice): Pr
  * firestore.rules path grants client access to it at all.
  */
 async function alreadyProcessed(app: App, eventId: string): Promise<boolean> {
-  const ref = getFirestore(app).collection("stripeEvents").doc(eventId);
-  const db = getFirestore(app);
+  const ref = getDatabase(app).collection("stripeEvents").doc(eventId);
+  const db = getDatabase(app);
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (snap.exists) return true;

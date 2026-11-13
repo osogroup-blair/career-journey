@@ -1,12 +1,12 @@
 import dotenv from 'dotenv';
-import { initializeApp, cert, App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+import { initializeApp, App } from '../platform/app';
+import { getAuth } from '../platform/auth';
 
 dotenv.config();
 
 /**
  * Grants (or revokes with --revoke) the `admin` custom claim used by
- * server/firebaseAdmin.ts's requireAdmin middleware to gate /api/admin/*.
+ * server/platform.ts's requireAdmin middleware to gate /api/admin/*.
  * Usage: npm run set:admin -- someone@example.com [--revoke]
  */
 async function main() {
@@ -17,20 +17,8 @@ async function main() {
     console.error('Usage: npm run set:admin -- <email> [--revoke]');
     process.exit(1);
   }
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('FIREBASE_SERVICE_ACCOUNT_JSON is not set in .env — see README\'s Firebase setup steps.');
-    process.exit(1);
-  }
 
-  let app: App;
-  try {
-    const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    app = initializeApp({ credential: cert(credentials) });
-  } catch (e) {
-    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON — check it is the full service account JSON on one line.', e);
-    process.exit(1);
-    return;
-  }
+  const app=initializeApp();
 
   const auth = getAuth(app);
   const user = await auth.getUserByEmail(email);

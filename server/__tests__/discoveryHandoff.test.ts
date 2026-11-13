@@ -13,9 +13,9 @@ const ownedJobListingIds = new Set<string>();
 const ownedMatchExternalIds = new Set<string>();
 const mockCheckStatus = vi.fn();
 
-vi.mock('../firebaseAdmin', () => ({ getAdminApp: () => ({}) }));
-vi.mock('firebase-admin/firestore', () => ({
-  getFirestore: () => ({
+vi.mock('../platform', () => ({ getPlatformApp: () => ({}) }));
+vi.mock('../platform/database', () => ({
+  getDatabase: () => ({
     collection: () => ({
       doc: () => ({
         collection: (name: string) => ({

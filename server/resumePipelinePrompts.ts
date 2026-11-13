@@ -1,4 +1,4 @@
-import type { App } from "firebase-admin/app";
+import type { App } from "./platform/app";
 import { getActivePrompt } from "./promptStore";
 import { buildKnowledgePreamble } from "./ai/knowledgePreamble";
 import { getPromptAiConfigFor } from "./promptAiConfig";

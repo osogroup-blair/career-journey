@@ -1,37 +1,26 @@
 import dotenv from 'dotenv';
-import { initializeApp, cert, App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp, App } from '../platform/app';
+import { getAuth } from '../platform/auth';
+import { getDatabase } from '../platform/database';
 import { DEMO_CAREER_JOURNEY, DEMO_JOBS, DEMO_MATCHES, DEMO_MATCH_PREFERENCES } from '../../src/lib/demo';
 
 dotenv.config();
 
 const DEMO_EMAIL = process.env.DEMO_EMAIL || 'demo@career-journey.app';
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'DemoPass123!';
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD;
+if(!DEMO_PASSWORD)throw new Error('Set a strong DEMO_PASSWORD before seeding a demo account');
 
 /**
  * Idempotent: safe to re-run any time you want to reset the demo account back
- * to a known-good state. Deletes and rewrites the demo user's entire Firestore
+ * to a known-good state. Deletes and rewrites the demo user's entire SQLite
  * subtree, then upserts the Auth user. Never touches any other account.
  */
 async function main() {
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('FIREBASE_SERVICE_ACCOUNT_JSON is not set in .env — see the setup steps before running this script.');
-    process.exit(1);
-  }
 
-  let app: App;
-  try {
-    const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    app = initializeApp({ credential: cert(credentials) });
-  } catch (e) {
-    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON — check it is the full service account JSON on one line.', e);
-    process.exit(1);
-    return;
-  }
+  const app=initializeApp();
 
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  const db = getDatabase(app);
 
   let uid: string;
   try {

@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { getAdminApp } from "./firebaseAdmin";
+import { getPlatformApp } from "./platform";
 import { getBillingState, checkAndConsumeAiQuota } from "./billing";
 import { getFeatureFlags } from "./featureFlags";
 
@@ -60,7 +60,7 @@ function withinBurstLimit(uid: string, limit: number): boolean {
  * behavior of this middleware).
  */
 export async function requireWithinAiQuota(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const app = getAdminApp();
+  const app = getPlatformApp();
 
   if ((req as any).isAdmin) {
     // Emergency kill switches override everyone, even admins (see

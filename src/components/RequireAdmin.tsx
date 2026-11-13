@@ -4,7 +4,7 @@ import { ShieldAlert } from 'lucide-react';
 
 /**
  * Client-side gate for admin pages — purely a UX nicety. The server already
- * enforces this for real via requireAdmin (server/firebaseAdmin.ts) on every
+ * enforces this for real via requireAdmin (server/platform.ts) on every
  * /api/admin/* route; this just avoids showing a non-admin a half-broken page
  * full of failed requests instead of a clear message.
  */

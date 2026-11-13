@@ -3,12 +3,12 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import type { AddressInfo } from "node:net";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
-import { getAdminApp } from "../firebaseAdmin";
+import { getAuth } from "../platform/auth";
+import { getDatabase } from "../platform/database";
+import { getStorage } from "../platform/storage";
+import { getPlatformApp } from "../platform";
 import { registerAgentPlatform } from "../agent";
-import { FirestoreRepository, hash } from "../agent/repository";
+import { SqliteRepository, hash } from "../agent/repository";
 import { AgentService } from "../agent/service";
 import { PreparationOperations, PREPARATION_KINDS } from "../agent/operations";
 import { PlatformPreparationRunner } from "../agent/preparationRunner";
@@ -20,23 +20,23 @@ import { SCOPES } from "../agent/contracts";
 
 if (!process.argv.includes("--live"))
   throw new Error(
-    "Use --live to create and remove an isolated Firebase test account. --ai additionally makes seven real platform AI calls.",
+    "Use --live to create and remove an isolated self-hosted test account. --ai additionally makes seven real platform AI calls.",
   );
-const admin = getAdminApp();
-if (!admin) throw new Error("Firebase Admin configuration required");
-const apiKey = process.env.VITE_FIREBASE_API_KEY;
-if (!apiKey) throw new Error("Firebase client API key required");
+const admin = getPlatformApp();
+if (!admin) throw new Error("self-hosted Admin configuration required");
 const uid = `mcp-verify-${randomUUID()}`,
-  db = getFirestore(admin),
-  firebaseAuth = getAuth(admin);
+  db = getDatabase(admin),
+  localAuth = getAuth(admin);
 let server: ReturnType<express.Express["listen"]> | undefined;
 let created = false;
 const report: string[] = [];
 try {
-  await firebaseAuth.createUser({
+  await localAuth.createUser({
     uid,
     displayName: "Temporary MCP verification account",
     emailVerified: true,
+    email: `${uid}@example.invalid`,
+    password: `Test-${uid}-secret`,
   });
   created = true;
   const journey = getSampleCareerJourney("generateResume");
@@ -47,18 +47,7 @@ try {
     .doc("current")
     .set(journey);
   const originalHash = hash(journey);
-  const customToken = await firebaseAuth.createCustomToken(uid);
-  const exchange = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: customToken, returnSecureToken: true }),
-    },
-  );
-  if (!exchange.ok)
-    throw new Error(`Test Firebase sign-in failed (${exchange.status})`);
-  const { idToken } = (await exchange.json()) as any;
+  const {token:idToken}=await localAuth.signIn(`${uid}@example.invalid`,`Test-${uid}-secret`);
   process.env.MCP_ENABLED = "true";
   process.env.AGENT_WRITES_ENABLED = "true";
   process.env.AGENT_AI_ENABLED = "false";
@@ -89,7 +78,7 @@ try {
     scopes: SCOPES,
     expiresInDays: 1,
   });
-  report.push("Firebase user authentication and scoped connection creation");
+  report.push("Local account authentication and scoped connection creation");
   const mcp = async (name: string, args: any = {}) => {
     const response = await fetch(`${url}/mcp`, {
       method: "POST",
@@ -137,7 +126,7 @@ try {
     jobId: job.id,
     document: { kind: "resume", content },
   });
-  report.push("Firestore transactional job and immutable artifact writes");
+  report.push("SQLite transactional job and immutable artifact writes");
   for (const format of ["pdf", "docx"]) {
     const file = await mcp("export_artifact", {
       artifactId: artifact.id,
@@ -166,7 +155,7 @@ try {
   });
   report.push("Application packet, preflight and synthetic report");
   if (process.argv.includes("--ai")) {
-    const repo = new FirestoreRepository(db),
+    const repo = new SqliteRepository(db),
       service = new AgentService(repo, () => true),
       operations = new PreparationOperations(
         service,
@@ -240,12 +229,12 @@ try {
     await new Promise<void>((resolve) => server!.close(() => resolve()));
   }
   if (created) {
-    if (process.env.VITE_FIREBASE_STORAGE_BUCKET)
+    if (true)
       await getStorage(admin)
         .bucket()
         .deleteFiles({ prefix: `agentArtifacts/${uid}/` });
     await db.recursiveDelete(db.collection("users").doc(uid));
-    await firebaseAuth.deleteUser(uid);
+    await localAuth.deleteUser(uid);
     console.log("Removed isolated verification account and files");
   }
 }

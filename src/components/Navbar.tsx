@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { signOut } from 'firebase/auth';
+import { signOut } from '../lib/auth';
 import { useStore } from '../store';
 import { generateId } from '../lib/utils';
-import { auth, isFirebaseConfigured } from '../lib/firebase';
+import { auth, isServerConfigured } from '../lib/auth';
 import {
   Compass, Briefcase, Award, Plus, Upload, Download, FileDown, Pencil, Radar,
   LogOut, Sparkles, TrendingUp, Menu, X, ChevronDown, CreditCard,
@@ -21,7 +21,7 @@ export default function Navbar() {
   const navigate = useNavigate();
   const { careerJourney, addJob, setCareerJourney, billing, isAdmin } = useStore();
   // Discover needs server-side storage, so it's hidden in local-only mode as well as for anyone without access.
-  const showDiscover = useFeatureAccess('job_discovery').allowed && isFirebaseConfigured;
+  const showDiscover = useFeatureAccess('job_discovery').allowed && isServerConfigured;
   const toast = useToast();
 
   const [resumeOpen, setResumeOpen] = useState(false);
@@ -312,7 +312,7 @@ export default function Navbar() {
                   Blank Template
                 </button>
 
-                {isFirebaseConfigured && auth && (
+                {isServerConfigured && auth && (
                   <>
                     <div className="my-1.5 border-t border-slate-100" />
                     <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm font-medium text-red-600 hover:bg-red-50 text-left">
@@ -411,7 +411,7 @@ export default function Navbar() {
             Blank Template
           </button>
 
-          {isFirebaseConfigured && auth && (
+          {isServerConfigured && auth && (
             <button onClick={() => signOut(auth!)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 text-left mt-2">
               <LogOut className="h-4 w-4" />
               Sign Out

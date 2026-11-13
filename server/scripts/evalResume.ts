@@ -4,10 +4,10 @@ import os from 'os';
 import path from 'path';
 
 dotenv.config({ quiet: true });
-// Env-default platform models only, and no Firestore: admin per-prompt model
+// Env-default platform models only, and no SQLite: admin per-prompt model
 // overrides and careerJourneyFields selections are NOT applied, and nothing
 // is read from or written to any user's data.
-delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
 
 /**
  * Tailored-resume eval (resume-quality-plan.md Phase 0). Runs parse →

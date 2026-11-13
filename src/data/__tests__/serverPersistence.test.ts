@@ -1,29 +1,18 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { FirestoreDataStore } from "../FirestoreDataStore";
+import { HttpDataStore } from "../HttpDataStore";
 vi.mock("../../lib/aiClient", () => ({
   authHeaders: async () => ({ Authorization: "Bearer human" }),
 }));
-vi.mock("firebase/firestore", () => ({
-  doc: (...args: any[]) => args.join("/"),
-  collection: (...args: any[]) => args.join("/"),
-  getDocs: async () => ({
-    forEach: (fn: any) =>
-      fn({ id: "job", data: () => ({ id: "job", revision: 4 }) }),
-  }),
-  getDoc: async () => ({ exists: () => false }),
-  setDoc: vi.fn(),
-  deleteDoc: vi.fn(),
-  query: vi.fn(),
-  orderBy: vi.fn(),
-  limit: vi.fn(),
-}));
-let store: FirestoreDataStore, fetchMock: ReturnType<typeof vi.fn>;
+
+let store: HttpDataStore, fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(async () => {
   vi.stubGlobal("window", new EventTarget());
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
-  store = new FirestoreDataStore({} as any, "alice");
+  store = new HttpDataStore();
+  fetchMock.mockResolvedValueOnce({ok:true,json:async()=>[{id:"job",revision:4}]});
   await store.listJobs();
+  fetchMock.mockClear();
 });
 it("serializes queued saves with the last server acknowledged revision", async () => {
   const inputs: any[] = [];

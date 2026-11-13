@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getBillingState, setBillingFields, isPaidPlan } from '../billing';
 import { logAdminAction } from '../auditLog';
-import type { App } from 'firebase-admin/app';
+import type { App } from '../platform/app';
 
 const mockSet = vi.fn();
 const mockGet = vi.fn();
@@ -18,9 +18,9 @@ mockCollection.mockReturnValue({
   doc: mockDoc,
 });
 
-vi.mock('firebase-admin/firestore', () => {
+vi.mock('../platform/database', () => {
   return {
-    getFirestore: () => ({
+    getDatabase: () => ({
       collection: mockCollection,
       runTransaction: vi.fn(),
     }),

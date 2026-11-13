@@ -6,7 +6,7 @@ import { TagInput } from '../components/TagInput';
 import { StillOpenAttribution } from '../components/StillOpenAttribution';
 import { PageHeader, ViewTabs, ListToolbar, SortSelect, ProgressBanner } from '../components/ListPage';
 import DiscoverRow, { type DiscoverRowActions } from '../components/discover/DiscoverRow';
-import { isFirebaseConfigured } from '../lib/firebase';
+import { isServerConfigured } from '../lib/auth';
 import { careerJourneyToText } from '../lib/careerJourneyText';
 import { rankDiscoveredJobs } from '../lib/discoveryRank';
 import { relativeTime } from '../lib/discoveryFormat';
@@ -128,7 +128,7 @@ export default function Discover() {
   }, [toast]);
 
   useEffect(() => {
-    if (!isFirebaseConfigured) {
+    if (!isServerConfigured) {
       setLoading(false);
       return;
     }
@@ -368,8 +368,8 @@ export default function Discover() {
   const selectable = visible.filter(({ job }) => !job.matchId);
   const lastRunAt = profile?.lastRun?.at;
 
-  if (!isFirebaseConfigured || access?.status === 501) {
-    return <Notice title="Discover needs a cloud account" body="Scheduled job discovery runs on the server, so it needs Firebase configured and a signed-in account. It isn't available in local-only mode." />;
+  if (!isServerConfigured || access?.status === 501) {
+    return <Notice title="Discover needs an account" body="Scheduled job discovery runs on the server, so it needs a signed-in local account. It isn't available in local-only mode." />;
   }
   if (access?.status === 403) {
     return <Notice title="Discover isn't available on your account" body={access.message} />;

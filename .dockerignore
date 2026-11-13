@@ -24,3 +24,8 @@ pnpm-workspace.yaml
 Dockerfile
 docker-compose.yml
 .dockerignore
+data
+backups
+.deploy
+migration-export
+imported-data

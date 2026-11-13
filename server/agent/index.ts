@@ -1,4 +1,4 @@
-import { getStorage } from "firebase-admin/storage";
+import { getStorage } from "../platform/storage";
 import { ArtifactExports, BucketBlobStore } from "./artifacts";
 import { DomainError } from "./contracts";
 import { PreparationOperations } from "./operations";
@@ -6,33 +6,22 @@ import { PlatformPreparationRunner } from "./preparationRunner";
 import type express from "express";
 import { OAuthAgentVerifier } from "./oauth";
 import { SCOPES } from "./contracts";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp, requireFirebaseAuth } from "../firebaseAdmin";
-import { FirestoreRepository } from "./repository";
+import { getAuth } from "../platform/auth";
+import { getDatabase } from "../platform/database";
+import { getPlatformApp, requireUser } from "../platform";
+import { SqliteRepository } from "./repository";
 import { AgentAuth } from "./auth";
 import { AgentService } from "./service";
 import { createMcpRouter, createPlatformRouter } from "./http";
 
 export function registerAgentPlatform(app: express.Express) {
   // Lazy initialization: dotenv is loaded by the host before this function runs.
-  const admin = getAdminApp();
-  if (!admin) {
-    app.use(["/mcp", "/api/agent"], (_req, res) => {
-      res
-        .status(503)
-        .json({
-          error:
-            "Agent platform requires configured Firebase authentication and persistence",
-        });
-    });
-    return;
-  }
-  const repo = new FirestoreRepository(getFirestore(admin));
+  const admin = getPlatformApp();
+  const repo = new SqliteRepository(getDatabase(admin));
   const auth = new AgentAuth(repo, async (uid) => {
     try {
       const user = await getAuth(admin).getUser(uid);
-      return !user.disabled;
+      return !user.disabled && user.emailVerified;
     } catch {
       return false;
     }
@@ -50,7 +39,8 @@ export function registerAgentPlatform(app: express.Express) {
   const oauth = oauthConfig
     ? new OAuthAgentVerifier(repo, oauthConfig, async (uid) => {
         try {
-          return !(await getAuth(admin).getUser(uid)).disabled;
+          const user = await getAuth(admin).getUser(uid);
+          return !user.disabled && user.emailVerified;
         } catch {
           return false;
         }
@@ -92,7 +82,7 @@ export function registerAgentPlatform(app: express.Express) {
       if (busy) return;
       busy = true;
       try {
-        const db = getFirestore(admin);
+        const db = getDatabase(admin);
         const queued = await db
           .collectionGroup("agentOperations")
           .where("state", "==", "queued")
@@ -125,12 +115,10 @@ export function registerAgentPlatform(app: express.Express) {
     }, 5000);
     timer.unref();
   }
-  const exports = process.env.VITE_FIREBASE_STORAGE_BUCKET
-    ? new ArtifactExports(
-        service,
-        new BucketBlobStore(getStorage(admin).bucket()),
-      )
-    : undefined;
+  const exports = new ArtifactExports(
+    service,
+    new BucketBlobStore(getStorage(admin).bucket()),
+  );
   app.use(
     "/mcp",
     createMcpRouter(
@@ -143,7 +131,7 @@ export function registerAgentPlatform(app: express.Express) {
   );
   app.use(
     "/api/agent",
-    requireFirebaseAuth,
+    requireUser,
     async (req, res, next) => {
       // Unlike the legacy middleware, this API never allows an absent user in development.
       const uid = (req as any).uid;

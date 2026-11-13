@@ -6,7 +6,7 @@ import { AnthropicClient } from "./anthropicClient";
 import { OllamaClient } from "./ollamaClient";
 import { OsoClient, OSO_DEFAULT_ALIAS } from "./osoClient";
 import { platformProvider } from "./platformProvider";
-import { getAdminApp } from "../firebaseAdmin";
+import { getPlatformApp } from "../platform";
 import { getBillingState } from "../billing";
 import { isByomPlan, isByomProvider } from "../../src/types/billing";
 import { resolveModelForPrompt, type ResolvedModel } from "./resolveModelForPrompt";
@@ -86,7 +86,7 @@ export async function getAIClientForRequest(req: Request, promptId: string): Pro
 }
 
 async function pickClientForRequest(req: Request, promptId: string, uid: string | undefined): Promise<{ client: StructuredAIClient; source: ResolvedModel["source"] }> {
-  const app = getAdminApp();
+  const app = getPlatformApp();
   const platformDefault = await resolveModelForPrompt(app, promptId);
   const platform = () => ({ client: getPlatformClient(platformDefault.model, platformDefault.provider), source: platformDefault.source });
 

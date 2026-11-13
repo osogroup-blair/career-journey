@@ -1,6 +1,6 @@
 import express from "express";
-import { getFirestore } from "firebase-admin/firestore";
-import { getAdminApp } from "../firebaseAdmin";
+import { getDatabase } from "../platform/database";
+import { getPlatformApp } from "../platform";
 import { isDiscoveryLicensed } from "../featureFlags";
 import {
   DiscoveredJobPatchSchema,
@@ -27,7 +27,7 @@ import {
 
 /**
  * /api/discovery/* — Job Discovery (StillOpen). Mounted in server.ts behind
- * requireFirebaseAuth + requireFeature("job_discovery"), which makes it
+ * requireUser + requireFeature("job_discovery"), which makes it
  * admin-only until STILLOPEN_LICENSED is set. Every handler takes the uid from
  * the verified token (req.uid), never the body.
  */
@@ -74,7 +74,7 @@ export function createDiscoveryRouter(): express.Router {
   const router = express.Router();
 
   router.use((req, res, next) => {
-    if (!getAdminApp() || !uidOf(req)) {
+    if (!getPlatformApp() || !uidOf(req)) {
       res.status(501).json({ error: "Job Discovery needs Firebase configured and a signed-in account." });
       return;
     }
@@ -83,7 +83,7 @@ export function createDiscoveryRouter(): express.Router {
 
   router.get("/profile", async (req, res) => {
     try {
-      const db = getFirestore(getAdminApp()!);
+      const db = getDatabase(getPlatformApp()!);
       const uid = uidOf(req);
       const [profileSnap, scheduleSnap] = await Promise.all([profileRef(db, uid).get(), scheduleRef(db, uid).get()]);
       const profile = profileSnap.exists ? (profileSnap.data() as DiscoveryProfile) : { ...EMPTY_PROFILE, updatedAt: "" };
@@ -106,7 +106,7 @@ export function createDiscoveryRouter(): express.Router {
       const update = parsed.data;
       if (update.searchProfile) await assertLocsAccepted(update.searchProfile.loc);
 
-      const db = getFirestore(getAdminApp()!);
+      const db = getDatabase(getPlatformApp()!);
       const uid = uidOf(req);
       const now = new Date();
       const priorSnap = await profileRef(db, uid).get();
@@ -133,9 +133,9 @@ export function createDiscoveryRouter(): express.Router {
   // StillOpen's pace. The page polls GET /profile until lastRun.at changes.
   router.post("/run", async (req, res) => {
     try {
-      const app = getAdminApp()!;
+      const app = getPlatformApp()!;
       const uid = uidOf(req);
-      const profileSnap = await profileRef(getFirestore(app), uid).get();
+      const profileSnap = await profileRef(getDatabase(app), uid).get();
       const profile = profileSnap.data() as DiscoveryProfile | undefined;
       if (!profile?.searchProfile) {
         res.status(400).json({ error: "Save a search profile first." });
@@ -160,7 +160,7 @@ export function createDiscoveryRouter(): express.Router {
 
   router.get("/jobs", async (req, res) => {
     try {
-      const app = getAdminApp()!;
+      const app = getPlatformApp()!;
       const uid = uidOf(req);
       const now = new Date();
       let jobs = await loadDiscoveredJobs(app, uid);
@@ -186,9 +186,9 @@ export function createDiscoveryRouter(): express.Router {
   // Only proxies listings already in this user's discoveredJobs — never an open proxy onto StillOpen.
   router.get("/jobs/:id/detail", async (req, res) => {
     try {
-      const app = getAdminApp()!;
+      const app = getPlatformApp()!;
       const uid = uidOf(req);
-      const ref = discoveredJobsCol(getFirestore(app), uid).doc(String(req.params.id));
+      const ref = discoveredJobsCol(getDatabase(app), uid).doc(String(req.params.id));
       const snap = await ref.get();
       if (!snap.exists) {
         res.status(404).json({ error: "That listing isn't in your discovery list." });
@@ -231,7 +231,7 @@ export function createDiscoveryRouter(): express.Router {
       return;
     }
     try {
-      const userDoc = getFirestore(getAdminApp()!).collection("users").doc(uidOf(req));
+      const userDoc = getDatabase(getPlatformApp()!).collection("users").doc(uidOf(req));
       const [jobHit, matchHit] = await Promise.all([
         userDoc.collection("jobs").where("source.listingId", "==", id).limit(1).get(),
         userDoc.collection("matches").where("externalId", "==", id).limit(1).get(),
@@ -261,7 +261,7 @@ export function createDiscoveryRouter(): express.Router {
       return;
     }
     try {
-      const ref = discoveredJobsCol(getFirestore(getAdminApp()!), uidOf(req)).doc(String(req.params.id));
+      const ref = discoveredJobsCol(getDatabase(getPlatformApp()!), uidOf(req)).doc(String(req.params.id));
       const snap = await ref.get();
       if (!snap.exists) {
         res.status(404).json({ error: "That listing isn't in your discovery list." });

@@ -1,6 +1,6 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import { getStorage } from "firebase-admin/storage";
+import type { App } from "./platform/app";
+import { getDatabase } from "./platform/database";
+import { getStorage } from "./platform/storage";
 import { getBillingState } from "./billing";
 import { sendEmail } from "./email";
 import { generateId } from "../src/lib/utils";
@@ -55,7 +55,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAILY_TICKET_LIMIT = 20;
 
 function ticketsCollection(app: App) {
-  return getFirestore(app).collection("tickets");
+  return getDatabase(app).collection("tickets");
 }
 
 function messagesCollection(app: App, ticketId: string) {
@@ -63,14 +63,14 @@ function messagesCollection(app: App, ticketId: string) {
 }
 
 function supportUsageDoc(app: App, uid: string) {
-  return getFirestore(app).collection("users").doc(uid).collection("meta").doc("supportUsage");
+  return getDatabase(app).collection("users").doc(uid).collection("meta").doc("supportUsage");
 }
 
 async function requireWithinDailyTicketLimit(app: App, uid: string): Promise<void> {
   const limit = Number(process.env.SUPPORT_TICKET_DAILY_LIMIT) || DEFAULT_DAILY_TICKET_LIMIT;
   const now = Date.now();
   
-  await getFirestore(app).runTransaction(async (t) => {
+  await getDatabase(app).runTransaction(async (t) => {
     const docRef = supportUsageDoc(app, uid);
     const snap = await t.get(docRef);
     const data = snap.data();
@@ -259,7 +259,7 @@ export async function listAllTickets(
   app: App,
   filter?: { status?: TicketStatus; triageType?: TicketTriageType }
 ): Promise<Ticket[]> {
-  let query: FirebaseFirestore.Query = ticketsCollection(app);
+  let query: import('./platform/database').Query = ticketsCollection(app);
   if (filter?.status) query = query.where("status", "==", filter.status);
   if (filter?.triageType) query = query.where("triageType", "==", filter.triageType);
   const snap = await query.get();

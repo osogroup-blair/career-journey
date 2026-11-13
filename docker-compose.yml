@@ -1,41 +1,47 @@
-# Usage (on the VM, from the repo root, with a filled-in .env):
-#   APP_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
-#
-# The same .env serves two purposes: Compose interpolates the public VITE_* build
-# args from it, and `env_file` hands every variable to the server at runtime.
+name: career-journey
 services:
   app:
     build:
       context: .
       args:
-        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
-        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
-        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
-        VITE_FIREBASE_STORAGE_BUCKET: ${VITE_FIREBASE_STORAGE_BUCKET:-}
-        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID:-}
-        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
-        APP_VERSION: ${APP_VERSION:-}
-    image: career-journey:latest
-    container_name: career-journey
+        APP_VERSION: ${APP_VERSION:-local}
+    image: career-journey:${APP_VERSION:-local}
     restart: unless-stopped
     env_file: .env
     environment:
-      # The image's Chromium; overrides any host path left in .env.
+      NODE_ENV: production
+      PORT: "47293"
+      DATA_DIR: /app/data
       CHROME_PATH: /usr/bin/chromium
+      CHROME_NO_SANDBOX: "true"
     ports:
-      # The server always listens on 47293 inside the container; HOST_PORT picks the VM side.
-      - "${HOST_PORT:-47293}:47293"
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-47293}:47293"
     extra_hosts:
-      # Lets OLLAMA_BASE_URL=http://host.docker.internal:11434 reach an Ollama on the VM itself.
       - "host.docker.internal:host-gateway"
     volumes:
-      # Admin edits to prompts and AI skills persist across rebuilds.
+      - app-data:/app/data
       - prompt-config:/app/server/promptConfig
       - knowledge-config:/app/server/knowledgeConfig
-    # Chromium uses /dev/shm for rendering; Docker's 64MB default is too small.
     shm_size: "256mb"
-
+  proxy:
+    image: caddy:2
+    profiles: [proxy]
+    restart: unless-stopped
+    environment:
+      APP_HOST: ${APP_HOST:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
 volumes:
+  caddy-data:
+  caddy-config:
+  app-data:
   prompt-config:
   knowledge-config:

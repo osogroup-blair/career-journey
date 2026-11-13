@@ -1,5 +1,5 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import type { App } from "./platform/app";
+import { getDatabase, FieldValue } from "./platform/database";
 
 /**
  * Admin-set context-window overrides, layered on top of the built-in
@@ -21,7 +21,7 @@ let cache: { overrides: ContextWindowOverrideMap; expiresAt: number } | null = n
 const CACHE_TTL_MS = 30_000;
 
 function docRef(app: App) {
-  return getFirestore(app).collection("config").doc("modelContextWindows");
+  return getDatabase(app).collection("config").doc("modelContextWindows");
 }
 
 export function overrideKey(provider: string, model: string): string {

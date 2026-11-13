@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { auth, isFirebaseConfigured } from '../../lib/firebase';
+import { auth, isServerConfigured } from '../../lib/auth';
 import { useLocalPreference } from '../../hooks/useLocalPreference';
 import { getSpotlight, PublishedSpotlightSummary, saveSpotlightSettings, SpotlightApiError, SpotlightViews } from '../../lib/spotlightClient';
 import type { SpotlightSettings } from '../../types/spotlight';
@@ -17,8 +17,8 @@ const hasKeys = (v: unknown) => !!v && typeof v === 'object' && Object.keys(v as
  */
 export function useSpotlightState() {
   const [local, setLocal] = useLocalPreference<unknown>(`spotlight.settings.${auth?.currentUser?.uid ?? 'local'}`, {});
-  const [stored, setStoredState] = useState<unknown>(isFirebaseConfigured ? null : local);
-  const [loading, setLoading] = useState(isFirebaseConfigured);
+  const [stored, setStoredState] = useState<unknown>(isServerConfigured ? null : local);
+  const [loading, setLoading] = useState(isServerConfigured);
   const [remote, setRemote] = useState(false);
   const [blocked, setBlocked] = useState<SpotlightApiError | null>(null);
   const [published, setPublished] = useState<PublishedSpotlightSummary | null>(null);
@@ -40,7 +40,7 @@ export function useSpotlightState() {
   }, []);
 
   useEffect(() => {
-    if (!isFirebaseConfigured) return;
+    if (!isServerConfigured) return;
     let cancelled = false;
     getSpotlight()
       .then((r) => {

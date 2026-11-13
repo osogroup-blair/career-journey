@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
-import { initializeApp, cert, App } from 'firebase-admin/app';
+import { initializeApp, App } from '../platform/app';
 import { listAllTickets, getTicketForAdmin } from '../support';
 import type { Ticket } from '../../src/types/support';
 
@@ -55,27 +55,15 @@ function renderMarkdown(ticket: Ticket, messages: { authorRole: string; body: st
 
 /**
  * Pulls every triaged bug/enhancement into flat markdown files under backlog/ (gitignored —
- * these contain user emails, and Firestore is the source of truth, not this directory) so a
+ * these contain user emails, and SQLite is the source of truth, not this directory) so a
  * coding agent working in this repo can read them the same way it reads payment-system-plan.md
  * or this feature's own plan doc: `ls backlog/`, no new tooling needed. Re-run any time; the
  * directory is wiped and rewritten from scratch each run so resolved/closed tickets don't leave
  * stale files behind.
  */
 async function main() {
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('FIREBASE_SERVICE_ACCOUNT_JSON is not set in .env — see the setup steps before running this script.');
-    process.exit(1);
-  }
 
-  let app: App;
-  try {
-    const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    app = initializeApp({ credential: cert(credentials) });
-  } catch (e) {
-    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON — check it is the full service account JSON on one line.', e);
-    process.exit(1);
-    return;
-  }
+  const app=initializeApp();
 
   const allTickets = await listAllTickets(app);
   const actionable = allTickets.filter(

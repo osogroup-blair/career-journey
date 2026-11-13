@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 
-vi.mock('../firebaseAdmin', () => ({ getAdminApp: () => ({}) }));
+vi.mock('../platform', () => ({ getPlatformApp: () => ({}) }));
 vi.mock('../billing', () => ({ getBillingState: vi.fn(async () => ({ plan: 'byom_monthly' })) }));
 vi.mock('../ai/resolveModelForPrompt', () => ({ resolveModelForPrompt: vi.fn(async () => ({ provider: 'oso', model: 'oso/general', source: 'globalDefault' })) }));
 

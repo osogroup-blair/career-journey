@@ -1,4 +1,4 @@
-import type { App } from "firebase-admin/app";
+import type { App } from "../platform/app";
 import type { AIProviderId } from "./types";
 import { getContextWindowOverrideFor } from "../modelContextWindows";
 import { fetchOsoModels, isOsoConfigured } from "./osoClient";

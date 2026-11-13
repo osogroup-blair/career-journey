@@ -1,3 +1,5 @@
+> Storage/auth migration update: the current branch replaces Firebase with local SQLite/auth/private files. The phase assessment below records the earlier MCP foundation and is historical where it mentions Firebase deployment or credentials. See SELF_HOSTING.md and ARCHITECTURE.md for current operations. The storage migration does not imply the unfinished MCP parity phases are complete.
+
 # Agent platform implementation status
 
 Updated November 12, 2026. This is an implementation record, not a claim that the full roadmap has shipped.

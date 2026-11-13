@@ -1,5 +1,5 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import type { App } from "../platform/app";
+import { getDatabase, type DocumentDatabase } from "../platform/database";
 import {
   SCHEDULE_INTERVAL_MS,
   type DiscoveredJob,
@@ -35,13 +35,13 @@ export const RUN_LOCK_MS = 10 * 60 * 1000;
 /** Spreads users who saved their schedule at the same moment across the next scheduler ticks. */
 const MAX_JITTER_MS = 30 * 60 * 1000;
 
-export function profileRef(db: Firestore, uid: string) {
+export function profileRef(db: DocumentDatabase, uid: string) {
   return db.collection("users").doc(uid).collection("discovery").doc("profile");
 }
-export function discoveredJobsCol(db: Firestore, uid: string) {
+export function discoveredJobsCol(db: DocumentDatabase, uid: string) {
   return db.collection("users").doc(uid).collection("discoveredJobs");
 }
-export function scheduleRef(db: Firestore, uid: string) {
+export function scheduleRef(db: DocumentDatabase, uid: string) {
   return db.collection("discoverySchedules").doc(uid);
 }
 
@@ -165,7 +165,7 @@ export function staleIds(jobs: DiscoveredJob[], now: Date): string[] {
 
 type WriteOp = { kind: "set"; id: string; data: object } | { kind: "update"; id: string; data: object } | { kind: "delete"; id: string };
 
-async function commitOps(db: Firestore, uid: string, ops: WriteOp[]): Promise<void> {
+async function commitOps(db: DocumentDatabase, uid: string, ops: WriteOp[]): Promise<void> {
   const col = discoveredJobsCol(db, uid);
   for (let i = 0; i < ops.length; i += 450) {
     const batch = db.batch();
@@ -190,7 +190,7 @@ export async function recheckStatuses(app: App, uid: string, jobs: DiscoveredJob
   if (ids.length === 0) return { closed: [], updated: new Map() };
   const entries = await checkStatus(ids);
   const { updates, deletes } = applyStatusEntries(entries, now.toISOString());
-  await commitOps(getFirestore(app), uid, [
+  await commitOps(getDatabase(app), uid, [
     ...updates.map((u) => ({ kind: "update" as const, id: u.id, data: u.fields })),
     ...deletes.map((id) => ({ kind: "delete" as const, id })),
   ]);
@@ -198,12 +198,12 @@ export async function recheckStatuses(app: App, uid: string, jobs: DiscoveredJob
 }
 
 export async function loadDiscoveredJobs(app: App, uid: string): Promise<DiscoveredJob[]> {
-  const snap = await discoveredJobsCol(getFirestore(app), uid).get();
+  const snap = await discoveredJobsCol(getDatabase(app), uid).get();
   return snap.docs.map((d) => d.data() as DiscoveredJob);
 }
 
 export async function deleteAllDiscoveryData(app: App, uid: string): Promise<void> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const jobs = await discoveredJobsCol(db, uid).listDocuments();
   await commitOps(db, uid, jobs.map((ref) => ({ kind: "delete" as const, id: ref.id })));
   await profileRef(db, uid).delete();
@@ -217,7 +217,7 @@ export async function deleteAllDiscoveryData(app: App, uid: string): Promise<voi
  * already ran this user since it read the due list.
  */
 export async function claimRun(app: App, uid: string, now: Date, requireDue: boolean): Promise<boolean> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const ref = scheduleRef(db, uid);
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -231,7 +231,7 @@ export async function claimRun(app: App, uid: string, now: Date, requireDue: boo
 
 /** Runs one discovery search for a user who already holds the run lock (claimRun). Never throws — failures land in lastRun. */
 export async function runDiscoverySearch(app: App, uid: string, trigger: DiscoveryRunSummary["trigger"]): Promise<DiscoveryRunSummary> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const started = new Date();
   const nowIso = started.toISOString();
   let summary: DiscoveryRunSummary = { at: nowIso, status: "ok", newCount: 0, foundCount: 0, closedCount: 0, trigger };

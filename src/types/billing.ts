@@ -71,7 +71,7 @@ export function isPaidPlan(plan: PlanId): boolean {
 /**
  * Mirrors server/billing.ts's defaultBillingState(). The billing doc is only
  * created lazily server-side on a user's first AI call — a brand-new account
- * that hasn't made one yet has no doc, so FirestoreDataStore.getBilling()
+ * that hasn't made one yet has no doc, so HttpDataStore.getBilling()
  * falls back to this rather than returning null. null is reserved for
  * "billing doesn't apply here" (local-only mode with no Firebase) — a real
  * signed-in user with no doc yet is still on the free plan, not exempt from

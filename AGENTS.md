@@ -1,40 +1,31 @@
 # AGENTS.md — Coding Agent Guide
 
-You're working in **Career Journey**, a job-search/resume SaaS: React 19 + Express, Firebase, Stripe, and three AI providers. Read this file first, then [ARCHITECTURE.md](ARCHITECTURE.md) for how the system actually works, and [README.md](README.md) for the product framing. All three are kept in sync with the real implementation — if any of them disagrees with the code, trust the code and fix the doc.
+Career Journey is React 19 + Express on Node 24, with local account authentication, SQLite and private VM files. Read [ARCHITECTURE.md](ARCHITECTURE.md), [README.md](README.md) and [SELF_HOSTING.md](SELF_HOSTING.md) before changing deployment/auth/storage. Code wins when documentation disagrees; update the documentation.
 
-## Orientation in one minute
+## Orientation
 
-- One Express process (`server.ts`) serves the API and, via Vite middleware in dev, the SPA. `npm run dev` starts everything.
-- The app runs with **zero external services configured** by default — local-only storage, no auth, no billing. Every cloud feature (Firestore, Stripe, admin, email) is additive and gated behind env vars in `.env.example`; the app degrades gracefully without them (see the table below).
-- Platform AI goes through the **Oso Model Router** (`server/ai/osoClient.ts`; local Ollama is the no-credentials fallback). BYOM users can bring Gemini/OpenAI/Anthropic/Ollama, but the provider-agnostic Zod abstraction (`server/ai/`) only covers 4 of ~23 AI endpoints. Assume any endpoint you touch is still on the hand-written-Gemini-schema pattern (`legacyGenAIShim.ts`) unless you check `server/ai/schemas.ts` first. See [ARCHITECTURE.md § AI provider abstraction](ARCHITECTURE.md#ai-provider-abstraction) before changing anything AI-related.
-- Automated tests exist via Vitest (`npm test` / `npx vitest run`, configured in `vitest.config.ts`), covering `server/support.ts` access-control and rate limiting. `npm run lint` is `tsc --noEmit`. When adding features, run tests and exercise changes live on the dev server.
+- `npm run dev` starts the single Express/Vite process on port 47293 (or PORT).
+- Accounts/data live under DATA_DIR (default ./data). Set ADMIN_EMAIL and a strong ADMIN_PASSWORD for first boot of an empty database. There is no default public demo password or unauthenticated development bypass.
+- `server/platform.ts`: trusted user/admin middleware. `server/platform/{database,auth,storage,routes}.ts`: SQLite document repository, password/session storage, private files and owner-scoped account/data APIs. `src/data/HttpDataStore.ts` is the browser persistence implementation.
+- Firebase is not used at runtime. `migration/export-firebase.mjs` is an optional read-only legacy exporter using a development-only SDK. Do not restore Firebase SDK imports or rules-dependent security to application code.
+- Agents can read canonical Career Journey but cannot write it, approve patches or save canonical defaults. Human session credentials and agent credentials are separate.
+- Platform AI uses Oso with Ollama fallback; only four legacy UI endpoints are BYOM-aware. Read ARCHITECTURE's AI provider abstraction before changing an AI endpoint.
+- GitHub is source/tag storage only. **No GitHub Actions.** Releases and VM deploys use scripts/release.sh and scripts/deploy.sh. Never put .env, data/, backups/, private keys or migration-export/ in Git or images.
 
-## What env vars unlock what
+## Configuration
 
-| You want to work on | You need |
-|---|---|
-| Job pipeline / Career Journey / resume generation, local-only | `OSO_AI_API_KEY` (or nothing at all — falls back to a local Ollama model) |
-| Multi-account, Firestore persistence, admin | `VITE_FIREBASE_*` + `FIREBASE_SERVICE_ACCOUNT_JSON` |
-| Billing / plan gating / Upgrade page | The Firebase vars above **and** `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*` (`stripe listen --forward-to localhost:47293/api/billing/webhook` for local webhook delivery) |
-| Oso router (`npm run verify:oso`, admin router status / model sync) | `OSO_AI_API_KEY`, optionally `OSO_ROUTER_URL`, `OSO_DATA_CLASSIFICATION` (default empty = no `routing` object sent; if set, must not exceed the Oso client's ceiling) |
-| BYOM (multi-provider AI) | A `GEMINI_API_KEY`/`OPENAI_API_KEY`/`ANTHROPIC_API_KEY` for `npm run verify:ai`; real BYOM keys come from the user at runtime, never from env vars |
-| Job Discovery (`/discover`, StillOpen) | The Firebase vars above. No StillOpen key needed. Admin-only until `STILLOPEN_LICENSED=true` (StillOpen's terms need a written licence for organisational use); `DISCOVERY_SCHEDULER=off` disables the in-process scheduler |
-| Career Spotlight publishing (`/spotlight`, public pages at `/s/:slug`) | The Firebase vars above, and `APP_URL` for the pages' canonical/Open Graph URLs. Without Firebase the editor still previews and prints |
-| Support ticket email notifications | `SMTP_USER` + `SMTP_PASS` + `SUPPORT_NOTIFY_EMAIL` (optional — the ticket loop works without email) |
-
-Full list with defaults in `.env.example` — it's the actual source of truth, read it directly rather than trusting a paraphrase.
+.env.example is the source of truth. APP_URL is the canonical URL. HTTPS is required for normal production cookies; ALLOW_HTTP_LOCAL=true is only for local HTTP testing. Registration defaults off and requires working SMTP for verification/reset links. Billing requires Stripe env vars; StillOpen remains admin-only until STILLOPEN_LICENSED=true. MCP and its writes/AI worker remain gated by separate flags.
 
 ## Conventions and gotchas worth knowing before you edit
 
-- **`HashRouter`, not `BrowserRouter`** (`src/App.tsx`) — URLs look like `#/matches`. Don't "fix" this to a path-based router without checking why (Firebase Hosting static-file routing is the likely reason, given `firebase.json`'s scaffolding).
+- **HashRouter remains in use.** Preserve existing URLs and redirects.
 - **No `@types/react` package installed.** JSX prop typing (e.g. `key`) behaves slightly differently than a typical CRA/Next setup as a result — see the comment in `src/pages/JobTracker.tsx:19-21` if something feels off with list-key typing.
 - **`vite.config.ts` supports `DISABLE_HMR`**, explicitly there for agent-edit stability (a comment says not to remove it) — if you're making rapid edits and HMR state gets weird, that's the escape hatch, not a bug to fix.
 - **`server.ts` is one ~1950-line file.** Resist the urge to "clean it up" into modules as a drive-by — every past refactor in this codebase has been scoped and verified deliberately (see the plan docs); an unscoped restructuring of the main request-routing file is exactly the kind of change that should be proposed, not just done.
 - **Stripe webhook route must stay registered before `express.json()`** — it needs the raw body for signature verification. If you reorder middleware in `server.ts`, don't break this.
-- **Individual route handlers re-derive `uid`/plan/admin status from the verified token, never the request body.** This is the actual security boundary for the whole API — preserve it in any new route.
+- **Individual route handlers re-derive `uid`/plan/admin status from the verified session, never the request body.** This is the actual security boundary for the whole API — preserve it in any new route.
 - **`RequireAdmin` (client) and `requireAdmin` (server) are not the same protection.** The client component is UX only; the server middleware is the real gate. Never add an admin feature that skips the server-side check because "the page is already behind RequireAdmin."
-- **Two prompt-override systems coexist** (admin-level local JSON files in `server/promptConfig/`, and per-user Firestore docs at `users/{uid}/promptConfigs`) — check which one a code path actually reads before assuming "editing the prompt" means one specific thing. See [ARCHITECTURE.md § Data model](ARCHITECTURE.md#data-model).
-- **`storage.rules` and the newest `firestore.rules`/`firestore.indexes.json` entries are not deployed** to the live Firebase project (no authenticated `firebase login` session exists in this environment). Don't assume a rules file you edit is live — it isn't, until someone with CLI access runs `firebase deploy`. Direct client-side screenshot uploads (Phase 2) operate via Firebase Storage SDK; see `admin-support-hardening-plan.md` for remaining CLI/index phases.
+- **Two prompt-override systems coexist** (admin-level local JSON files in `server/promptConfig/`, and per-user database documents at `users/{uid}/promptConfigs`) — check which one a code path actually reads before assuming "editing the prompt" means one specific thing. See [ARCHITECTURE.md § Data model](ARCHITECTURE.md#data-model).
 
 ## Where things live (quick index)
 
@@ -55,7 +46,7 @@ This repo carries hand-written planning docs at the root (`payment-system-plan.m
 
 ## Known incomplete work (in priority-ish order if you're looking for something to pick up)
 
-See [ARCHITECTURE.md § Known inconsistencies / incomplete migrations](ARCHITECTURE.md#known-inconsistencies--incomplete-migrations) for the full list with file references. Highlights:
+See [ARCHITECTURE.md § Deployment and known limits](ARCHITECTURE.md#deployment-and-known-limits) for the full list with file references. Highlights:
 
 1. `adminNotes`-leak-style bugs are the kind of thing this codebase has shipped before (found and fixed once already) — when touching `server/support.ts` or any user-facing read path, double check nothing internal-only leaks into a response.
 2. The AI provider migration (19 of 23 endpoints still on the legacy Gemini-schema shim, and therefore not BYOM-aware) is the single largest piece of unfinished work, and the riskiest to rush — the payment plan doc explicitly deferred it rather than migrate blind without real provider credentials to test against. If you pick this up, verify each provider for real (`npm run verify:ai`), not just against Gemini.
@@ -76,4 +67,4 @@ Then run the dev server and exercise UI/API changes in a browser:
 npm run dev
 ```
 
-against `http://localhost:47293` (or `$PORT` if set — the server honours it so parallel dev servers don't collide; Docker leaves it unset). For anything touching Firestore/billing/admin, you need real Firebase + Stripe test-mode credentials configured (see the env var table above) — there's no emulator setup in this repo. `npm run seed:demo` gives you a fully-populated, Pro-comped account to test against without needing your own data.
+Exercise UI/API changes at http://localhost:47293 (or PORT). Use isolated temporary DATA_DIR values for tests; never seed/delete real accounts as a test. `npm run verify:agents -- --live` now verifies local SQLite/auth/storage, not Firebase. See SELF_HOSTING.md for fixture import and deployment testing.

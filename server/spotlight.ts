@@ -1,7 +1,7 @@
 import express from "express";
-import type { App } from "firebase-admin/app";
-import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
-import { getAdminApp } from "./firebaseAdmin";
+import type { App } from "./platform/app";
+import { FieldValue, getDatabase, type DocumentDatabase } from "./platform/database";
+import { getPlatformApp } from "./platform";
 import { getFeatureFlags } from "./featureFlags";
 import { getBillingState, isPaidPlan } from "./billing";
 import {
@@ -61,11 +61,11 @@ export class SpotlightError extends Error {
   }
 }
 
-const settingsRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("settings");
-const journeyRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("careerJourney").doc("current");
-const pageRef = (db: Firestore, slug: string) => db.collection(SPOTLIGHTS).doc(slug);
-const imageRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("ogImage");
-const statsRef = (db: Firestore, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("stats");
+const settingsRef = (db: DocumentDatabase, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("settings");
+const journeyRef = (db: DocumentDatabase, uid: string) => db.collection("users").doc(uid).collection("careerJourney").doc("current");
+const pageRef = (db: DocumentDatabase, slug: string) => db.collection(SPOTLIGHTS).doc(slug);
+const imageRef = (db: DocumentDatabase, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("ogImage");
+const statsRef = (db: DocumentDatabase, uid: string) => db.collection("users").doc(uid).collection("spotlight").doc("stats");
 
 /** Firestore rejects `undefined` fields; the snapshot and settings use them for "not set". */
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -78,7 +78,7 @@ const summaryOf = (p: PublishedSpotlight): PublishedSummary => ({
   snapshot: p.snapshot,
 });
 
-async function readJourney(db: Firestore, uid: string): Promise<any> {
+async function readJourney(db: DocumentDatabase, uid: string): Promise<any> {
   const snap = await journeyRef(db, uid).get();
   if (!snap.exists) throw new SpotlightError("Add your Career Journey before publishing a Spotlight.", 409, "no_journey");
   return snap.data();
@@ -91,7 +91,7 @@ export async function loadOwnerSpotlight(
   uid: string,
   now: Date = new Date(),
 ): Promise<{ settings: SpotlightSettings | null; published: PublishedSummary | null; views: ViewSummary }> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const [stored, stats] = await Promise.all([settingsRef(db, uid).get(), statsRef(db, uid).get()]);
   const data = stored.exists ? (stored.data() as any) : null;
   let published: PublishedSummary | null = null;
@@ -103,7 +103,7 @@ export async function loadOwnerSpotlight(
 }
 
 export async function saveSpotlightSettings(app: App, uid: string, raw: unknown): Promise<SpotlightSettings> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const journeySnap = await journeyRef(db, uid).get();
   const settings = normalizeSpotlightSettings(raw, journeySnap.exists ? journeySnap.data() : {});
   await settingsRef(db, uid).set({ settings: plain(settings), updatedAt: new Date().toISOString() }, { merge: true });
@@ -115,7 +115,7 @@ export type SlugAvailability = { ok: true; slug: string } | { ok: false; reason:
 export async function checkSpotlightSlug(app: App, uid: string, raw: unknown): Promise<SlugAvailability> {
   const check = validateSpotlightSlug(raw);
   if (!check.ok) return check;
-  const page = await pageRef(getFirestore(app), check.slug).get();
+  const page = await pageRef(getDatabase(app), check.slug).get();
   if (page.exists && (page.data() as PublishedSpotlight).ownerUid !== uid) return { ok: false, reason: "taken" };
   return check;
 }
@@ -131,7 +131,7 @@ export async function publishSpotlight(
   rawSettings: unknown,
   opts: { canHideBadge: boolean; now?: Date },
 ): Promise<PublishedSummary> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const journey = await readJourney(db, uid);
   const settings = normalizeSpotlightSettings(rawSettings, journey);
   if (!opts.canHideBadge) settings.showBadge = true;
@@ -172,7 +172,7 @@ export async function publishSpotlight(
 }
 
 export async function unpublishSpotlight(app: App, uid: string): Promise<void> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   await db.runTransaction(async (tx) => {
     const stored = await tx.get(settingsRef(db, uid));
     const slug: string | null = stored.exists ? ((stored.data() as any).publishedSlug ?? null) : null;
@@ -185,7 +185,7 @@ export async function unpublishSpotlight(app: App, uid: string): Promise<void> {
 
 /** Account deletion: every page this account owns, found by owner rather than by the settings doc, so none is missed. */
 export async function deleteSpotlightsOwnedBy(app: App, uid: string): Promise<void> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const owned = await db.collection(SPOTLIGHTS).where("ownerUid", "==", uid).get();
   await Promise.all(owned.docs.map((d) => d.ref.delete()));
 }
@@ -195,7 +195,7 @@ export async function exportSpotlight(
   app: App,
   uid: string,
 ): Promise<{ settings: SpotlightSettings | null; published: PublishedSummary[]; viewsByDay: Record<string, number> }> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const [stored, owned, stats] = await Promise.all([
     settingsRef(db, uid).get(),
     db.collection(SPOTLIGHTS).where("ownerUid", "==", uid).get(),
@@ -217,7 +217,7 @@ export async function exportSpotlight(
  * it does nothing and pages simply have no image.
  */
 export async function refreshSpotlightImage(app: App, uid: string, slug: string, version: string, opts: { renderOrigin: string; appUrl: string }): Promise<void> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const page = await pageRef(db, slug).get();
   const data = page.exists ? (page.data() as PublishedSpotlight) : null;
   if (!data || data.ownerUid !== uid || data.updatedAt !== version) return;
@@ -246,7 +246,7 @@ export function isCountableView(req: express.Request): boolean {
 /** One more view today, on the owner's stats doc. Stores a count and nothing about the visitor. */
 export async function recordSpotlightView(app: App, ownerUid: string, now: Date = new Date()): Promise<void> {
   const day = now.toISOString().slice(0, 10);
-  await statsRef(getFirestore(app), ownerUid).set({ total: FieldValue.increment(1), days: { [day]: FieldValue.increment(1) } }, { merge: true });
+  await statsRef(getDatabase(app), ownerUid).set({ total: FieldValue.increment(1), days: { [day]: FieldValue.increment(1) } }, { merge: true });
 }
 
 export interface ViewSummary {
@@ -279,7 +279,7 @@ export async function getPublicSpotlight(app: App, slug: unknown): Promise<Publi
   if (!check.ok || check.slug !== slug) return null;
   const flags = await getFeatureFlags(app);
   if (flags.killSwitches.spotlight === true) return null;
-  const page = await pageRef(getFirestore(app), check.slug).get();
+  const page = await pageRef(getDatabase(app), check.slug).get();
   return page.exists ? (page.data() as PublishedSpotlight) : null;
 }
 
@@ -384,12 +384,12 @@ export interface SpotlightRenderOptions {
 
 const appUrl = () => process.env.APP_URL || "http://localhost:47293";
 
-/** /api/spotlight/* — mounted in server.ts behind requireFirebaseAuth + requireFeature("career_spotlight"). */
+/** /api/spotlight/* — mounted in server.ts behind requireUser + requireFeature("career_spotlight"). */
 export function createSpotlightRouter(opts: SpotlightRenderOptions): express.Router {
   const router = express.Router();
 
   router.get("/", async (req, res) => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     const uid = uidOf(req);
     if (!app || !uid) return needsFirebase(res);
     try {
@@ -400,7 +400,7 @@ export function createSpotlightRouter(opts: SpotlightRenderOptions): express.Rou
   });
 
   router.put("/settings", async (req, res) => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     const uid = uidOf(req);
     if (!app || !uid) return needsFirebase(res);
     try {
@@ -411,7 +411,7 @@ export function createSpotlightRouter(opts: SpotlightRenderOptions): express.Rou
   });
 
   router.get("/slug/:slug", async (req, res) => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     const uid = uidOf(req);
     if (!app || !uid) return needsFirebase(res);
     try {
@@ -422,7 +422,7 @@ export function createSpotlightRouter(opts: SpotlightRenderOptions): express.Rou
   });
 
   router.post("/publish", async (req, res) => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     const uid = uidOf(req);
     if (!app || !uid) return needsFirebase(res);
     try {
@@ -439,7 +439,7 @@ export function createSpotlightRouter(opts: SpotlightRenderOptions): express.Rou
   });
 
   router.delete("/publish", async (req, res) => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     const uid = uidOf(req);
     if (!app || !uid) return needsFirebase(res);
     try {
@@ -459,7 +459,7 @@ const NOT_FOUND = { error: "Not found" };
 export function createPublicSpotlightRouter(): express.Router {
   const router = express.Router();
   router.get("/:slug", ipRateLimit(120), async (req, res) => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     if (!app) return res.status(404).json(NOT_FOUND);
     try {
       const page = await getPublicSpotlight(app, req.params.slug);
@@ -495,7 +495,7 @@ function pdfFileName(name: string): string {
 export function registerSpotlightPage(app: express.Express, loadTemplate: (url: string) => Promise<string>, opts: SpotlightRenderOptions): void {
   app.get("/s/:slug", ipRateLimit(120), async (req, res, next) => {
     try {
-      const admin = getAdminApp();
+      const admin = getPlatformApp();
       const page = admin ? await getPublicSpotlight(admin, req.params.slug) : null;
       const html = renderSpotlightHtml(await loadTemplate(req.originalUrl), page, appUrl());
       res.status(page ? 200 : 404);
@@ -510,10 +510,10 @@ export function registerSpotlightPage(app: express.Express, loadTemplate: (url: 
   });
 
   app.get("/s/:slug/og.jpg", ipRateLimit(120), async (req, res) => {
-    const admin = getAdminApp();
+    const admin = getPlatformApp();
     try {
       const page = admin ? await getPublicSpotlight(admin, req.params.slug) : null;
-      const image = page?.imageVersion ? await imageRef(getFirestore(admin!), page.ownerUid).get() : null;
+      const image = page?.imageVersion ? await imageRef(getDatabase(admin!), page.ownerUid).get() : null;
       const data = image?.exists ? (image.data() as any) : null;
       if (!page || !data || data.version !== page.imageVersion) return res.status(404).set("Cache-Control", "no-store").json(NOT_FOUND);
       res.set("Cache-Control", "public, max-age=3600");
@@ -526,7 +526,7 @@ export function registerSpotlightPage(app: express.Express, loadTemplate: (url: 
 
   // Rendering is expensive, so this one is limited much more tightly than page views.
   app.get("/s/:slug/pdf", ipRateLimit(6), async (req, res) => {
-    const admin = getAdminApp();
+    const admin = getPlatformApp();
     try {
       const page = admin ? await getPublicSpotlight(admin, req.params.slug) : null;
       if (!page) return res.status(404).set("Cache-Control", "no-store").json(NOT_FOUND);

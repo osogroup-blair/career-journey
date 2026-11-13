@@ -26,7 +26,7 @@ function getTransporter(): Transporter {
   return transporter;
 }
 
-export async function sendEmail(input: { to: string; subject: string; html: string }): Promise<void> {
+export async function sendEmail(input: { to: string; subject: string; html: string; throwOnError?: boolean }): Promise<void> {
   if (!isEmailConfigured()) {
     console.log(`[email] SMTP_USER/SMTP_PASS not set — skipping email to ${input.to}: "${input.subject}"`);
     return;
@@ -41,5 +41,6 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
     console.log(`[email] Sent successfully to ${input.to}`);
   } catch (e) {
     console.error('[email] send failed', e);
+    if(input.throwOnError)throw new Error('Email could not be delivered; contact your administrator');
   }
 }

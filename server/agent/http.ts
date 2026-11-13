@@ -159,7 +159,7 @@ export function createMcpRouter(
   return router;
 }
 
-/** Human-authenticated API. Caller must provide fail-closed Firebase middleware. */
+/** Human-authenticated API. Caller must provide fail-closed local-session middleware. */
 export function createPlatformRouter(
   repo: Repository,
   service: AgentService,

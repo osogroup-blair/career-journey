@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { auth } from '../lib/firebase';
-import { updateProfile, updatePassword, sendEmailVerification, sendPasswordResetEmail, signOut } from 'firebase/auth';
+import { auth } from '../lib/auth';
+import { updateProfile, updatePassword, sendEmailVerification, sendPasswordResetEmail, signOut } from '../lib/auth';
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, Label, Badge, useToast } from '../components/ui';
 import { openBillingPortal } from '../lib/billingClient';
 import { exportUserData, deleteUserAccount } from '../lib/userClient';
@@ -125,7 +125,7 @@ export default function Profile() {
     e.preventDefault();
     setProfileBusy(true);
     try {
-      // 1. Update Firebase Auth displayName if currentUser is available
+      // 1. Update local account display name if currentUser is available
       if (currentUser && displayName.trim() !== currentUser.displayName) {
         await updateProfile(currentUser, { displayName: displayName.trim() });
       }
@@ -160,8 +160,8 @@ export default function Profile() {
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
-    if (newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters long.');
+    if (newPassword.length < 12) {
+      toast.error('Password must be at least 12 characters long.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -473,7 +473,7 @@ export default function Profile() {
                         type="password"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="At least 6 characters"
+                        placeholder="At least 12 characters"
                       />
                     </div>
                     <div>

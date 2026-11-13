@@ -11,7 +11,7 @@ export default function Privacy() {
 
       <h2 className="text-base font-semibold text-slate-900 pt-2">1. What we collect</h2>
       <ul className="list-disc pl-5 space-y-1">
-        <li><strong>Account information:</strong> email address and authentication data (via Firebase Authentication).</li>
+        <li><strong>Account information:</strong> email address and authentication data (stored securely on the application server).</li>
         <li><strong>Career Journey data:</strong> work history, skills, achievements, and related content you enter or upload.</li>
         <li><strong>Job/application data:</strong> job postings you paste or that we source, and the analysis/documents generated from them.</li>
         <li><strong>Billing data:</strong> your subscription plan and status — actual payment details (card numbers, etc.) are handled entirely by Stripe and never touch our servers.</li>
@@ -35,7 +35,7 @@ export default function Privacy() {
       <ul className="list-disc pl-5 space-y-1">
         <li><strong>AI providers</strong> (Google, OpenAI, Anthropic) — only the specific content needed to fulfill your request, only to the provider your plan or BYOM setting actually uses.</li>
         <li><strong>Stripe</strong> — for billing/subscription processing; we never see your full card number.</li>
-        <li><strong>Google Firebase</strong> — our hosting, authentication, and database infrastructure.</li>
+        <li><strong>Self-hosted infrastructure</strong> — account records, job-search data and private documents are stored on the application operator’s server.</li>
       </ul>
       <p>We do not sell your data.</p>
 

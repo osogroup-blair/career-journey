@@ -1,5 +1,5 @@
-import type { App } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
+import type { App } from "../platform/app";
+import { getAuth } from "../platform/auth";
 import { z } from "zod";
 import {
   getBillingState,
@@ -38,7 +38,7 @@ export class PlatformPreparationRunner implements PreparationRunner {
   constructor(private app: App) {}
   async authorize(p: Principal, kind: PreparationKind) {
     const account = await getAuth(this.app).getUser(p.uid);
-    if (account.disabled)
+    if (account.disabled || !account.emailVerified)
       throw new DomainError("INVALID_TOKEN", "Account unavailable", 401);
     const [billing, flags] = await Promise.all([
       getBillingState(this.app, p.uid),

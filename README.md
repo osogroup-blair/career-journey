@@ -2,7 +2,7 @@
 
 An AI-native decision engine that transforms fragmented career experience into a persistent, structured source of truth—evaluating job fit, surfacing missing evidence through human-in-the-loop interviewing, and driving deterministic, high-coverage resume strategies.
 
-Beyond the core pipeline, the app is a small SaaS: Firebase Auth accounts, Stripe subscriptions (with a bring-your-own-model option across Gemini/OpenAI/Anthropic), an admin console, and an in-app support/feedback loop. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical picture and [AGENTS.md](AGENTS.md) if you're a coding agent picking up work here.
+Beyond the core pipeline, the app is a small SaaS: self-hosted accounts, Stripe subscriptions (with a bring-your-own-model option across Gemini/OpenAI/Anthropic), an admin console, and an in-app support/feedback loop. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical picture and [AGENTS.md](AGENTS.md) if you're a coding agent picking up work here.
 
 ---
 
@@ -112,179 +112,46 @@ Intake ──► Parsed ──► Rating ──► Tailored Application ──�
 
 ## System Architecture & Tech Stack
 
-```
-                     ┌──────────────────────────────┐
-                     │      React 19 Frontend        │
-                     │ (Vite + HashRouter + Zustand) │
-                     └───────────────┬────────────────┘
-                                     │
-                    ┌────────────────┴─────────────────┐
-                    │   DataStore interface (swappable) │
-                    │  LocalStorageDataStore | Firestore │
-                    └────────────────┬─────────────────┘
-                                     │
-                      ┌──────────────┴───────────────┐
-                      │   Express API (server.ts)    │
-                      │ Firebase auth · Stripe · rate│
-                      │ limiting · admin · support    │
-                      └──────────────┬────────────────┘
-                                     │
-                ┌────────────────────┼────────────────────┐
-                │                    │                    │
-        ┌───────┴───────┐   ┌────────┴────────┐   ┌───────┴───────┐
-        │ Gemini (native) │   │ OpenAI (native) │   │ Anthropic (native) │
-        │ platform + BYOM │   │      BYOM       │   │       BYOM         │
-        └─────────────────┘   └─────────────────┘   └─────────────────────┘
-```
+React 19, Vite, HashRouter and Zustand provide the UI. One Express process serves the SPA and API. Node 24's built-in SQLite driver stores account and application data on the VM; private attachment/export files live beside the database. Local accounts use scrypt password hashes and revocable HttpOnly cookie sessions. Agents use distinct scoped credentials and can only read canonical Career Journey evidence.
 
-- **Frontend**: React 19, TypeScript, Vite, React Router (`HashRouter`), Tailwind CSS v4, Zustand (persisted via the `DataStore` abstraction), React Hook Form + Zod.
-- **Backend API**: single Express app (`server.ts`, ~1950 lines, ~44 routes) serving AI proxy endpoints, Stripe billing/webhooks, admin, and support-ticket APIs.
-- **AI Architecture**: a provider-agnostic client abstraction (`server/ai/`) drives Gemini, OpenAI, and Anthropic from one Zod schema per endpoint — but this migration is **partial**: only 4 of ~23 `/api/ai/*` endpoints (`keywords`, `fitScore`, `discoverySearchProfile`, `journeySectionAssist`) go through it today; the rest still call the Gemini SDK directly with hand-written schemas. See [ARCHITECTURE.md](ARCHITECTURE.md#ai-provider-abstraction) for exactly which.
-- **Billing**: Stripe Checkout + Customer Portal + webhooks, entitlement state mirrored into Firestore (`users/{uid}/meta/billing`), never trusted from the client.
-- **Build System**: Vite for client assets, `esbuild` for server compilation into a single CJS bundle.
-
----
-
-## Project Structure
-
-```
-server.ts                    # Express app: route registration + ~20 inline /api/ai/* handlers
-server/
-  ai/                        # Provider-agnostic AI client abstraction (gemini/openai/anthropic + zod schemas)
-  billing.ts, stripe.ts      # Plan/quota model, Stripe Checkout/Portal/webhooks
-  support.ts, email.ts       # Ticket CRUD, screenshot storage, Gmail SMTP notifications
-  featureFlags.ts            # Quota limits + kill switches (Firestore-backed, cached)
-  promptStore.ts             # Default AI prompt templates + admin override mechanism
-  careerJourneyVersioning.ts # Re-exports src/lib/careerJourneyIds.ts (ID allocation + version bumping)
-  knowledge.ts                # Loads server/knowledge/*.md into AI system prompts at startup
-  knowledge/*.md              # The job-pipeline AI's own "skill" files (JD parsing, ATS, voice, cover letters)
-  firebaseAdmin.ts            # Firebase Admin SDK init + requireFirebaseAuth/requireAdmin middleware
-  docxBuilder.ts              # Resume/cover-letter .docx generation
-  scripts/                    # npm run seed:demo | set:admin | verify:ai | eval:resume | seed:allowedModels | backlog:pull | cleanup:users
-src/
-  App.tsx                    # Route table (see ARCHITECTURE.md for the full list)
-  store.ts                   # Zustand store: job/journey/billing/admin state + the runAiTask() choke point
-  types.ts, types/*.ts        # Domain types: job pipeline, Career Journey schema, billing, support, prompts, AI models
-  layouts/                    # JobLayout (7-stage stepper), AdminLayout (sidebar + RequireAdmin gate)
-  pages/                      # ~25 route-level views — job pipeline stages, Matches, admin screens, legal pages
-  components/                  # AuthGate, RequireAdmin, FeedbackWidget, EvidenceTrace, shared UI primitives
-  data/                        # DataStore interface + LocalStorageDataStore/FirestoreDataStore implementations
-  lib/                         # AI/admin/billing/support API clients, Career Journey helpers, demo fixtures
-backlog/                      # Gitignored, generated by `npm run backlog:pull` — triaged tickets as markdown
-*-plan.md                     # Historical planning docs (payment system, admin/support, job-fit iteration)
-```
-
----
+Oso/Ollama provide platform AI; provider migration/BYOM coverage remains partial. Stripe billing, SMTP notifications, discovery and public Spotlight pages are optional integrations. Firebase is no longer required by the application. Its SDK is retained only as a development dependency for exporting an old installation.
 
 ## Getting Started
 
-### Prerequisites
+Requires Node 24+ for local development, or Docker Engine with Compose for a VM.
 
-- **Node.js**: v18+ recommended
-- At least one AI provider key — **Gemini** is what the app defaults to for platform-tier users (`GEMINI_API_KEY`); OpenAI/Anthropic keys are only needed for BYOM testing or `npm run verify:ai`.
-
-### Installation & Environment
-
-1. Clone the repository and install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Configure environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-   At minimum, add a Gemini key:
-   ```env
-   GEMINI_API_KEY="your-gemini-api-key"
-   ```
-   `.env.example` documents every other variable (Firebase, Stripe, SMTP, quota overrides) — all optional with sensible defaults except Stripe, which is required for billing to function at all. See [ARCHITECTURE.md](ARCHITECTURE.md) for what each subsystem needs to actually run end-to-end.
-
-### Running Locally
-
-Start the dev server (Express + Vite middleware on `http://localhost:47293`):
 ```bash
+npm ci
+cp .env.example .env
+# Set ADMIN_EMAIL and a unique ADMIN_PASSWORD of at least 12 characters.
 npm run dev
 ```
 
-### Production Build
+Open `http://localhost:47293`, sign in, and remove `ADMIN_PASSWORD` from runtime configuration after the initial account is created. The database and private files persist under `DATA_DIR` (default `./data`). Configure Oso or a reachable Ollama server to use AI; Stripe and SMTP are optional.
+
+## GitHub releases and VM deployment
+
+No GitHub Actions or hosted build service is used. After committing changes, publish a checked release from your workstation and deploy that tag on the VM:
 
 ```bash
+# Workstation:
+./scripts/release.sh v1.0.0
+# VM, in the repository clone with its private .env configured:
+./scripts/deploy.sh v1.0.0
+```
+
+The deploy script builds on the VM, backs up persistent state with writers stopped, waits for health, and records the previous image for rollback. Optional Caddy supplies HTTPS, or use your existing reverse proxy. Read [SELF_HOSTING.md](SELF_HOSTING.md) for initial setup, secure configuration, backups, rollback, local account maintenance and Firebase export/import. Existing Firebase data has not automatically been cut over; imported users must set local passwords before production traffic moves.
+
+## Verification
+
+```bash
+npm test
+npm run lint
 npm run build
-npm start
+npm run verify:agents -- --live
 ```
 
-### Docker (self-hosted VM)
-
-`Dockerfile` + `docker-compose.yml` package the production build with headless Chromium for resume PDF export. From the repo root, with a filled-in `.env`:
-
-```bash
-APP_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
-```
-
-- The same `.env` feeds both the build (Compose passes the public `VITE_*` values as build args, since Vite inlines them into the client bundle) and the runtime (`env_file`). Change a `VITE_*` value → rebuild, not just restart.
-- Serves on port 47293; set `HOST_PORT` to map a different VM port. Put a TLS reverse proxy in front for a public URL, set `APP_URL` to that URL (Stripe redirects and support emails use it), and add the domain to Firebase Console → Authentication → Settings → Authorized domains.
-- Admin prompt/skill overrides (`server/promptConfig/`, `server/knowledgeConfig/`) persist on named volumes across rebuilds.
-- An Ollama on the VM itself is reachable at `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
-
-### Other scripts
-
-```bash
-npm test                  # Run automated test suite (Vitest)
-npm run lint              # tsc --noEmit static typecheck
-npm run seed:demo         # Reset the shared demo account (Pro-comped, full fixture data)
-npm run set:admin -- <email>   # Grant/revoke the admin custom claim
-npm run seed:allowedModels     # Seed config/allowedModels with the current BYOM model list
-npm run verify:ai         # Smoke-test the AI abstraction against every configured provider key
-npm run backlog:pull      # Export triaged support tickets to backlog/*.md
-npm run cleanup:users     # Clean up stale test/demo user accounts
-```
-
----
-
-## Firebase & Firestore (Optional Cloud Mode)
-
-The app runs entirely on browser local storage by default — no Firebase project required, no paywall, no admin. Setting the `VITE_FIREBASE_*` env vars switches it into a Firestore-backed, multi-account mode without any code changes:
-
-- `src/data/DataStore.ts` is the persistence interface every page depends on; `LocalStorageDataStore` (default) and `FirestoreDataStore` are interchangeable implementations of it.
-- `src/components/AuthGate.tsx` (mounted in `src/main.tsx`, above `<App/>`) gates the app behind Firebase Auth and swaps in `FirestoreDataStore` once signed in. Sign-up is self-service (email/password), plus a one-click "Try the demo" login for the seeded demo account.
-- `server/firebaseAdmin.ts` verifies a Firebase ID token (`requireFirebaseAuth`) on every `/api/ai/*`, `/api/sources/*`, `/api/admin/*`, `/api/export/*`, `/api/billing/*`, and `/api/support/*` route once configured, so a deployed instance can't have its AI quota burned by strangers. It no-ops in local dev without `FIREBASE_SERVICE_ACCOUNT_JSON`, but fails closed (500) in production if that var is missing.
-- Firestore documents live under `users/{uid}/...` for per-user app data, plus top-level `tickets/`, `stripeEvents/`, and `config/` collections for cross-account admin/billing/support concerns — see [ARCHITECTURE.md](ARCHITECTURE.md#data-model) for the full collection map and `firestore.rules` for the access rules (which are unusually well-commented — read them directly for the actual security model).
-
-**To turn cloud mode on:**
-
-1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com), enable **Firestore** and **Authentication → Email/Password**.
-2. Copy the web app config (Project Settings → General → Your apps) into `.env` as the `VITE_FIREBASE_*` vars — see `.env.example`.
-3. Generate a service account key (Project Settings → Service Accounts → Generate new private key) and paste the JSON into `.env` as `FIREBASE_SERVICE_ACCOUNT_JSON`.
-4. Restart the app, sign up (or sign in), then visit `/migrate` once to copy any existing local data into Firestore.
-5. Deploy security rules: `firebase deploy --only firestore:rules` (after `firebase use --add` to link this repo to your project), or paste the contents of `firestore.rules` into Firestore Database → Rules in the console and publish. **Known gap**: `storage.rules` (ticket screenshots) has never actually been deployed in this project's history — see `admin-support-hardening-plan.md` Phase 1–2 for why and the workaround currently in place.
-6. To make yourself an admin: `npm run set:admin -- you@example.com`, then sign out/in (the `admin` custom claim is embedded in the ID token and only refreshes on new sign-in or after ~1h).
-
-### Billing (Stripe)
-
-Billing only works once `STRIPE_SECRET_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, and the three `STRIPE_PRICE_*` vars are set (see `.env.example`) — without them, `/upgrade` and quota gating won't function correctly. Locally, forward webhooks with `stripe listen --forward-to localhost:47293/api/billing/webhook`. Plans, quota model, and the BYOM (bring-your-own-model) flow are documented in [ARCHITECTURE.md](ARCHITECTURE.md#billing--plans).
-
-### Support ticket email notifications (optional)
-
-Leave `SMTP_USER`/`SMTP_PASS`/`SUPPORT_NOTIFY_EMAIL` unset to skip email entirely — the feedback/ticket loop still works fully via the admin console and Navbar badge; this only adds email notifications on new tickets/replies.
-
-### Demo Data
-
-For testing or demoing the app without touching your own account/resume, `npm run seed:demo` provisions a separate Firebase Auth account and fills it with a full set of fictional data — a made-up career journey ("Jordan Rivera"), one job in every pipeline stage (Intake through Archive), and a handful of matches across New/Promoted/Dismissed.
-
-```bash
-npm run seed:demo
-```
-
-- Requires `FIREBASE_SERVICE_ACCOUNT_JSON` to be set (see step 4 above) and Firestore rules to be deployed/published (step 6).
-- Default login: `demo@career-journey.app` / `DemoPass123!` — override with `DEMO_EMAIL` / `DEMO_PASSWORD` in `.env` (see `.env.example`).
-- Idempotent and safe to re-run any time — it wipes and rewrites the demo account's jobs/matches/career journey back to the seeded state, so it doubles as a reset.
-- Source fixtures live in `src/lib/demo/`; the script itself is `server/scripts/seedDemo.ts`.
-- Fresh/empty accounts (including a newly created real one) fall back to a blank Career Journey template, never real or demo data — see `src/lib/defaultData.ts`.
-
-Hosting/API deployment (Firebase Hosting + Cloud Run for the Express server) is scaffolded in `firebase.json` but not yet deployed — that's the one remaining manual step once you're ready to put this on the public internet.
-
----
+The agent check creates and removes an isolated local test account and files. `--ai` additionally invokes real AI providers. See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation details and [agent platform status](agent-platform-implementation-status.md) for the remaining MCP roadmap.
 
 ## What I Designed / Built
 

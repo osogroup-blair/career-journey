@@ -1,16 +1,14 @@
 import { JDParse, KeywordSignal, FitAnalysis, HardGateAudit, ResumeStrategy, KeywordCoverage, ResumeAiScore, CareerJourneyPatch, ExperienceContext, GeneratedResume, ClarificationQuestion, CoverLetter, JobMatchScanResult, SourcedJobPosting, ResumeBuildOptions, ResumeSectionRef, ResumeExperienceEntry } from '../types';
-import { auth } from './firebase';
+import { auth } from './auth';
 import { getStoredByomKey } from './byomKeyStorage';
 import { AIProviderId } from '../types/billing';
 import type { SectionAssistResponse } from './journeyAssist';
 
-// No-op when Firebase isn't configured; once it is, every API call carries the
-// signed-in user's ID token so server.ts's requireFirebaseAuth can verify it.
-// Exported for billingClient.ts, which needs the same auth header but isn't
-// otherwise part of this AI-endpoints-specific module.
+// Cookie-authenticated requests use a custom same-origin header. The marker is
+// not a credential; the server verifies the HttpOnly session cookie itself.
 export async function authHeaders(): Promise<Record<string, string>> {
   const token = await auth?.currentUser?.getIdToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return { 'X-CJ-Request':'1', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
 // The BYOM key, when present, rides alongside the auth header on every

@@ -1,4 +1,6 @@
 import express from "express";
+import { bootstrapAdmin } from "./server/platform/auth";
+import { registerPlatformRoutes } from "./server/platform/routes";
 import { registerAgentPlatform } from "./server/agent";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -9,7 +11,7 @@ import { generateId } from "./src/lib/utils";
 import { buildResumeDocx, buildCoverLetterDocx } from "./server/docxBuilder";
 import { buildResumePdf, buildCoverLetterPdf } from "./server/pdfBuilder";
 import { renderResumePdf, RESUME_TEMPLATES, ResumeTemplateId } from "./server/pdfRenderer";
-import { requireFirebaseAuth, requireAdmin, getAdminApp } from "./server/firebaseAdmin";
+import { requireUser, requireAdmin, getPlatformApp } from "./server/platform";
 import { requireWithinAiQuota } from "./server/rateLimiter";
 import { getActivePrompt, getActivePromptFilled, getAllPromptConfigs, savePromptOverride, restorePromptDefault, DEFAULT_PROMPTS } from "./server/promptStore";
 import { getBillingState, setBillingFields, requireAnyPaidPlan, requireFeature, recordAiUsage, getUserAiUsage } from "./server/billing";
@@ -66,8 +68,8 @@ import { OsoRouterError, fetchOsoModels, fetchOsoStatus, isOsoConfigured } from 
 import { KeywordsResponseSchema, FitAnalysisSchema, DiscoverySearchProfileAiSchema, sectionAssistSchema } from "./server/ai/schemas";
 import { isByomPlan, isByomProvider, AIProviderId, PlanId, BillingState } from "./src/types/billing";
 import { getFeatureFlags, setFeatureFlags, validateFeatureFlagsUpdate } from "./server/featureFlags";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "./server/platform/auth";
+import { getDatabase } from "./server/platform/database";
 import type { AllowedModelsConfig } from "./src/types/aiModels";
 import { sendEmail, isEmailConfigured } from "./server/email";
 import { logAdminAction, listAuditLogs } from "./server/auditLog";
@@ -116,7 +118,7 @@ async function trackUsage(
   provider: string = "gemini",
   meta?: { actualModel?: string; requestId?: string }
 ) {
-  const adminApp = getAdminApp();
+  const adminApp = getPlatformApp();
   const uid = (req as any).uid as string | undefined;
   if (!adminApp || !uid) return;
 
@@ -165,7 +167,7 @@ const legacyClients = new Map<string, LegacyGenAI>();
  * server/ai/legacyGenAIShim.ts for what each provider dispatches to.
  */
 async function getLegacyClientForPrompt(promptId: string, req: express.Request): Promise<{ client: LegacyGenAI; resolved: Awaited<ReturnType<typeof resolveModelForPrompt>> }> {
-  const resolved = await resolveModelForPrompt(getAdminApp(), promptId);
+  const resolved = await resolveModelForPrompt(getPlatformApp(), promptId);
   const key = `${resolved.provider}:${resolved.model}`;
   let client = legacyClients.get(key);
   if (!client) {
@@ -184,11 +186,12 @@ async function getLegacyClientForPrompt(promptId: string, req: express.Request):
  * everything, unchanged from before this existed.
  */
 async function projectCareerJourneyForPrompt(promptId: string, careerJourney: any): Promise<any> {
-  return projectCareerJourneyForPromptWith(getAdminApp(), promptId, careerJourney);
+  return projectCareerJourneyForPromptWith(getPlatformApp(), promptId, careerJourney);
 }
 
 async function startServer() {
-  configureAiCallLog(getAdminApp);
+  await bootstrapAdmin(getPlatformApp());
+  configureAiCallLog(getPlatformApp);
   const app = express();
   // 47293 unless PORT is set — the Docker image doesn't set it; parallel local dev servers (preview tooling) do.
   const PORT = Number(process.env.PORT) || 47293;
@@ -199,7 +202,7 @@ async function startServer() {
   // exact path means express.json() (further down the stack) never touches
   // it. See payment-system-plan.md Phase 1 for why this ordering matters.
   app.post("/api/billing/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -209,6 +212,7 @@ async function startServer() {
 
   app.use('/mcp', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '10mb' }));
+  registerPlatformRoutes(app);
   registerAgentPlatform(app);
 
   app.get("/api/health", (req, res) => {
@@ -217,11 +221,11 @@ async function startServer() {
 
   // No-op until FIREBASE_SERVICE_ACCOUNT_JSON is set (see server/firebaseAdmin.ts) —
   // guards the AI/sourcing endpoints once the app is deployed publicly.
-  app.use("/api/ai", requireFirebaseAuth);
+  app.use("/api/ai", requireUser);
   // Gated before the quota middleware so a refused call doesn't spend an AI action.
   app.use("/api/ai/discoverySearchProfile", requireFeature("job_discovery"));
   app.use("/api/ai", requireWithinAiQuota);
-  app.use("/api/sources", requireFirebaseAuth);
+  app.use("/api/sources", requireUser);
   // Job Analysis (Matches/discovery) is hard-gated behind any paid plan —
   // unlike the rest of /api/ai (journey-building, per-job pipeline), which
   // stays free-with-quota via requireWithinAiQuota above. Both /api/sources
@@ -229,20 +233,20 @@ async function startServer() {
   // path group is gated; liteScan needs its own route-level middleware since
   // /api/ai has many non-gated siblings.
   app.use("/api/sources", requireAnyPaidPlan);
-  app.use("/api/admin", requireFirebaseAuth);
+  app.use("/api/admin", requireUser);
   app.use("/api/admin", requireAdmin);
-  app.use("/api/export", requireFirebaseAuth);
-  app.use("/api/billing", requireFirebaseAuth);
-  app.use("/api/support", requireFirebaseAuth);
-  app.use("/api/user", requireFirebaseAuth);
+  app.use("/api/export", requireUser);
+  app.use("/api/billing", requireUser);
+  app.use("/api/support", requireUser);
+  app.use("/api/user", requireUser);
   // Job Discovery (StillOpen) — admin-only until STILLOPEN_LICENSED is set; see server/discovery/.
-  app.use("/api/discovery", requireFirebaseAuth, requireFeature("job_discovery"), createDiscoveryRouter());
+  app.use("/api/discovery", requireUser, requireFeature("job_discovery"), createDiscoveryRouter());
   // Career Spotlight — owner routes behind auth + the feature gate; the public read needs neither. See server/spotlight.ts.
-  app.use("/api/spotlight", requireFirebaseAuth, requireFeature("career_spotlight"), createSpotlightRouter({ renderOrigin: `http://127.0.0.1:${PORT}` }));
+  app.use("/api/spotlight", requireUser, requireFeature("career_spotlight"), createSpotlightRouter({ renderOrigin: `http://127.0.0.1:${PORT}` }));
   app.use("/api/public/spotlights", createPublicSpotlightRouter());
 
   app.post("/api/billing/createCheckoutSession", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -268,7 +272,7 @@ async function startServer() {
   });
 
   app.post("/api/billing/createPortalSession", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -296,7 +300,7 @@ async function startServer() {
   // payment-system-plan.md's Phase 4 key-handling decision: the key lives in
   // the browser's localStorage and rides per-request headers, not here).
   app.post("/api/billing/byomSettings", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -352,10 +356,10 @@ async function startServer() {
   });
 
   // Support tickets (admin-support-feedback-plan.md Phase 1). uid/email come from the
-  // verified ID token (requireFirebaseAuth), never the request body — same trust
+  // verified ID token (requireUser), never the request body — same trust
   // boundary as every other authenticated route here.
   app.post("/api/support/tickets", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -387,7 +391,7 @@ async function startServer() {
   });
 
   app.get("/api/support/tickets", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -402,7 +406,7 @@ async function startServer() {
   });
 
   app.get("/api/support/tickets/:id/messages", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -425,7 +429,7 @@ async function startServer() {
   });
 
   app.get("/api/support/tickets/:id/screenshot", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -450,7 +454,7 @@ async function startServer() {
   });
 
   app.post("/api/support/tickets/:id/messages", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -480,9 +484,9 @@ async function startServer() {
 
   // Admin ticket inbox (admin-support-feedback-plan.md Phase 3) — full CRUD against the
   // same tickets collection /api/support/* writes, gated by the /api/admin middleware
-  // group registered above (requireFirebaseAuth + requireAdmin).
+  // group registered above (requireUser + requireAdmin).
   app.get("/api/admin/tickets", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -497,7 +501,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/tickets/:id", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -517,7 +521,7 @@ async function startServer() {
   // Short-lived signed URL (5 min) rather than a stored public one — the bucket denies direct
   // client reads entirely (storage.rules), this is the only way to view a screenshot at all.
   app.get("/api/admin/tickets/:id/screenshot", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -540,7 +544,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/tickets/:id", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -574,7 +578,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/tickets/:id/messages", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
@@ -598,7 +602,7 @@ async function startServer() {
   });
 
   app.get("/api/features", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.json({
         features: getDefaultFeatureMatrix(),
@@ -618,7 +622,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/featureFlags", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -627,7 +631,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/featureFlags", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -659,7 +663,7 @@ async function startServer() {
   // Pulls the aliases this key may call from the Oso router and upserts them as
   // the "oso" entry of config/allowedModels, leaving every other provider's list alone.
   app.post("/api/admin/allowedModels/syncOso", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -673,7 +677,7 @@ async function startServer() {
       const models = (await fetchOsoModels())
         .filter((m) => !m.capabilities.includes("embedding"))
         .map((m) => ({ id: m.id, label: `${m.id}${m.contextLength ? ` (${Math.round(m.contextLength / 1000)}K context)` : ""}`, enabled: true }));
-      await getFirestore(adminApp).collection("config").doc("allowedModels").set({ oso: models }, { merge: true });
+      await getDatabase(adminApp).collection("config").doc("allowedModels").set({ oso: models }, { merge: true });
       await logAdminAction(adminApp, { actorUid, targetUid: "platform", action: "update_allowed_models", details: { syncedFrom: "oso", count: models.length } });
       res.json({ oso: models });
     } catch (e: any) {
@@ -691,7 +695,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/allowedModels", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -699,7 +703,7 @@ async function startServer() {
     try {
       const actorUid = (req as any).uid || "admin";
       const config = req.body as AllowedModelsConfig;
-      await getFirestore(adminApp).collection("config").doc("allowedModels").set(config);
+      await getDatabase(adminApp).collection("config").doc("allowedModels").set(config);
 
       await logAdminAction(adminApp, {
         actorUid,
@@ -719,7 +723,7 @@ async function startServer() {
   // Fine at this app's scale (small user base) — would need pagination/an
   // index before this scales to thousands of accounts.
   app.get("/api/admin/users", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -754,7 +758,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/users/:uid/detail", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -764,9 +768,9 @@ async function startServer() {
       const [user, billing, jobsSnap, matchesSnap, ticketsSnap] = await Promise.all([
         getAuth(adminApp).getUser(uid),
         getBillingState(adminApp, uid),
-        getFirestore(adminApp).collection("users").doc(uid).collection("jobs").get(),
-        getFirestore(adminApp).collection("users").doc(uid).collection("matches").get(),
-        getFirestore(adminApp).collection("tickets").where("uid", "==", uid).get(),
+        getDatabase(adminApp).collection("users").doc(uid).collection("jobs").get(),
+        getDatabase(adminApp).collection("users").doc(uid).collection("matches").get(),
+        getDatabase(adminApp).collection("tickets").where("uid", "==", uid).get(),
       ]);
 
       res.json({
@@ -795,7 +799,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/users/:uid/usage", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -811,7 +815,7 @@ async function startServer() {
 
   // --- USER DATA OWNERSHIP & PRIVACY ---
   app.get("/api/user/usage", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured or user not authenticated" });
@@ -827,14 +831,14 @@ async function startServer() {
   });
 
   app.get("/api/user/export-data", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured or user not authenticated" });
       return;
     }
     try {
-      const db = getFirestore(adminApp);
+      const db = getDatabase(adminApp);
       const [userAuth, billing, jobsSnap, matchesSnap, ticketsSnap, discoveryProfileSnap, discoveredJobs, spotlight] = await Promise.all([
         getAuth(adminApp).getUser(uid).catch(() => null),
         getBillingState(adminApp, uid),
@@ -876,7 +880,7 @@ async function startServer() {
   });
 
   app.delete("/api/user/account", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     if (!adminApp || !uid) {
       res.status(500).json({ error: "Firebase Admin is not configured or user not authenticated" });
@@ -892,7 +896,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/audit-logs", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -907,7 +911,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/users/:uid/status", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -932,7 +936,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/users/:uid/send-reset", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -969,7 +973,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/users/:uid", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -985,7 +989,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/users/:uid/comp", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1010,7 +1014,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/users/:uid/plan", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1040,7 +1044,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/users/:uid/reset-quota", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1083,7 +1087,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/users/:uid/admin-role", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1138,7 +1142,7 @@ async function startServer() {
   // first — written by server/aiCallLog.ts. Filtering happens client-side
   // over this window so no composite Firestore index is needed.
   app.get("/api/admin/ai-calls", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1166,7 +1170,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/prompts", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     const promptAiConfigs = await getPromptAiConfigMap(adminApp);
     const configs = getAllPromptConfigs();
     const withAiConfig: Record<string, any> = {};
@@ -1202,7 +1206,7 @@ async function startServer() {
   // deployed environment for production enforcement to mean anything.
   app.post("/api/admin/prompts/:id/aiConfig", async (req, res) => {
     const { id } = req.params;
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1237,7 +1241,7 @@ async function startServer() {
     try {
       const { id } = req.params;
       if (!(id in DEFAULT_PROMPTS)) return res.status(404).json({ error: `Unknown prompt "${id}"` });
-      const adminApp = getAdminApp();
+      const adminApp = getPlatformApp();
 
       const providerParam = req.query.provider as string | undefined;
       const modelParam = req.query.model as string | undefined;
@@ -1307,7 +1311,7 @@ async function startServer() {
       };
       if (!(id in DEFAULT_PROMPTS)) return res.status(404).json({ error: `Unknown prompt "${id}"` });
 
-      const adminApp = getAdminApp();
+      const adminApp = getPlatformApp();
       const resolved = provider && model ? { provider, model } : await resolveModelForPrompt(adminApp, id);
       const knowledgeFiles = await resolveKnowledgeSelection(adminApp, id, knowledge === undefined ? undefined : knowledge);
       const preamble = buildKnowledgePreambleFromFiles(id, knowledgeFiles);
@@ -1339,7 +1343,7 @@ async function startServer() {
   });
 
   app.get("/api/admin/aiDefaults", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1348,7 +1352,7 @@ async function startServer() {
   });
 
   app.post("/api/admin/aiDefaults", async (req, res) => {
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1383,7 +1387,7 @@ async function startServer() {
     try {
       const { models } = req.body as { models: { provider: AIProviderId; model: string }[] };
       if (!Array.isArray(models)) return res.status(400).json({ error: "models must be an array" });
-      const adminApp = getAdminApp();
+      const adminApp = getPlatformApp();
       const overrides = await getContextWindowOverrides(adminApp);
 
       const results = await Promise.all(
@@ -1409,7 +1413,7 @@ async function startServer() {
 
   app.post("/api/admin/context-windows/:provider/:model", async (req, res) => {
     const { provider, model } = req.params;
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1432,7 +1436,7 @@ async function startServer() {
 
   app.delete("/api/admin/context-windows/:provider/:model", async (req, res) => {
     const { provider, model } = req.params;
-    const adminApp = getAdminApp();
+    const adminApp = getPlatformApp();
     if (!adminApp) {
       res.status(500).json({ error: "Firebase Admin is not configured" });
       return;
@@ -1493,7 +1497,7 @@ async function startServer() {
     }
     try {
       const created = createCustomSkill(filename, label, content);
-      const adminApp = getAdminApp();
+      const adminApp = getPlatformApp();
       if (adminApp) {
         await logAdminAction(adminApp, {
           actorUid: (req as any).uid || "admin",
@@ -1512,7 +1516,7 @@ async function startServer() {
     const { filename } = req.params;
     try {
       deleteCustomSkill(filename);
-      const adminApp = getAdminApp();
+      const adminApp = getPlatformApp();
       if (adminApp) {
         await logAdminAction(adminApp, {
           actorUid: (req as any).uid || "admin",
@@ -1533,7 +1537,7 @@ async function startServer() {
       const { client, resolved } = await getLegacyClientForPrompt("parse", req);
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: await parseContents(getAdminApp(), { jdText, company, roleTitle }),
+        contents: await parseContents(getPlatformApp(), { jdText, company, roleTitle }),
         config: {
           responseMimeType: "application/json",
           responseSchema: LEGACY_RESPONSE_SCHEMAS.parse as any,
@@ -1554,7 +1558,7 @@ async function startServer() {
       const { parse, careerJourney, jdSegments } = req.body;
       const client = await getAIClientForRequest(req, "keywords");
       const { data, usage, model, actualModel, requestId } = await client.generateStructured({
-        ...(await keywordsPrompt(getAdminApp(), { parse, careerJourney, jdSegments })),
+        ...(await keywordsPrompt(getPlatformApp(), { parse, careerJourney, jdSegments })),
         schema: KeywordsResponseSchema,
       });
       await trackUsage(req, "keywords", model, usage, client.provider, { actualModel, requestId });
@@ -1578,7 +1582,7 @@ async function startServer() {
 
       const projectedCareerJourney = await projectCareerJourneyForPrompt("clarifyQuestions", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("clarifyQuestions", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "clarifyQuestions");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "clarifyQuestions");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -1611,7 +1615,7 @@ ${JSON.stringify(applyCareerJourneyExtractor("clarifyQuestions", projectedCareer
       const projectedCareerJourney = await projectCareerJourneyForPrompt("fitScore", careerJourney);
       const client = await getAIClientForRequest(req, "fitScore");
       const { data, usage, model, actualModel, requestId } = await client.generateStructured({
-        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "fitScore")}${getActivePrompt('fitScore')}`,
+        systemPrompt: `${await buildKnowledgePreamble(getPlatformApp(), "fitScore")}${getActivePrompt('fitScore')}`,
         prompt: `Job Parse:
 ${JSON.stringify(parse)}
 JD Segments (cite ids from here in jdRefs when a gap or lead-with point traces to specific JD text):
@@ -1638,7 +1642,7 @@ Generate an objective fit analysis. If the candidate has provided convincing exp
       const { parse, careerJourney, gateClarifications, jdSegments } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("auditGates", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("auditGates", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "auditGates");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "auditGates");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -1790,7 +1794,7 @@ ${JSON.stringify(gateClarifications || {}, null, 2)}`,
       const { jdText, careerJourney, archiveLearnings } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("liteScan", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("liteScan", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "liteScan");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "liteScan");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -1828,7 +1832,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
       }
       const client = await getAIClientForRequest(req, "discoverySearchProfile");
       const { data, usage, model, actualModel, requestId } = await client.generateStructured({
-        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "discoverySearchProfile")}${getActivePrompt("discoverySearchProfile")}`,
+        systemPrompt: `${await buildKnowledgePreamble(getPlatformApp(), "discoverySearchProfile")}${getActivePrompt("discoverySearchProfile")}`,
         prompt: `Candidate CV:\n${cvText.slice(0, 20000)}`,
         schema: DiscoverySearchProfileAiSchema,
       });
@@ -1963,7 +1967,7 @@ ${archiveLearnings ? `\nLearnings from past application outcomes (weigh these �
       // needs the real, full careerJourney to merge the returned delta into.
       const projectedCareerJourney = await projectCareerJourneyForPrompt("patchJourney", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("patchJourney", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "patchJourney");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "patchJourney");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2014,7 +2018,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       const { client, resolved } = await getLegacyClientForPrompt("resumeStrategy", req);
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: await resumeStrategyContents(getAdminApp(), { parse, careerJourney, contextEntries, keywords, options, remediation }),
+        contents: await resumeStrategyContents(getPlatformApp(), { parse, careerJourney, contextEntries, keywords, options, remediation }),
         config: {
           responseMimeType: "application/json",
           responseSchema: LEGACY_RESPONSE_SCHEMAS.resumeStrategy as any,
@@ -2047,7 +2051,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       const { client, resolved } = await getLegacyClientForPrompt("generateResume", req);
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: await generateResumeContents(getAdminApp(), { parse, careerJourney, contextEntries, keywords, options, remediation, strategy }),
+        contents: await generateResumeContents(getPlatformApp(), { parse, careerJourney, contextEntries, keywords, options, remediation, strategy }),
         config: {
           responseMimeType: "application/json",
           thinkingConfig: { thinkingBudget: 1024 },
@@ -2087,7 +2091,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       const { client, resolved } = await getLegacyClientForPrompt("regenerateResumeSection", req);
       const response = await client.models.generateContent({
         model: resolved.model,
-        contents: await regenerateResumeSectionContents(getAdminApp(), {
+        contents: await regenerateResumeSectionContents(getPlatformApp(), {
           target,
           instruction: typeof instruction === "string" && instruction.trim() ? instruction.trim().slice(0, 500) : "(none — improve it for this JD within the constraints)",
           resume, strategy, parse, careerJourney, contextEntries, keywords, options,
@@ -2123,7 +2127,7 @@ ${JSON.stringify(contextEntries, null, 2)}`,
       }));
       const projectedCareerJourney = await projectCareerJourneyForPrompt("scoreResume", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("scoreResume", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "scoreResume");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "scoreResume");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2167,7 +2171,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       const { parse, careerJourney, fitAnalysis, resumeStrategy } = req.body;
       const projectedCareerJourney = await projectCareerJourneyForPrompt("coverLetter", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("coverLetter", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "coverLetter");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "coverLetter");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2212,7 +2216,7 @@ Return the final cover letter body text only (no subject line, no "Dear Hiring M
       const latest = transcript[transcript.length - 1]?.content || "";
       const projectedCareerJourney = await projectCareerJourneyForPrompt("applicationAssistant", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("applicationAssistant", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "applicationAssistant");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "applicationAssistant");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2248,7 +2252,7 @@ Candidate's latest message: "${latest}"`,
       const { fields, parse, careerJourney, resume } = req.body as { fields: { id: string; label: string; fieldType: string; options?: string[] }[]; parse: any; careerJourney: any; resume: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("generateFormAnswers", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("generateFormAnswers", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "generateFormAnswers");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "generateFormAnswers");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2287,7 +2291,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       const { round, parse, fitAnalysis, careerJourney } = req.body as { round: any; parse: any; fitAnalysis: any; careerJourney: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("interviewPrep", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("interviewPrep", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrep");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "interviewPrep");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2329,7 +2333,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       const latest = transcript[transcript.length - 1]?.content || "";
       const projectedCareerJourney = await projectCareerJourneyForPrompt("interviewPrepChat", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("interviewPrepChat", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "interviewPrepChat");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "interviewPrepChat");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2360,7 +2364,7 @@ Candidate's latest message: "${latest}"`,
       const { offer, parse, careerJourney } = req.body as { offer: any; parse: any; careerJourney: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("offerGuidance", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("offerGuidance", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "offerGuidance");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "offerGuidance");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2391,7 +2395,7 @@ ${JSON.stringify(projectedCareerJourney, null, 2)}`,
       const { offers, careerJourney } = req.body as { offers: { jobId: string; companyName: string; roleTitle: string; offer: any }[]; careerJourney: any };
       const projectedCareerJourney = await projectCareerJourneyForPrompt("compareOffers", careerJourney);
       const { client, resolved } = await getLegacyClientForPrompt("compareOffers", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "compareOffers");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "compareOffers");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2425,7 +2429,7 @@ ${JSON.stringify(applyCareerJourneyExtractor("compareOffers", projectedCareerJou
       const { resumeText } = req.body as { resumeText: string };
       const nextIds = computeNextIds({});
       const { client, resolved } = await getLegacyClientForPrompt("buildJourneyFromResume", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "buildJourneyFromResume");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "buildJourneyFromResume");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2460,7 +2464,7 @@ ${resumeText}`,
         .join("\n");
 
       const { client, resolved } = await getLegacyClientForPrompt("buildJourneyChat", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "buildJourneyChat");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "buildJourneyChat");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2509,7 +2513,7 @@ ${transcriptText}`,
 
       const client = await getAIClientForRequest(req, "journeySectionAssist");
       const { data, usage, model, actualModel, requestId } = await client.generateStructured({
-        systemPrompt: `${await buildKnowledgePreamble(getAdminApp(), "journeySectionAssist")}${getActivePromptFilled("journeySectionAssist", { section: context.section })}
+        systemPrompt: `${await buildKnowledgePreamble(getPlatformApp(), "journeySectionAssist")}${getActivePromptFilled("journeySectionAssist", { section: context.section })}
 
 ${sectionGuidance(section)}`,
         prompt: `Career Journey context for this section:
@@ -2539,7 +2543,7 @@ ${transcriptText}`,
         answer: string;
       };
       const { client, resolved } = await getLegacyClientForPrompt("refineFromInterviewAnswer", req);
-      const preamble = await buildKnowledgePreamble(getAdminApp(), "refineFromInterviewAnswer");
+      const preamble = await buildKnowledgePreamble(getPlatformApp(), "refineFromInterviewAnswer");
       const response = await client.models.generateContent({
         model: resolved.model,
         contents: `${preamble}
@@ -2664,7 +2668,7 @@ User's answer: ${answer}`,
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    startDiscoveryScheduler(getAdminApp);
+    startDiscoveryScheduler(getPlatformApp);
   });
 }
 

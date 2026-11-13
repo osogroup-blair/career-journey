@@ -1,7 +1,7 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import type { App } from "./platform/app";
+import { getDatabase, FieldValue } from "./platform/database";
 import type { Request, Response, NextFunction } from "express";
-import { getAdminApp } from "./firebaseAdmin";
+import { getPlatformApp } from "./platform";
 import { getFeatureFlags, isFeatureEnabled, isFeatureKilled, isDiscoveryLicensed, NON_AI_FEATURES } from "./featureFlags";
 import type { BillingState, PlanId } from "../src/types/billing";
 import type { FeatureKey } from "../src/types/featureFlags";
@@ -20,7 +20,7 @@ function defaultBillingState(): BillingState {
 }
 
 function billingRef(app: App, uid: string) {
-  return getFirestore(app).collection("users").doc(uid).collection("meta").doc("billing");
+  return getDatabase(app).collection("users").doc(uid).collection("meta").doc("billing");
 }
 
 /**
@@ -51,7 +51,7 @@ export function isPaidPlan(plan: PlanId): boolean {
  */
 export function requireFeature(feature: FeatureKey) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const app = getAdminApp();
+    const app = getPlatformApp();
     const uid = (req as any).uid as string | undefined;
     const isAdmin = (req as any).isAdmin === true;
 
@@ -138,7 +138,7 @@ type QuotaResult = { allowed: true } | { allowed: false; reason: string };
  * Comped accounts always pass without consuming anything.
  */
 export async function checkAndConsumeAiQuota(app: App, uid: string): Promise<QuotaResult> {
-  const [flags, db] = [await getFeatureFlags(app), getFirestore(app)];
+  const [flags, db] = [await getFeatureFlags(app), getDatabase(app)];
   if (flags.killSwitches.aiPipeline) {
     return { allowed: false, reason: "AI features are temporarily disabled — try again shortly." };
   }
@@ -248,7 +248,7 @@ export async function recordAiUsage(
   uid: string,
   log: Omit<AiUsageLog, "id" | "uid" | "timestamp"> & { timestamp?: string }
 ): Promise<void> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const now = new Date().toISOString();
   const totalTokens = Math.max(0, log.totalTokens || 0);
 
@@ -302,7 +302,7 @@ export async function getUserAiUsage(
   uid: string,
   limitCount = 50
 ): Promise<UserAiUsageSummary> {
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   const [billing, logsSnap] = await Promise.all([
     getBillingState(app, uid),
     db.collection("users").doc(uid).collection("aiUsageLogs").get(),

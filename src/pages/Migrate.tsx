@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Card, CardHeader, CardTitle, CardContent } from '../components/ui';
 import { dataStore } from '../data';
-import { isFirebaseConfigured } from '../lib/firebase';
+import { isServerConfigured } from '../lib/auth';
 import { JobAnalysis, JobMatch, MatchPreferences } from '../types';
 import { CloudUpload, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 
@@ -19,7 +19,7 @@ interface MigrationResult {
 
 /**
  * One-time helper for moving data written by LocalStorageDataStore into whatever
- * DataStore is currently active (FirestoreDataStore, once signed in). Safe to run
+ * DataStore is currently active (HttpDataStore, once signed in). Safe to run
  * more than once — every write here is an overwrite-by-id, not an append.
  */
 export default function Migrate() {
@@ -85,20 +85,18 @@ export default function Migrate() {
   return (
     <div className="max-w-2xl mx-auto py-10 px-4 space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-slate-900">Migrate to Firestore</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">Import browser data</h1>
         <p className="text-sm text-slate-500 mt-1">
           Copies everything currently stored in this browser's local storage into your active data store. Safe to run more than once.
         </p>
       </div>
 
-      {!isFirebaseConfigured ? (
+      {!isServerConfigured ? (
         <Card>
           <CardContent className="pt-6 flex items-start gap-3 text-sm text-slate-600">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <span>
-              Firebase isn't configured yet, so this app is already running entirely on local storage — there's nothing to migrate to.
-              Set the <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">VITE_FIREBASE_*</code> environment variables once your
-              Firebase project is ready, then come back here after signing in.
+              Sign into your self-hosted account to import browser data.
             </span>
           </CardContent>
         </Card>

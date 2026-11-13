@@ -1,5 +1,5 @@
-import type { App } from "firebase-admin/app";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import type { App } from "./platform/app";
+import { getDatabase, Timestamp } from "./platform/database";
 import type { LegacyGenAI } from "./ai/legacyGenAIShim";
 import type { StructuredAIClient, AIProviderId } from "./ai/types";
 import type { ResolvedModel } from "./ai/resolveModelForPrompt";
@@ -80,14 +80,14 @@ export function recordAiCall(entry: AiCallLog): void {
   const doc: Record<string, unknown> = Object.fromEntries(Object.entries(entry).filter(([k, v]) => v !== undefined && k !== "id"));
   doc.expireAt = Timestamp.fromMillis(Date.now() + RETENTION_DAYS * 24 * 60 * 60 * 1000);
   // Fire-and-forget: logging must never slow down or fail the user's request.
-  getFirestore(app)
+  getDatabase(app)
     .collection(COLLECTION)
     .add(doc)
     .catch((err) => console.error("Failed to write AI call log:", err));
 }
 
 export async function listAiCalls(app: App, limit: number): Promise<AiCallLog[]> {
-  const snap = await getFirestore(app).collection(COLLECTION).orderBy("timestamp", "desc").limit(limit).get();
+  const snap = await getDatabase(app).collection(COLLECTION).orderBy("timestamp", "desc").limit(limit).get();
   return snap.docs.map((d) => {
     const { expireAt: _expireAt, ...data } = d.data();
     return { id: d.id, ...(data as Omit<AiCallLog, "id">) };

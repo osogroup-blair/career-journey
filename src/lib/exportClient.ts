@@ -1,7 +1,7 @@
 import { authHeaders } from './aiClient';
 
 /**
- * POSTs to an /api/export/* endpoint (which sits behind requireFirebaseAuth, so
+ * POSTs to an /api/export/* endpoint (which sits behind requireUser, so
  * the bearer token is required) and saves the response as a file download.
  * Throws an Error with the server's message on failure so callers can toast it.
  */

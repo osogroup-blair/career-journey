@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Firestore, Transaction } from "firebase-admin/firestore";
+import type { DocumentDatabase, Transaction } from "../platform/database";
 import { DomainError } from "./contracts";
 export type Row = Record<string, any>;
 export interface Unit {
@@ -32,8 +32,8 @@ export const hash = (value: unknown) =>
   createHash("sha256")
     .update(JSON.stringify(sorted(value)))
     .digest("hex");
-export class FirestoreRepository implements Repository {
-  constructor(private db: Firestore) {}
+export class SqliteRepository implements Repository {
+  constructor(private db: DocumentDatabase) {}
   private ref(uid: string, collection: string, key: string) {
     return this.db.collection("users").doc(uid).collection(collection).doc(key);
   }
@@ -59,7 +59,7 @@ export class FirestoreRepository implements Repository {
   }
   async transaction<T>(uid: string, run: (tx: Unit) => Promise<T>): Promise<T> {
     return this.db.runTransaction(async (t: Transaction) => {
-      // Buffer writes so reads performed later by a command still precede all Firestore writes.
+      // Buffer writes so reads performed later by a command still precede all transactional document writes.
       const writes: (() => void)[] = [];
       const result = await run({
         get: async (c, k) => {

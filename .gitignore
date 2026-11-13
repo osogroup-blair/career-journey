@@ -10,3 +10,8 @@ coverage/
 server/promptConfig/
 server/knowledgeConfig/
 backlog/
+/data/
+/backups/
+/.deploy/
+/migration-export/
+/imported-data/

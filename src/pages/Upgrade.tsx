@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store';
-import { auth } from '../lib/firebase';
+import { auth } from '../lib/auth';
 import { startCheckout, openBillingPortal } from '../lib/billingClient';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, useToast } from '../components/ui';
 import { PlanId } from '../types/billing';

@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp } from '../platform/app';
+import { getDatabase } from '../platform/database';
 import type { AllowedModelsConfig } from '../../src/types/aiModels';
 
 dotenv.config();
@@ -48,13 +48,8 @@ const SEED: AllowedModelsConfig = {
 
 /** Idempotent — safe to re-run; overwrites the whole doc with SEED above. */
 async function main() {
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    console.error('FIREBASE_SERVICE_ACCOUNT_JSON is not set in .env.');
-    process.exit(1);
-  }
-  const credentials = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  const app = initializeApp({ credential: cert(credentials) });
-  await getFirestore(app).collection('config').doc('allowedModels').set(SEED);
+  const app = initializeApp();
+  await getDatabase(app).collection('config').doc('allowedModels').set(SEED);
   console.log('Seeded config/allowedModels:', JSON.stringify(SEED, null, 2));
 }
 
