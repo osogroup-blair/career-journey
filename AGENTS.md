@@ -11,6 +11,7 @@ Career Journey is React 19 + Express on Node 24, with local account authenticati
 - Agents can read canonical Career Journey but cannot write it, approve patches or save canonical defaults. Human session credentials and agent credentials are separate.
 - Platform AI uses Oso with Ollama fallback; only four legacy UI endpoints are BYOM-aware. Read ARCHITECTURE's AI provider abstraction before changing an AI endpoint.
 - GitHub is source/tag storage only. **No GitHub Actions.** Releases and VM deploys use scripts/release.sh and scripts/deploy.sh. Never put .env, data/, backups/, private keys or migration-export/ in Git or images.
+- Deployment/release/rollback scripts outside this repository must have a `career-journey-` prefix (for example `career-journey-deploy.sh`) to avoid collisions with other applications. Keep the operational scripts inside this checkout; their relative paths depend on the repository layout.
 
 ## Configuration
 

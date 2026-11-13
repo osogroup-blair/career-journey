@@ -4,6 +4,8 @@ Career Journey now runs on one VM with Node 24, SQLite and private local files. 
 
 GitHub stores source and release tags. All tests and builds run on your workstation or VM through explicit scripts. There are no GitHub Actions workflows and no registry publishing requirement.
 
+Deployment scripts live inside this repository under `scripts/`. Any launcher installed outside the codebase must use an application-specific name such as `career-journey-deploy.sh`, `career-journey-release.sh`, or `career-journey-rollback.sh`. An external launcher should invoke the script in the checkout by its absolute path; do not move the internal scripts, which locate the repository relative to themselves.
+
 ## First VM deployment
 
 Install Git and Docker Engine with the Compose plugin. Give the deployment account permission to run Docker. Clone the repository onto the VM, using a GitHub deploy key if the repository is private:
