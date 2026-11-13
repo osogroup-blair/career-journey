@@ -204,3 +204,9 @@ SMTP enables verification/reset email. Self-service registration is off by defau
 ## Validation of this migration
 
 The implementation passed 498 automated tests, TypeScript checking, production builds, Compose configuration/shell checks, local SQLite/auth/MCP/export integration verification and a production Docker startup/sign-in/write/restart test. The runtime image was checked to contain neither Firebase client nor Admin SDK. Deploy selection, backups and failed-health rollback were tested against disposable Git repositories and a Docker command test double. The image itself was built and exercised with real Docker. The existing Cloudflare Tunnel route and a live Firebase cutover still require VM configuration and a maintenance window; neither was changed by these checks.
+
+## Failed first deployment: invalid bootstrap password
+
+If startup logs show `Use a password of 12–256 characters` from `bootstrapAdmin`, the VM has environment-based administrator credentials set with an invalid password length. For the explicit seed workflow, edit `.env` and set both `ADMIN_EMAIL=""` and `ADMIN_PASSWORD=""`, then rerun deployment. Do not change the password minimum or delete the data volume. The deployment script now checks provisioning settings in the built image before stopping the current app or opening its database.
+
+`.deploy/current` is created only after a healthy deployment. If it is missing, do not run commands that read it yet; fix configuration and complete `./scripts/deploy.sh codex/selfhosted-vm` first. With no recorded successful deployment, the script retains failed-container logs and reports that no prior image could be restored. Existing data and backups are preserved.

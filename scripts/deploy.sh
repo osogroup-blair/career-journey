@@ -31,10 +31,18 @@ stopped=false
 rollback() {
   result=$?
   trap - ERR
-  echo 'Deployment failed; restoring the previous application image.' >&2
-  git checkout --detach "$previous_checkout" >/dev/null
+  echo 'Deployment failed. Recent application logs:' >&2
+  docker compose logs --no-color --tail=80 app >&2 || true
   if [[ -n "$previous" && "$stopped" == true ]]; then
+    echo 'Restoring the previous successfully deployed application image.' >&2
+    git checkout --detach "$previous" >/dev/null
     APP_VERSION="${previous:0:12}" docker compose up -d --no-build --wait --wait-timeout 120 || true
+  elif [[ -z "$previous" ]]; then
+    echo 'No previous successful deployment is recorded; no application image was restored.' >&2
+    echo 'The failed container is retained for diagnosis. Correct the configuration and rerun this script.' >&2
+  else
+    git checkout --detach "$previous_checkout" >/dev/null
+    echo 'Existing application was not replaced.' >&2
   fi
   echo 'Data backups were preserved. Database restoration is intentionally manual.' >&2
   exit "$result"
@@ -43,6 +51,8 @@ trap rollback ERR
 git checkout --detach "$target"
 export APP_VERSION=$new_version
 docker compose build --pull app
+# Check bootstrap settings before stopping the current application or touching its database.
+docker compose run --rm --no-deps -T --entrypoint node app dist/maintenance.mjs check-config
 # Stop writers before the full data/attachment/prompt archive. First deployment has no container/data yet.
 if [[ -n "$(docker compose ps -aq app)" ]]; then
   docker compose stop app

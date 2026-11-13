@@ -110,7 +110,7 @@ it("restores the old checkout/image when replacement health fails", async () => 
   expect(
     (await readFile(path.join(work, ".deploy/current"), "utf8")).trim(),
   ).toBe(old);
-  expect(result.stderr).toContain("restoring");
+  expect(result.stderr).toContain("Restoring");
 });
 it("rejects unsafe refs before any checkout", async () => {
   const result = spawnSync(
@@ -120,4 +120,17 @@ it("rejects unsafe refs before any checkout", async () => {
   );
   expect(result.status).toBe(2);
   expect(git("rev-parse", "HEAD")).toBe(old);
+});
+
+it("does not claim a rollback on a failed first deployment", async () => {
+  await rm(path.join(work, ".deploy/current"));
+  const result = spawnSync("bash", ["scripts/deploy.sh", "main"], {
+    cwd: work,
+    env: { ...env, FAIL_VERSION: target.slice(0, 12) },
+    encoding: "utf8",
+  });
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("No previous successful deployment");
+  expect(result.stderr).not.toContain("Restoring the previous");
+  expect(git("rev-parse", "HEAD")).toBe(target);
 });

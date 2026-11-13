@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { validateBootstrapConfig } from "./config";
 import { applySeed } from "./seed";
 import { readFileSync } from "node:fs";
 import { initializeApp } from "./app";
@@ -7,9 +8,11 @@ import { getDatabase } from "./database";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
 const app = initializeApp(),
-  db = getDatabase(app),
   command = process.argv[2];
-if (command === "seed") {
+if (command === "check-config") {
+  validateBootstrapConfig(process.env);
+  console.log("Provisioning configuration valid");
+} else if (command === "seed") {
   const input = JSON.parse(
     process.argv[3]
       ? await readFile(process.argv[3], "utf8")
@@ -41,6 +44,7 @@ if (command === "seed") {
     console.log("Password updated; all prior sessions revoked");
   }
 } else if (command === "backup") {
+  const db = getDatabase(app);
   const target = path.resolve(
     process.argv[3] ||
       path.join(
