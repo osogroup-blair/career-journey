@@ -128,7 +128,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Open `http://localhost:47293`, sign in, and remove `ADMIN_PASSWORD` from runtime configuration after the initial account is created. The database and private files persist under `DATA_DIR` (default `./data`). Configure Oso or a reachable Ollama server to use AI; Stripe and SMTP are optional.
+Alternatively, use the [explicit private administrator seed workflow](SELF_HOSTING.md#explicit-administrator-seed-local-docker-and-vm) for local Docker and VM installs. Open `http://localhost:47293`, sign in, and remove `ADMIN_PASSWORD` from runtime configuration after the initial account is created. The database and private files persist under `DATA_DIR` (default `./data`). Configure Oso or a reachable Ollama server to use AI; Stripe and SMTP are optional.
 
 ## GitHub releases and VM deployment
 

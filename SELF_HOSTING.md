@@ -20,8 +20,7 @@ chmod 600 .env
 Edit `.env` on the VM:
 
 - `APP_URL=https://career-journey.oso.group`
-- `ADMIN_EMAIL=your-address@example.com`
-- `ADMIN_PASSWORD=` a unique password of at least 12 characters, used only to create the first account in an empty database.
+- For the explicit seed workflow below, leave `ADMIN_EMAIL` and `ADMIN_PASSWORD` empty. Alternatively, set both for environment-based first-boot bootstrap, using a unique password of at least 12 characters; choose one provisioning method.
 - Configure Oso or a reachable Ollama server if you want AI. Stripe and SMTP remain optional.
 - Reuse the VM’s existing Cloudflare Tunnel for `career-journey.oso.group`, following the ingress section below. This app does not launch a tunnel or another reverse proxy, and does not publish ports 80/443.
 
@@ -35,9 +34,51 @@ Deploy a published tag or branch:
 
 The script refuses a dirty working tree, locks concurrent deployments, fetches the chosen revision, builds an image tagged with its commit, stops writers, archives existing data/files/prompts, starts the new image and waits for health. It records the deployed revision under `.deploy/`. A failed replacement attempts to restart the prior recorded application image; backups are never automatically restored over newer data.
 
-The script runs **on the VM**. It does not SSH to an assumed host, modify a GitHub repository, or create automation. On a fresh VM the first boot creates the administrator. After logging in, remove `ADMIN_PASSWORD` from `.env` and redeploy. If importing existing accounts, import before first boot; bootstrap never replaces imported accounts/passwords.
+The script runs **on the VM**. It does not SSH to an assumed host, modify a GitHub repository, or create automation. On a fresh VM, apply the private administrator seed after deployment using the next section. If you chose environment-based bootstrap instead, first boot creates the administrator; after login remove `ADMIN_PASSWORD` from `.env` and redeploy. If importing existing accounts, import before first boot; bootstrap never replaces imported accounts/passwords.
 
 For localhost-only testing over plain HTTP, set `APP_URL=http://localhost:47293` and `ALLOW_HTTP_LOCAL=true`. Production HTTPS uses Secure, HttpOnly, SameSite=Strict session cookies. The app port binds VM loopback by default; do not expose plain HTTP sessions on the internet.
+
+## Explicit administrator seed (local Docker and VM)
+
+The tracked seed template is `seeds/career-journey.seed.example.json`. It contains no working password and is rejected if applied unchanged. Generate a private seed with a unique random password for **each installation**. The seed provisions only the initial administrator, not Career Journey content, jobs, billing overrides or agent connections.
+
+After building/starting the app, run these commands **inside the repository** on either your local machine or the VM:
+
+```bash
+umask 077
+mkdir -p .seeds
+chmod 700 .seeds
+# Replace this email with the intended administrator's real address on the VM.
+# Use career-journey.local.seed.json locally and career-journey.vm.seed.json on the VM.
+docker compose run --rm --no-deps -T --entrypoint node app \
+  dist/seed-init.mjs --email your-address@example.com --name Administrator \
+  > .seeds/career-journey.vm.seed.json
+chmod 600 .seeds/career-journey.vm.seed.json
+docker compose exec -T app node dist/maintenance.mjs seed \
+  < .seeds/career-journey.vm.seed.json
+```
+
+Use `APP_VERSION=local` with Compose if you started the local image that way. For a script-deployed VM, use the recorded deployed image version so the one-off container uses the same image:
+
+```bash
+export APP_VERSION="$(cut -c1-12 .deploy/current)"
+# Then run the generation/application commands above.
+```
+
+The private seed JSON contains the login email and password. `.seeds/` is gitignored and excluded from Docker image builds. Keep the file private; never commit, email or bake it into an image. Do not overwrite an existing seed file on reruns. Read the original file for the initial login, then change the password in Profile and remove the obsolete private seed when it is no longer needed. Generate a different seed for the VM rather than copying local credentials there.
+
+Applying the same seed again preserves the existing administrator's password, permissions and data. It does not reset passwords. If another account already exists, or the matching account is not already an administrator, seeding refuses to add/promote an administrator; use explicit account maintenance instead. It never overwrites imported Firebase accounts. Avoid combining this workflow with ADMIN_EMAIL/ADMIN_PASSWORD first-boot bootstrap: choose one provisioning method; for explicit seeds, leave those bootstrap variables empty.
+
+For development without Docker:
+
+```bash
+umask 077
+mkdir -p .seeds
+npm run --silent seed:init -- --email your-address@example.com > .seeds/career-journey.local.seed.json
+npm run seed:apply -- .seeds/career-journey.local.seed.json
+```
+
+Always apply to the intended DATA_DIR. Docker commands above run inside the app container and target its persistent `/app/data` volume. No restart is required after applying the seed. Verify sign-in and the administrator menu before opening the Cloudflare route to users.
 
 ## Existing Cloudflare Tunnel ingress
 

@@ -6,6 +6,7 @@ Career Journey is React 19 + Express on Node 24, with local account authenticati
 
 - `npm run dev` starts the single Express/Vite process on port 47293 (or PORT).
 - Accounts/data live under DATA_DIR (default ./data). Set ADMIN_EMAIL and a strong ADMIN_PASSWORD for first boot of an empty database. There is no default public demo password or unauthenticated development bypass.
+- Explicit administrator provisioning uses `seed:init` and `seed:apply` (or the compiled maintenance seed command in Docker). Private `.seeds/` files must stay ignored and outside images. Seeding only initializes an empty account database; reruns never reset passwords, elevate existing users or alter Career Journey/job data. See SELF_HOSTING.md for local/VM commands.
 - `server/platform.ts`: trusted user/admin middleware. `server/platform/{database,auth,storage,routes}.ts`: SQLite document repository, password/session storage, private files and owner-scoped account/data APIs. `src/data/HttpDataStore.ts` is the browser persistence implementation.
 - Firebase is not used at runtime. `migration/export-firebase.mjs` is an optional read-only legacy exporter using a development-only SDK. Do not restore Firebase SDK imports or rules-dependent security to application code.
 - Agents can read canonical Career Journey but cannot write it, approve patches or save canonical defaults. Human session credentials and agent credentials are separate.

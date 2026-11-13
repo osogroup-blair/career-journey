@@ -15,3 +15,5 @@ backlog/
 /.deploy/
 /migration-export/
 /imported-data/
+
+/.seeds/

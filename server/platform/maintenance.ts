@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { applySeed } from "./seed";
+import { readFileSync } from "node:fs";
 import { initializeApp } from "./app";
 import { getAuth } from "./auth";
 import { getDatabase } from "./database";
@@ -7,7 +9,19 @@ import path from "node:path";
 const app = initializeApp(),
   db = getDatabase(app),
   command = process.argv[2];
-if (command === "create-user" || command === "set-password") {
+if (command === "seed") {
+  const input = JSON.parse(
+    process.argv[3]
+      ? await readFile(process.argv[3], "utf8")
+      : readFileSync(0, "utf8"),
+  );
+  const result = await applySeed(app, input);
+  console.log(
+    result.created
+      ? `Created initial administrator ${result.email}. No Career Journey or job records were changed.`
+      : `Administrator ${result.email} already exists; password, permissions and data were preserved.`,
+  );
+} else if (command === "create-user" || command === "set-password") {
   const email = process.env.ADMIN_EMAIL,
     password = process.env.ADMIN_PASSWORD;
   if (!email || !password)
@@ -42,6 +56,6 @@ if (command === "create-user" || command === "set-password") {
   );
 } else {
   throw new Error(
-    "Usage: maintenance create-user | set-password | backup [directory]",
+    "Usage: maintenance seed [file] | create-user | set-password | backup [directory]",
   );
 }

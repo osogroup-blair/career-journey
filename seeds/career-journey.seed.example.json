@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "administrator": {
+    "email": "admin@example.com",
+    "displayName": "Administrator",
+    "password": "GENERATE_WITH_SEED_INIT"
+  }
+}
